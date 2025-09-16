@@ -38,7 +38,7 @@ class ChaosExperiment:
         self.n_neurons = n_neurons
         self.dt = dt
         self.pre_perturbation_time = 50.0
-        self.post_perturbation_time = 500.0
+        self.post_perturbation_time = 300.0
         self.total_duration = self.pre_perturbation_time + self.post_perturbation_time
         self.perturbation_time = self.pre_perturbation_time
         self.n_perturbation_trials = 20

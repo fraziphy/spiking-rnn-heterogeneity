@@ -84,9 +84,9 @@ def run_mpi_chaos_experiment_with_input_rates(session_id: int = 1, n_v_th: int =
 
     # Adjust grid sizes
     if len(v_th_std_values) != n_v_th:
-        v_th_std_values = np.linspace(0.05, 0.5, n_v_th)
+        v_th_std_values = np.linspace(0.01, 1.0, n_v_th)
     if len(g_std_values) != n_g:
-        g_std_values = np.linspace(0.05, 0.5, n_g)
+        g_std_values = np.linspace(0.01, 1.0, n_g)
 
     # Generate all parameter combinations including input rates
     param_combinations = []
