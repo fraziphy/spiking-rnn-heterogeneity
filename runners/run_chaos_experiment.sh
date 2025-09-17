@@ -1,5 +1,5 @@
 #!/bin/bash
-# run_chaos_experiment.sh - Updated with input rate sweep support
+# run_chaos_experiment.sh - Enhanced with new analysis metrics
 
 # Default parameters
 N_PROCESSES=50
@@ -8,16 +8,14 @@ N_V_TH=10
 N_G=10
 N_NEURONS=1000
 OUTPUT_DIR="results"
-INPUT_RATE_MIN=100.0
-INPUT_RATE_MAX=200.0
+INPUT_RATE_MIN=50.0
+INPUT_RATE_MAX=500.0
 N_INPUT_RATES=5
 
-# Function to print messages with timestamps
 log_message() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
 }
 
-# Function to print section headers
 log_section() {
     echo ""
     log_message "========================================="
@@ -25,7 +23,7 @@ log_section() {
     log_message "========================================="
 }
 
-# Parse command line arguments
+# Parse command line arguments (same as before)
 while [[ $# -gt 0 ]]; do
     case $1 in
         -n|--nproc)
@@ -65,7 +63,14 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         -h|--help)
-            echo "Spiking RNN Chaos Experiment Runner with Input Rate Sweep"
+            echo "Enhanced Spiking RNN Chaos Experiment Runner"
+            echo ""
+            echo "Enhanced Analysis Includes:"
+            echo "  • Network activity dimensionality (PCA-based)"
+            echo "  • Spike train difference magnitudes"
+            echo "  • Normalized gamma coincidence metrics"
+            echo "  • Updated parameter ranges (0.01-1.0)"
+            echo "  • Extended post-perturbation analysis (300ms)"
             echo ""
             echo "Usage: $0 [OPTIONS]"
             echo ""
@@ -82,48 +87,48 @@ while [[ $# -gt 0 ]]; do
             echo "  -h, --help                   Show this help message"
             echo ""
             echo "Examples:"
-            echo "  # Test with different input rates:"
-            echo "  $0 --session 1 --n_v_th 3 --n_g 3 --input_rate_min 100 --input_rate_max 300 --n_input_rates 3"
+            echo "  # Test enhanced analysis:"
+            echo "  $0 --session 1 --n_v_th 3 --n_g 3 --n_input_rates 2 --nproc 4"
             echo ""
-            echo "  # Full experiment with input rate sweep:"
-            echo "  $0 --session 1 --n_v_th 10 --n_g 10 --n_input_rates 5 --nproc 20"
+            echo "  # Full enhanced experiment:"
+            echo "  $0 --session 1 --n_v_th 20 --n_g 20 --n_input_rates 5 --nproc 50"
             echo ""
             exit 0
             ;;
         *)
             log_message "ERROR: Unknown option '$1'"
-            log_message "Use --help to see available options"
             exit 1
             ;;
     esac
 done
 
-# Calculate total combinations including input rates
 TOTAL_COMBINATIONS=$((N_V_TH * N_G * N_INPUT_RATES))
 
-# Print experiment configuration
-log_section "CHAOS EXPERIMENT WITH INPUT RATE SWEEP"
+log_section "ENHANCED CHAOS EXPERIMENT CONFIGURATION"
 log_message "MPI processes: $N_PROCESSES"
 log_message "Session ID: $SESSION_ID"
 log_message "Parameter grid: ${N_V_TH} × ${N_G} × ${N_INPUT_RATES} = ${TOTAL_COMBINATIONS} combinations"
 log_message "Network size: $N_NEURONS neurons"
 log_message "Input rate range: ${INPUT_RATE_MIN}-${INPUT_RATE_MAX} Hz (${N_INPUT_RATES} values)"
 log_message "Output directory: $OUTPUT_DIR"
-log_message "Data will be saved to: ${OUTPUT_DIR}/data/"
+log_message ""
+log_message "ENHANCED ANALYSIS FEATURES:"
+log_message "  • Parameter ranges: v_th_std & g_std from 0.01-1.0 (higher heterogeneity)"
+log_message "  • Post-perturbation duration: 300ms (extended analysis window)"
+log_message "  • Network activity dimensionality (intrinsic & effective dimensions)"
+log_message "  • Spike difference magnitude quantification"
+log_message "  • Normalized gamma coincidence metrics (5ms window)"
+log_message "  • All original chaos measures (LZ complexity, Hamming slopes)"
 
-# Calculate estimated time (longer per combo due to input rate sweep)
-ESTIMATED_MINUTES=$((TOTAL_COMBINATIONS * 2))  # 2 minutes per combination
+# Estimate longer time for enhanced analysis
+ESTIMATED_MINUTES=$((TOTAL_COMBINATIONS * 3))  # 3 minutes per combination (more analysis)
 ESTIMATED_HOURS=$((ESTIMATED_MINUTES / 60))
 
 log_message ""
-log_message "Estimated experiment duration: ~${ESTIMATED_HOURS} hours (${ESTIMATED_MINUTES} minutes)"
+log_message "Estimated duration: ~${ESTIMATED_HOURS} hours (${ESTIMATED_MINUTES} minutes)"
+log_message "Note: Enhanced analysis takes ~50% longer due to additional computations"
 
-if [ $ESTIMATED_HOURS -gt 24 ]; then
-    log_message "WARNING: Very long experiment detected (>${ESTIMATED_HOURS}h)"
-    log_message "Consider reducing parameter grid or input rate range"
-fi
-
-# Create output directory structure
+# Directory setup
 log_section "DIRECTORY SETUP"
 mkdir -p "${OUTPUT_DIR}/data"
 if [ $? -eq 0 ]; then
@@ -131,27 +136,28 @@ if [ $? -eq 0 ]; then
     AVAILABLE_SPACE=$(df -BG "${OUTPUT_DIR}" | awk 'NR==2 {print $4}' | sed 's/G//')
     log_message "Available disk space: ${AVAILABLE_SPACE}GB"
 
-    if [ "$AVAILABLE_SPACE" -lt 5 ]; then
-        log_message "WARNING: Low disk space (<5GB available) - input rate experiments generate more data"
+    # Enhanced analysis generates larger files
+    if [ "$AVAILABLE_SPACE" -lt 10 ]; then
+        log_message "WARNING: <10GB available - enhanced analysis generates larger result files"
     fi
 else
-    log_message "ERROR: Could not create output directory: ${OUTPUT_DIR}/data/"
+    log_message "ERROR: Could not create output directory"
     exit 1
 fi
 
-# Verify required files exist
+# File verification (same as before but mention enhanced versions)
 log_section "FILE VERIFICATION"
 REQUIRED_FILES_AND_PATHS=(
     "runners/mpi_chaos_runner.py"
     "experiments/chaos_experiment.py"
+    "analysis/spike_analysis.py"
     "src/spiking_network.py"
     "src/lif_neuron.py"
     "src/synaptic_model.py"
-    "analysis/spike_analysis.py"
     "src/rng_utils.py"
 )
 
-log_message "Checking required Python files..."
+log_message "Checking required files (enhanced versions)..."
 ALL_FILES_EXIST=true
 
 for file_path in "${REQUIRED_FILES_AND_PATHS[@]}"; do
@@ -164,12 +170,17 @@ for file_path in "${REQUIRED_FILES_AND_PATHS[@]}"; do
 done
 
 if [ "$ALL_FILES_EXIST" = false ]; then
-    log_message "ERROR: Missing required files - cannot proceed"
+    log_message "ERROR: Missing required files"
+    log_message "Ensure you have the enhanced versions with:"
+    log_message "  • analyze_perturbation_response_enhanced() function"
+    log_message "  • compute_activity_dimensionality() function"
+    log_message "  • gamma_coincidence() functions"
+    log_message "  • Updated parameter ranges (0.01-1.0)"
     exit 1
 fi
 
-# Check MPI installation
-log_section "MPI VERIFICATION"
+# MPI and Python checks (same as before)
+log_section "SYSTEM VERIFICATION"
 if command -v mpirun &> /dev/null; then
     MPI_VERSION=$(mpirun --version 2>/dev/null | head -n1)
     log_message "MPI found: $MPI_VERSION"
@@ -178,28 +189,31 @@ else
     exit 1
 fi
 
-# Set environment variables
+python3 -c "import numpy, scipy, mpi4py" 2>/dev/null
+if [ $? -eq 0 ]; then
+    log_message "✓ Python dependencies available"
+else
+    log_message "WARNING: Some dependencies may be missing"
+fi
+
+# Environment setup
 export PYTHONUNBUFFERED=1
 export MPI_UNBUFFERED=1
 export PYTHONPATH="$PWD/src:$PWD/analysis:$PWD/experiments:$PWD/runners:$PYTHONPATH"
 
-# Execute the experiment
-log_section "STARTING EXPERIMENT"
-log_message "Command to execute:"
-log_message "mpirun -n $N_PROCESSES python runners/mpi_chaos_runner.py \\"
-log_message "    --session_id $SESSION_ID \\"
-log_message "    --n_v_th $N_V_TH \\"
-log_message "    --n_g $N_G \\"
-log_message "    --n_neurons $N_NEURONS \\"
-log_message "    --output_dir '$OUTPUT_DIR' \\"
-log_message "    --input_rate_min $INPUT_RATE_MIN \\"
-log_message "    --input_rate_max $INPUT_RATE_MAX \\"
-log_message "    --n_input_rates $N_INPUT_RATES"
+# Execute enhanced experiment
+log_section "STARTING ENHANCED EXPERIMENT"
+log_message "Launching enhanced analysis with relaxed health monitoring..."
+log_message ""
+log_message "Command: mpirun -n $N_PROCESSES python runners/mpi_chaos_runner.py"
+log_message "  --session_id $SESSION_ID"
+log_message "  --n_v_th $N_V_TH --n_g $N_G --n_neurons $N_NEURONS"
+log_message "  --input_rate_min $INPUT_RATE_MIN --input_rate_max $INPUT_RATE_MAX"
+log_message "  --n_input_rates $N_INPUT_RATES --output_dir '$OUTPUT_DIR'"
 
 EXPERIMENT_START=$(date '+%s')
-log_message "Experiment started at: $(date)"
+log_message "Enhanced experiment started at: $(date)"
 
-# Execute the MPI experiment with input rate parameters
 mpirun -n $N_PROCESSES python runners/mpi_chaos_runner.py \
     --session_id $SESSION_ID \
     --n_v_th $N_V_TH \
@@ -216,17 +230,17 @@ DURATION=$((EXPERIMENT_END - EXPERIMENT_START))
 DURATION_HOURS=$((DURATION / 3600))
 DURATION_MINUTES=$(((DURATION % 3600) / 60))
 
-# Report results
-log_section "EXPERIMENT COMPLETED"
+# Results reporting
+log_section "ENHANCED EXPERIMENT COMPLETED"
 log_message "Exit status: $EXIT_STATUS"
 log_message "Total runtime: ${DURATION_HOURS}h ${DURATION_MINUTES}m"
 log_message "Finished at: $(date)"
 
 if [ $EXIT_STATUS -eq 0 ]; then
-    log_message "🎉 INPUT RATE EXPERIMENT COMPLETED SUCCESSFULLY!"
+    log_message "🎉 ENHANCED EXPERIMENT COMPLETED SUCCESSFULLY!"
 
     log_message ""
-    log_message "Generated files in ${OUTPUT_DIR}/data/:"
+    log_message "Generated enhanced analysis files:"
     if [ -d "${OUTPUT_DIR}/data" ]; then
         find "${OUTPUT_DIR}/data" -name "*.pkl" -o -name "*.txt" | while read file; do
             if [ -f "$file" ]; then
@@ -237,20 +251,27 @@ if [ $EXIT_STATUS -eq 0 ]; then
     fi
 
     log_message ""
-    log_message "Analysis suggestions:"
-    log_message "  1. Load results and analyze input rate effects:"
-    log_message "     import pickle"
-    log_message "     with open('${OUTPUT_DIR}/data/chaos_with_input_rates_session_${SESSION_ID}.pkl', 'rb') as f:"
-    log_message "         results = pickle.load(f)"
-    log_message "  2. Plot chaos measures vs input rate"
-    log_message "  3. Identify optimal input rate ranges for different network parameters"
+    log_message "Enhanced analysis results include:"
+    log_message "  📊 Original chaos measures (LZ complexity, Hamming slopes)"
+    log_message "  📐 Network activity dimensionality (intrinsic & effective)"
+    log_message "  📏 Spike difference magnitudes (total divergence)"
+    log_message "  🎯 Gamma coincidence metrics (temporal precision)"
+    log_message ""
+    log_message "Python analysis example:"
+    log_message "  import pickle"
+    log_message "  with open('${OUTPUT_DIR}/data/chaos_relaxed_health_session_${SESSION_ID}.pkl', 'rb') as f:"
+    log_message "      results = pickle.load(f)"
+    log_message "  # Access enhanced metrics:"
+    log_message "  # results[0]['effective_dim_mean']  # Network dimensionality"
+    log_message "  # results[0]['spike_diff_mean']     # Spike differences"
+    log_message "  # results[0]['gamma_coincidence_mean'] # Coincidence metrics"
 
 else
-    log_message "⚠ EXPERIMENT FAILED"
+    log_message "❌ ENHANCED EXPERIMENT FAILED"
     log_message "Exit code: $EXIT_STATUS"
     log_message ""
-    log_message "Try with smaller parameter space first:"
-    log_message "  $0 --session $SESSION_ID --n_v_th 2 --n_g 2 --n_input_rates 3 --nproc 4"
+    log_message "For testing, try smaller parameter space:"
+    log_message "  $0 --session $SESSION_ID --n_v_th 2 --n_g 2 --n_input_rates 2 --nproc 4"
 fi
 
 exit $EXIT_STATUS

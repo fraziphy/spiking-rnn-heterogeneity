@@ -1,0 +1,16 @@
+Spiking RNN Chaos Experiment with Input Rate Sweep
+===================================================
+
+Experiment Configuration:
+  Session ID: 1
+  MPI processes: 50
+  Network size: 1000 neurons
+  Parameter combinations: 1200
+  v_th_std values: 20
+  g_std values: 20
+  Input rates: 3 (100.0-200.0 Hz)
+
+Results by Input Rate:
+  100 Hz: LZ=5406.0±10.1, Hamming=1.0676±0.0377
+  150 Hz: LZ=10346.1±14.0, Hamming=1.6780±0.0587
+  200 Hz: LZ=15009.6±13.0, Hamming=2.1144±0.0725
