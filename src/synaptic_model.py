@@ -1,77 +1,92 @@
-# synaptic_model.py
+# src/synaptic_model.py - Updated with fixed structure and multiplier scaling
 """
-Synaptic model with exponential decay and different types of Poisson inputs.
+Synaptic model with fixed base structure and heterogeneity scaling.
 """
 
 import numpy as np
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict
 from scipy import sparse
-from rng_utils import get_rng
+from rng_utils import get_rng, generate_base_distributions
 
 class ExponentialSynapses:
-    """Exponential decay synapses with heterogeneous weights."""
+    """Exponential decay synapses with fixed base structure and scaling."""
 
     def __init__(self, n_neurons: int, dt: float = 0.1):
-        """
-        Initialize synaptic model.
-
-        Args:
-            n_neurons: Number of neurons
-            dt: Time step in ms
-        """
+        """Initialize synaptic model."""
         self.n_neurons = n_neurons
         self.dt = dt
         self.tau_syn = 5.0  # Synaptic time constant (ms)
 
-        # Synaptic variables
+        # Base distributions and current parameters
+        self.base_distributions = None
         self.weight_matrix = None
+        self.g_multiplier = None
         self.synaptic_current = None
 
+    def initialize_base_distributions(self, session_id: int):
+        """Initialize base distributions that remain fixed across parameter combinations."""
+        if self.base_distributions is None:
+            self.base_distributions = generate_base_distributions(
+                session_id=session_id,
+                n_neurons=self.n_neurons
+            )
+
     def initialize_weights(self, session_id: int, block_id: int,
-                          g_mean: float = 0.0, g_std: float = 0.1,
+                          g_mean: float = 0.0, g_multiplier: float = 1.0,
                           connection_prob: float = 0.1):
         """
-        Initialize synaptic weight matrix with heterogeneity.
+        Initialize synaptic weights using base distributions and multiplier.
 
         Args:
-            session_id: Session ID for RNG
-            block_id: Block ID for RNG
-            g_mean: Mean synaptic strength
-            g_std: Standard deviation of synaptic strengths
-            connection_prob: Connection probability
+            session_id: Session ID for base distributions
+            block_id: Block ID (not used for structure)
+            g_mean: Target mean (should be 0.0, verified)
+            g_multiplier: Multiplier for base heterogeneity (1-100)
+            connection_prob: Connection probability (must match base, for verification)
         """
-        rng_weights = get_rng(session_id, block_id, 0, 'synaptic_weights')
-        rng_conn = get_rng(session_id, block_id, 0, 'connectivity')
+        # Ensure base distributions exist
+        self.initialize_base_distributions(session_id)
 
-        # Create connectivity matrix
-        conn_matrix = rng_conn.random((self.n_neurons, self.n_neurons)) < connection_prob
+        # Verify mean is exactly 0.0 (critical for proper scaling)
+        if abs(g_mean - 0.0) > 1e-10:
+            raise ValueError(f"g_mean must be exactly 0.0, got {g_mean}")
 
-        # No self-connections
-        np.fill_diagonal(conn_matrix, False)
+        # Store multiplier for reference
+        self.g_multiplier = g_multiplier
 
-        # Generate weights for existing connections
-        n_connections = np.sum(conn_matrix)
-        weights = rng_weights.normal(g_mean, g_std, n_connections)
+        # Get base distributions
+        base_g = self.base_distributions['base_g']
+        connectivity = self.base_distributions['connectivity']
+
+        # Verify connection probability matches (should be 0.1)
+        actual_conn_prob = np.mean(connectivity)
+        if abs(actual_conn_prob - connection_prob) > 0.05:  # Allow some tolerance
+            print(f"Warning: Expected conn_prob {connection_prob}, got {actual_conn_prob}")
+
+        # Scale base weights: g = 0.0 + (base_g - 0.0) * multiplier
+        # This preserves the mean at 0.0 while scaling the heterogeneity
+        scaled_g = g_mean + (base_g - g_mean) * g_multiplier
+
+        # Apply connectivity mask and create sparse matrix
+        masked_weights = scaled_g * connectivity.astype(float)
+
+        # Extract only the non-zero weights for sparse matrix
+        weight_values = masked_weights[connectivity]
+
+        # Verify mean preservation for connected weights only
+        if len(weight_values) > 0:
+            actual_mean = np.mean(weight_values)
+            if abs(actual_mean - g_mean) > 1e-8:  # Slightly relaxed for sparse case
+                print(f"Warning: Connected weights mean {actual_mean:.10f}, expected {g_mean}")
 
         # Create sparse weight matrix
-        self.weight_matrix = sparse.csr_matrix(
-            (weights, np.where(conn_matrix)),
-            shape=(self.n_neurons, self.n_neurons)
-        )
+        self.weight_matrix = sparse.csr_matrix(masked_weights)
 
         # Initialize synaptic current
         self.synaptic_current = np.zeros(self.n_neurons)
 
     def update(self, spike_indices: List[int]) -> np.ndarray:
-        """
-        Update synaptic currents.
-
-        Args:
-            spike_indices: List of neurons that spiked this timestep
-
-        Returns:
-            Synaptic input current for each neuron
-        """
+        """Update synaptic currents."""
         # Exponential decay
         self.synaptic_current *= np.exp(-self.dt / self.tau_syn)
 
@@ -83,50 +98,45 @@ class ExponentialSynapses:
 
         return self.synaptic_current.copy()
 
+    def get_weight_statistics(self) -> Dict[str, float]:
+        """Get statistics about current weight configuration."""
+        if self.weight_matrix is None:
+            return {'error': 'Weights not initialized'}
+
+        # Get non-zero weights
+        weight_data = self.weight_matrix.data
+
+        if len(weight_data) == 0:
+            return {'error': 'No connections'}
+
+        return {
+            'mean': float(np.mean(weight_data)),
+            'std': float(np.std(weight_data)),
+            'min': float(np.min(weight_data)),
+            'max': float(np.max(weight_data)),
+            'n_connections': len(weight_data),
+            'connection_density': len(weight_data) / (self.n_neurons ** 2),
+            'multiplier': float(self.g_multiplier) if self.g_multiplier else 0.0,
+            'base_std': float(np.std(self.base_distributions['base_g'])) if self.base_distributions else 0.0
+        }
+
 class StaticPoissonInput:
-    """
-    Static Poisson process input - all neurons receive independent Poisson spikes
-    with identical synaptic strength but independent random processes.
-    """
+    """Static Poisson process input - unchanged from original."""
 
     def __init__(self, n_neurons: int, dt: float = 0.1):
-        """
-        Initialize static Poisson input.
-
-        Args:
-            n_neurons: Number of RNN neurons
-            dt: Time step in ms
-        """
         self.n_neurons = n_neurons
         self.dt = dt
-        self.tau_syn = 5.0  # Input synaptic time constant
-
-        # Input parameters
+        self.tau_syn = 5.0
         self.input_strength = None
         self.input_current = None
 
     def initialize_parameters(self, input_strength: float = 1.0):
-        """
-        Initialize static Poisson input parameters.
-
-        Args:
-            input_strength: Identical synaptic strength for all neurons
-        """
         self.input_strength = input_strength
         self.input_current = np.zeros(self.n_neurons)
 
     def update(self, session_id: int, block_id: int, trial_id: int,
                rate: float = 10.0) -> np.ndarray:
-        """
-        Update input currents from static Poisson process.
-
-        Args:
-            session_id, block_id, trial_id: RNG parameters
-            rate: Firing rate in Hz (same for all neurons)
-
-        Returns:
-            Input current for each neuron
-        """
+        """Update with trial-dependent Poisson process."""
         # Exponential decay
         self.input_current *= np.exp(-self.dt / self.tau_syn)
 
@@ -134,197 +144,117 @@ class StaticPoissonInput:
         if rate > 0:
             rng = get_rng(session_id, block_id, trial_id, 'static_poisson')
 
-            # Probability of spike in dt for each neuron
-            spike_prob = rate * (self.dt / 1000.0)  # Convert dt to seconds
-
-            # Generate spikes independently for each neuron
+            spike_prob = rate * (self.dt / 1000.0)
             spike_mask = rng.random(self.n_neurons) < spike_prob
-
-            # Add input for neurons that received spikes (identical strength)
             self.input_current[spike_mask] += self.input_strength
 
         return self.input_current.copy()
 
 class DynamicPoissonInput:
-    """
-    Dynamic Poisson process input with multiple channels for encoding studies.
-    Each channel connects to 30% of neurons with identical synaptic strength.
-    """
+    """Dynamic Poisson input with fixed connectivity structure."""
 
     def __init__(self, n_neurons: int, n_channels: int = 20, dt: float = 0.1):
-        """
-        Initialize dynamic Poisson input.
-
-        Args:
-            n_neurons: Number of RNN neurons
-            n_channels: Number of input channels
-            dt: Time step in ms
-        """
         self.n_neurons = n_neurons
         self.n_channels = n_channels
         self.dt = dt
-        self.tau_syn = 5.0  # Input synaptic time constant
+        self.tau_syn = 5.0
 
-        # Input connectivity and weights
+        # Fixed structure
+        self.base_distributions = None
         self.connectivity_matrix = None
         self.input_strength = None
         self.input_current = None
 
+    def initialize_base_distributions(self, session_id: int):
+        """Initialize base distributions for fixed connectivity."""
+        if self.base_distributions is None:
+            self.base_distributions = generate_base_distributions(
+                session_id=session_id,
+                n_neurons=self.n_neurons,
+                n_input_channels=self.n_channels
+            )
+
     def initialize_connectivity(self, session_id: int, block_id: int,
                               connection_prob: float = 0.3,
                               input_strength: float = 1.0):
-        """
-        Initialize input connectivity.
+        """Initialize input connectivity using fixed base structure."""
+        # Ensure base distributions exist
+        self.initialize_base_distributions(session_id)
 
-        Args:
-            session_id: Session ID for RNG
-            block_id: Block ID for RNG
-            connection_prob: Probability of connection from channel to neuron (30%)
-            input_strength: Identical strength for all connections
-        """
-        rng = get_rng(session_id, block_id, 0, 'dynamic_poisson_connectivity')
+        # Use fixed connectivity from base distributions
+        self.connectivity_matrix = self.base_distributions['dynamic_connectivity']
 
-        # Create connectivity matrix (neurons x channels)
-        # Each channel connects to connection_prob fraction of neurons
-        self.connectivity_matrix = rng.random((self.n_neurons, self.n_channels)) < connection_prob
+        # Verify connection probability matches approximately
+        actual_conn_prob = np.mean(self.connectivity_matrix)
+        if abs(actual_conn_prob - connection_prob) > 0.05:
+            print(f"Warning: Expected dynamic conn_prob {connection_prob}, got {actual_conn_prob}")
 
-        # All connections have identical weight
+        # Set input strength
         self.input_strength = input_strength
-
-        # Initialize input current
         self.input_current = np.zeros(self.n_neurons)
 
     def update(self, session_id: int, block_id: int, trial_id: int,
                rates: np.ndarray) -> np.ndarray:
-        """
-        Update input currents from dynamic Poisson channels.
-
-        Args:
-            session_id, block_id, trial_id: RNG parameters
-            rates: Array of firing rates for each channel (Hz)
-
-        Returns:
-            Input current for each neuron
-        """
+        """Update with trial-dependent spike generation."""
         # Exponential decay
         self.input_current *= np.exp(-self.dt / self.tau_syn)
 
-        # Generate spikes for each channel
+        # Generate spikes for each channel (trial-dependent)
         if len(rates) > 0:
             rng = get_rng(session_id, block_id, trial_id, 'dynamic_poisson_spikes')
 
-            # Probability of spike in dt for each channel
-            spike_probs = rates * (self.dt / 1000.0)  # Convert dt to seconds
-
-            # Generate spikes for each channel
+            spike_probs = rates * (self.dt / 1000.0)
             channel_spikes = rng.random(self.n_channels) < spike_probs
 
             if np.any(channel_spikes):
-                # Add input from spiking channels to connected neurons
                 spiking_channels = np.where(channel_spikes)[0]
-
-                # Sum contributions from all spiking channels (identical strength)
                 input_contribution = np.sum(
                     self.connectivity_matrix[:, spiking_channels], axis=1
                 ) * self.input_strength
-
                 self.input_current += input_contribution
 
         return self.input_current.copy()
 
-    def get_connectivity_info(self) -> dict:
-        """
-        Get connectivity information for analysis.
-
-        Returns:
-            Dictionary with connectivity statistics
-        """
+    def get_connectivity_info(self) -> Dict[str, Any]:
+        """Get connectivity information."""
         if self.connectivity_matrix is not None:
-            # Calculate overlap between channels
             n_connections_per_channel = np.sum(self.connectivity_matrix, axis=0)
-
-            # Pairwise overlaps
-            overlaps = []
-            for i in range(self.n_channels):
-                for j in range(i+1, self.n_channels):
-                    overlap = np.sum(
-                        self.connectivity_matrix[:, i] & self.connectivity_matrix[:, j]
-                    )
-                    total_i = n_connections_per_channel[i]
-                    total_j = n_connections_per_channel[j]
-                    if total_i > 0 and total_j > 0:
-                        overlap_fraction = overlap / min(total_i, total_j)
-                        overlaps.append(overlap_fraction)
-
             return {
                 'n_channels': self.n_channels,
-                'connections_per_channel_mean': np.mean(n_connections_per_channel),
-                'connections_per_channel_std': np.std(n_connections_per_channel),
-                'average_overlap_fraction': np.mean(overlaps) if overlaps else 0.0,
-                'total_connections': np.sum(self.connectivity_matrix)
+                'connections_per_channel_mean': float(np.mean(n_connections_per_channel)),
+                'connections_per_channel_std': float(np.std(n_connections_per_channel)),
+                'total_connections': int(np.sum(self.connectivity_matrix)),
+                'connection_density': float(np.mean(self.connectivity_matrix))
             }
         else:
             return {}
 
 class ReadoutLayer:
-    """
-    Readout layer for task performance evaluation.
-    Linear readout from RNN activity to task outputs.
-    """
+    """Readout layer - unchanged from original."""
 
     def __init__(self, n_rnn_neurons: int, n_readout_neurons: int = 10, dt: float = 0.1):
-        """
-        Initialize readout layer.
-
-        Args:
-            n_rnn_neurons: Number of RNN neurons
-            n_readout_neurons: Number of readout neurons
-            dt: Time step in ms
-        """
         self.n_rnn_neurons = n_rnn_neurons
         self.n_readout_neurons = n_readout_neurons
         self.dt = dt
-        self.tau_readout = 20.0  # Readout time constant (ms)
-
-        # Readout parameters
+        self.tau_readout = 20.0
         self.readout_weights = None
         self.readout_activity = None
 
     def initialize_weights(self, session_id: int, block_id: int,
                           weight_scale: float = 1.0):
-        """
-        Initialize readout weights.
-
-        Args:
-            session_id: Session ID for RNG
-            block_id: Block ID for RNG
-            weight_scale: Scale of readout weights
-        """
+        """Initialize readout weights (could be made session-only if desired)."""
         rng = get_rng(session_id, block_id, 0, 'readout_weights')
 
-        # Random readout weights
         self.readout_weights = rng.normal(
             0.0, weight_scale / np.sqrt(self.n_rnn_neurons),
             (self.n_readout_neurons, self.n_rnn_neurons)
         )
-
-        # Initialize readout activity
         self.readout_activity = np.zeros(self.n_readout_neurons)
 
     def update(self, rnn_spike_indices: List[int]) -> np.ndarray:
-        """
-        Update readout activity based on RNN spikes.
-
-        Args:
-            rnn_spike_indices: List of RNN neurons that spiked
-
-        Returns:
-            Current readout activity
-        """
-        # Exponential decay
+        """Update readout activity."""
         self.readout_activity *= np.exp(-self.dt / self.tau_readout)
 
-        # Add contribution from RNN spikes
         if len(rnn_spike_indices) > 0:
             spike_contribution = np.sum(
                 self.readout_weights[:, rnn_spike_indices], axis=1
@@ -334,10 +264,5 @@ class ReadoutLayer:
         return self.readout_activity.copy()
 
     def get_output(self) -> np.ndarray:
-        """
-        Get current readout output (for classification, etc.).
-
-        Returns:
-            Current readout activity
-        """
+        """Get current readout output."""
         return self.readout_activity.copy()
