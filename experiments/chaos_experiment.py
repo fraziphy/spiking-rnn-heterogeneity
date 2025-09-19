@@ -37,7 +37,7 @@ class ChaosExperiment:
         self.post_perturbation_time = 300.0  # Updated to 300ms as requested
         self.total_duration = self.pre_perturbation_time + self.post_perturbation_time
         self.perturbation_time = self.pre_perturbation_time
-        self.n_perturbation_trials = 20
+        self.n_perturbation_trials = 100
 
     def run_single_perturbation(self, session_id: int, block_id: int, trial_id: int,
                               v_th_std: float, g_std: float, perturbation_neuron: int,
