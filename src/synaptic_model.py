@@ -4,7 +4,7 @@ Synaptic model with fixed base structure and heterogeneity scaling.
 """
 
 import numpy as np
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Optional, Dict, Any
 from scipy import sparse
 from rng_utils import get_rng, generate_base_distributions
 
@@ -32,55 +32,47 @@ class ExponentialSynapses:
             )
 
     def initialize_weights(self, session_id: int, block_id: int,
-                          g_mean: float = 0.0, g_multiplier: float = 1.0,
-                          connection_prob: float = 0.1):
-        """
-        Initialize synaptic weights using base distributions and multiplier.
+                        g_mean: float = 0.0, g_multiplier: float = 1.0,
+                        connection_prob: float = 0.1):
+        """Initialize synaptic weights using base distributions and multiplier."""
 
-        Args:
-            session_id: Session ID for base distributions
-            block_id: Block ID (not used for structure)
-            g_mean: Target mean (should be 0.0, verified)
-            g_multiplier: Multiplier for base heterogeneity (1-100)
-            connection_prob: Connection probability (must match base, for verification)
-        """
         # Ensure base distributions exist
         self.initialize_base_distributions(session_id)
 
-        # Verify mean is exactly 0.0 (critical for proper scaling)
+        # Verify mean is exactly 0.0
         if abs(g_mean - 0.0) > 1e-10:
             raise ValueError(f"g_mean must be exactly 0.0, got {g_mean}")
 
         # Store multiplier for reference
         self.g_multiplier = g_multiplier
 
-        # Get base distributions
-        base_g = self.base_distributions['base_g']
+        # Get connectivity from base distributions
         connectivity = self.base_distributions['connectivity']
 
-        # Verify connection probability matches (should be 0.1)
-        actual_conn_prob = np.mean(connectivity)
-        if abs(actual_conn_prob - connection_prob) > 0.05:  # Allow some tolerance
-            print(f"Warning: Expected conn_prob {connection_prob}, got {actual_conn_prob}")
+        # Get base weights only for connected positions
+        base_g = self.base_distributions['base_g']
+        connected_indices = np.where(connectivity)
+        base_connected_weights = base_g[connected_indices]
 
-        # Scale base weights: g = 0.0 + (base_g - 0.0) * multiplier
-        # This preserves the mean at 0.0 while scaling the heterogeneity
-        scaled_g = g_mean + (base_g - g_mean) * g_multiplier
+        # Apply multiplier to the base connected weights (scaling step)
+        scaled_connected_weights = base_connected_weights * g_multiplier
 
-        # Apply connectivity mask and create sparse matrix
-        masked_weights = scaled_g * connectivity.astype(float)
+        # THEN center them to ensure exact mean = g_mean (0.0)
+        if len(scaled_connected_weights) > 0:
+            scaled_connected_weights = scaled_connected_weights - np.mean(scaled_connected_weights) + g_mean
 
-        # Extract only the non-zero weights for sparse matrix
-        weight_values = masked_weights[connectivity]
+        # Create sparse matrix directly from connected weights
+        rows, cols = connected_indices
+        self.weight_matrix = sparse.csr_matrix(
+            (scaled_connected_weights, (rows, cols)),
+            shape=(self.n_neurons, self.n_neurons)
+        )
 
-        # Verify mean preservation for connected weights only
-        if len(weight_values) > 0:
-            actual_mean = np.mean(weight_values)
-            if abs(actual_mean - g_mean) > 1e-8:  # Slightly relaxed for sparse case
+        # Verify mean preservation
+        if len(scaled_connected_weights) > 0:
+            actual_mean = np.mean(scaled_connected_weights)
+            if abs(actual_mean - g_mean) > 1e-10:
                 print(f"Warning: Connected weights mean {actual_mean:.10f}, expected {g_mean}")
-
-        # Create sparse weight matrix
-        self.weight_matrix = sparse.csr_matrix(masked_weights)
 
         # Initialize synaptic current
         self.synaptic_current = np.zeros(self.n_neurons)

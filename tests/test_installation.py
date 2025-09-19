@@ -7,6 +7,7 @@ import sys
 import os
 import importlib
 import numpy as np
+import time  # Add this line
 from mpi4py import MPI
 
 # Add project directories to path for testing
@@ -139,24 +140,29 @@ def test_enhanced_chaos_experiment():
     print("\nTesting enhanced chaos experiment...")
 
     try:
-        from chaos_experiment import ChaosExperiment, create_parameter_grid_with_input_rates
+        from chaos_experiment import ChaosExperiment, create_parameter_grid_with_multipliers
 
         # Create small experiment for testing
         experiment = ChaosExperiment(n_neurons=20)  # Very small for speed
 
         # Test parameter grid with new ranges
-        v_th_values, g_values, input_rates = create_parameter_grid_with_input_rates(n_points=3)
+        v_th_values, g_values, input_rates = create_parameter_grid_with_multipliers(n_points=3)
+
 
         if (len(v_th_values) == 3 and len(g_values) == 3 and
-            np.min(v_th_values) >= 0.01 and np.max(v_th_values) <= 1.0):
-            print(f"  ✓ Parameter grid: v_th {np.min(v_th_values):.3f}-{np.max(v_th_values):.3f}")
+            np.min(v_th_values) >= 1.0 and np.max(v_th_values) <= 100.0):
+            print(f"  ✓ Parameter grid: multipliers {np.min(v_th_values):.1f}-{np.max(v_th_values):.1f}")
         else:
             print(f"  ✗ Parameter grid ranges incorrect")
             return False
 
         # Test single parameter combination with enhanced metrics
+        # Convert std values to multipliers (assuming base_std = 0.01)
         result = experiment.run_parameter_combination(
-            session_id=999, block_id=0, v_th_std=0.1, g_std=0.1, static_input_rate=100.0
+            session_id=999, block_id=0,
+            v_th_multiplier=10.0,  # 10.0 * 0.01 = 0.1 actual std
+            g_multiplier=10.0,     # 10.0 * 0.01 = 0.1 actual std
+            static_input_rate=100.0
         )
 
         # Check for all enhanced metrics
@@ -255,7 +261,9 @@ def run_enhanced_analysis_test():
         start_time = time.time()
         result = experiment.run_parameter_combination(
             session_id=1, block_id=1,
-            v_th_std=0.2, g_std=0.3, static_input_rate=150.0
+            v_th_multiplier=20.0,  # 20.0 * 0.01 = 0.2 actual std
+            g_multiplier=30.0,     # 30.0 * 0.01 = 0.3 actual std
+            static_input_rate=150.0
         )
         test_time = time.time() - start_time
 

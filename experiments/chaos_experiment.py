@@ -17,15 +17,20 @@ try:
     from src.rng_utils import get_rng, generate_base_distributions
     from analysis.spike_analysis import analyze_perturbation_response_enhanced
 except ImportError:
-    current_dir = os.path.dirname(__file__)
-    project_root = os.path.dirname(current_dir)
-    src_dir = os.path.join(project_root, 'src')
-    analysis_dir = os.path.join(project_root, 'analysis')
-    sys.path.insert(0, src_dir)
-    sys.path.insert(0, analysis_dir)
-    from spiking_network import SpikingRNN
-    from rng_utils import get_rng, generate_base_distributions
-    from spike_analysis import analyze_perturbation_response_enhanced
+    try:
+        from ..src.spiking_network import SpikingRNN
+        from ..src.rng_utils import get_rng, generate_base_distributions
+        from ..analysis.spike_analysis import analyze_perturbation_response_enhanced
+    except ImportError:
+        current_dir = os.path.dirname(__file__)
+        project_root = os.path.dirname(current_dir)
+        src_dir = os.path.join(project_root, 'src')
+        analysis_dir = os.path.join(project_root, 'analysis')
+        sys.path.insert(0, src_dir)
+        sys.path.insert(0, analysis_dir)
+        from spiking_network import SpikingRNN
+        from rng_utils import get_rng, generate_base_distributions
+        from spike_analysis import analyze_perturbation_response_enhanced
 
 class ChaosExperiment:
     """Enhanced chaos experiment with fixed network structure and multiplier scaling."""
@@ -37,7 +42,7 @@ class ChaosExperiment:
         self.post_perturbation_time = 300.0
         self.total_duration = self.pre_perturbation_time + self.post_perturbation_time
         self.perturbation_time = self.pre_perturbation_time
-        self.n_perturbation_trials = 100  # Updated to 100 as requested
+        self.n_perturbation_trials = 20  # Updated to 100 as requested
 
         # Base distribution parameters
         self.base_v_th_std = 0.01  # Base heterogeneity
@@ -68,7 +73,10 @@ class ChaosExperiment:
 
         # Get the actual perturbation neuron from fixed list
         base_distributions = generate_base_distributions(session_id, self.n_neurons)
-        perturbation_neuron = int(base_distributions['perturbation_neurons'][perturbation_neuron_idx])
+
+        available_neurons = len(base_distributions['perturbation_neurons'])
+        safe_idx = perturbation_neuron_idx % available_neurons
+        perturbation_neuron = int(base_distributions['perturbation_neurons'][safe_idx])
 
         # Run control simulation (no perturbation)
         spikes_control = network_control.simulate_network_dynamics(
@@ -251,6 +259,7 @@ class ChaosExperiment:
         print(f"Fixed-structure experiment completed: {len(results)} combinations processed")
         return results
 
+
 def create_parameter_grid_with_multipliers(n_points: int = 10,
                                          multiplier_range: Tuple[float, float] = (1.0, 100.0),
                                          input_rate_range: Tuple[float, float] = (50.0, 500.0),
@@ -272,6 +281,8 @@ def create_parameter_grid_with_multipliers(n_points: int = 10,
     static_input_rates = np.linspace(input_rate_range[0], input_rate_range[1], n_input_rates)
 
     return v_th_multipliers, g_multipliers, static_input_rates
+
+
 
 def save_results(results: List[Dict[str, Any]], filename: str, use_data_subdir: bool = True):
     """Save enhanced experimental results with multiplier information."""

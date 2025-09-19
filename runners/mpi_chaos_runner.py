@@ -253,7 +253,7 @@ def run_mpi_chaos_experiment_multipliers(session_id: int = 1, n_v_th: int = 10, 
         print(f"  Multiplier range: {multiplier_min}-{multiplier_max}")
         print(f"  Actual heterogeneity range: {0.01*multiplier_min:.3f}-{0.01*multiplier_max:.2f}")
         print(f"  Input rate range: {input_rate_min}-{input_rate_max} Hz ({n_input_rates} values)")
-        print(f"  Trials per combination: 100")
+        print(f"  Trials per combination: 20")
         print(f"Fixed Structure Policy:")
         print(f"  Network topology depends only on session_id={session_id}")
         print(f"  Base heterogeneities: v_th_std=0.01, g_std=0.01")

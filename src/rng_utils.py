@@ -22,41 +22,20 @@ class HierarchicalRNG:
 
     def get_rng(self, session_id: int, block_id: int, trial_id: int,
                 component: str) -> np.random.Generator:
-        """
-        Get RNG for specific component with controlled seeding hierarchy.
+        """Get RNG for specific component with controlled seeding hierarchy."""
 
-        Args:
-            session_id: Session identifier
-            block_id: Block identifier (for parameter combinations)
-            trial_id: Trial identifier
-            component: Component name
-
-        Returns:
-            numpy random generator
-        """
-        # FIXED NETWORK STRUCTURE: Only session_id affects these
-        if component in ['base_spike_thresholds', 'base_synaptic_weights',
-                        'connectivity', 'perturbation_targets',
-                        'dynamic_input_connectivity']:
-            seed_components = [self.base_seed, session_id]
-            key_suffix = f"{session_id}_{component}"
-
-        # TRIAL-VARYING: Poisson processes change with trial_id
-        elif component in ['initial_state', 'static_poisson', 'dynamic_poisson_spikes']:
+        # TRIAL-VARYING: Poisson processes change with trial_id only
+        if component in ['initial_state', 'static_poisson', 'dynamic_poisson_spikes']:
             seed_components = [self.base_seed, session_id, trial_id]
-            key_suffix = f"{session_id}_{trial_id}_{component}"
-
-        # Default fallback
+            key = f"session_{session_id}_trial_{trial_id}_comp_{component}"
+        # Default fallback for other components
         else:
             seed_components = [self.base_seed, session_id, block_id, trial_id]
-            key_suffix = f"{session_id}_{block_id}_{trial_id}_{component}"
+            key = f"session_{session_id}_block_{block_id}_trial_{trial_id}_comp_{component}"
 
-        # Add component-specific offset
-        component_offset = hash(component) % 1000000
+        # Add component-specific offset (make sure it's non-negative)
+        component_offset = abs(hash(component)) % 1000000
         seed_components.append(component_offset)
-
-        # Create unique key
-        key = f"{key_suffix}"
 
         if key not in self._rngs:
             seed_sequence = np.random.SeedSequence(seed_components)
@@ -65,46 +44,40 @@ class HierarchicalRNG:
         return self._rngs[key]
 
     def generate_base_distributions(self, session_id: int, n_neurons: int,
-                                   n_input_channels: int = 20) -> Dict[str, np.ndarray]:
-        """
-        Generate base distributions that remain fixed across parameter combinations.
+                                n_input_channels: int = 20) -> Dict[str, np.ndarray]:
+        """Generate base distributions that remain fixed across parameter combinations."""
 
-        Args:
-            session_id: Session ID (determines all structure)
-            n_neurons: Number of neurons
-            n_input_channels: Number of input channels
+        # Create fresh RNG instances each time (don't use cache for base distributions)
+        # Use abs(hash()) to ensure non-negative integers
+        v_th_seed = np.random.SeedSequence([self.base_seed, session_id, abs(hash('base_spike_thresholds'))])
+        v_th_rng = np.random.default_rng(v_th_seed)
 
-        Returns:
-            Dictionary with base distributions
-        """
-        # Base spike thresholds: Normal(-55, 0.01) with exact mean -55
-        v_th_rng = self.get_rng(session_id, 0, 0, 'base_spike_thresholds')
+        g_seed = np.random.SeedSequence([self.base_seed, session_id, abs(hash('base_synaptic_weights'))])
+        g_rng = np.random.default_rng(g_seed)
+
+        conn_seed = np.random.SeedSequence([self.base_seed, session_id, abs(hash('connectivity'))])
+        conn_rng = np.random.default_rng(conn_seed)
+
+        input_conn_seed = np.random.SeedSequence([self.base_seed, session_id, abs(hash('dynamic_input_connectivity'))])
+        input_conn_rng = np.random.default_rng(input_conn_seed)
+
+        pert_seed = np.random.SeedSequence([self.base_seed, session_id, abs(hash('perturbation_targets'))])
+        pert_rng = np.random.default_rng(pert_seed)
+
+        # Generate distributions with fresh RNGs
         base_v_th = v_th_rng.normal(-55.0, 0.01, n_neurons)
-
-        # Force exact mean to be -55.0 (critical for scaling)
         base_v_th = base_v_th - np.mean(base_v_th) + (-55.0)
 
-        # Base synaptic weights: Normal(0, 0.01) with exact mean 0
-        g_rng = self.get_rng(session_id, 0, 0, 'base_synaptic_weights')
-
-        # Generate weights for all possible connections (will be masked by connectivity)
         base_g = g_rng.normal(0.0, 0.01, (n_neurons, n_neurons))
-
-        # Force exact mean to be 0.0 (critical for scaling)
         base_g = base_g - np.mean(base_g) + 0.0
 
-        # Connectivity matrix (fixed across parameters)
-        conn_rng = self.get_rng(session_id, 0, 0, 'connectivity')
         connectivity = conn_rng.random((n_neurons, n_neurons)) < 0.1
-        np.fill_diagonal(connectivity, False)  # No self-connections
+        np.fill_diagonal(connectivity, False)
 
-        # Dynamic input connectivity (fixed across parameters)
-        input_conn_rng = self.get_rng(session_id, 0, 0, 'dynamic_input_connectivity')
         dynamic_connectivity = input_conn_rng.random((n_neurons, n_input_channels)) < 0.3
 
-        # Perturbation target neurons (fixed list for all experiments)
-        pert_rng = self.get_rng(session_id, 0, 0, 'perturbation_targets')
-        perturbation_neurons = pert_rng.choice(n_neurons, size=100, replace=False)
+        sample_size = min(100, n_neurons)
+        perturbation_neurons = pert_rng.choice(n_neurons, size=sample_size, replace=False)
 
         return {
             'base_v_th': base_v_th,

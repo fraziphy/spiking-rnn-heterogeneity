@@ -139,24 +139,24 @@ log_message "  Actual heterogeneity range: ${ACTUAL_MIN}-${ACTUAL_MAX}"
 log_message "  Network topology: IDENTICAL across ALL parameter combinations"
 log_message "  Connectivity patterns: Fixed by session_id=${SESSION_ID}"
 log_message "  Perturbation targets: Same 100 neurons for all combinations"
-log_message "  Trials per combination: 100 (robust sampling)"
+log_message "  Trials per combination: 20 (faster testing)"
 log_message ""
 log_message "SYSTEMATIC SCALING BENEFITS:"
 log_message "  • Pure heterogeneity effects (no topology confounds)"
 log_message "  • Preserved relative network structure at all scales"
 log_message "  • Perfect experimental control and reproducibility"
-log_message "  • Enhanced statistical power with 100 trials"
+log_message "  • Reduced trial count for quicker experiments"
 log_message ""
 log_message "Input rate range: ${INPUT_RATE_MIN}-${INPUT_RATE_MAX} Hz (${N_INPUT_RATES} values)"
 log_message "Output directory: ${OUTPUT_DIR}/data/"
 
 # Enhanced time estimation for 100 trials
-ESTIMATED_MINUTES=$((TOTAL_COMBINATIONS * 5))  # 5 minutes per combination (100 trials)
+ESTIMATED_MINUTES=$((TOTAL_COMBINATIONS * 1))  # 1 minutes per combination (20 trials)
 ESTIMATED_HOURS=$((ESTIMATED_MINUTES / 60))
 
 log_message ""
 log_message "Estimated duration: ~${ESTIMATED_HOURS} hours (${ESTIMATED_MINUTES} minutes)"
-log_message "Note: 100 trials per combination requires ~5x longer computation"
+log_message "Note: 20 trials per combination for faster computation"
 
 if [ $ESTIMATED_HOURS -gt 48 ]; then
     log_message "WARNING: Very long experiment (>${ESTIMATED_HOURS}h)"

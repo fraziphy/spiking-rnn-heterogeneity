@@ -259,6 +259,7 @@ class SpikingRNN:
         """Get network information including multiplier details."""
         info = {
             'n_neurons': self.n_neurons,
+            'spike_thresholds': self.neurons.spike_thresholds if self.neurons.spike_thresholds is not None else [],
             'n_input_channels': self.n_input_channels,
             'n_readout_neurons': self.n_readout_neurons,
             'dt': self.dt,
