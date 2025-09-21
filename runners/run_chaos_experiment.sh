@@ -81,7 +81,7 @@ while [[ $# -gt 0 ]]; do
             echo "  • Multiplier scaling: 1-100 → actual heterogeneity 0.01-1.0"
             echo "  • Exact mean preservation: -55mV thresholds, 0 weights"
             echo "  • Same connectivity, perturbation targets across all combinations"
-            echo "  • 100 trials per combination for robust statistics"
+            echo "  • 20 trials per combination for efficient computation"
             echo ""
             echo "Usage: $0 [OPTIONS]"
             echo ""
@@ -139,27 +139,27 @@ log_message "  Actual heterogeneity range: ${ACTUAL_MIN}-${ACTUAL_MAX}"
 log_message "  Network topology: IDENTICAL across ALL parameter combinations"
 log_message "  Connectivity patterns: Fixed by session_id=${SESSION_ID}"
 log_message "  Perturbation targets: Same 100 neurons for all combinations"
-log_message "  Trials per combination: 20 (faster testing)"
+log_message "  Trials per combination: 20 (efficient computation)"
 log_message ""
 log_message "SYSTEMATIC SCALING BENEFITS:"
 log_message "  • Pure heterogeneity effects (no topology confounds)"
 log_message "  • Preserved relative network structure at all scales"
 log_message "  • Perfect experimental control and reproducibility"
-log_message "  • Reduced trial count for quicker experiments"
+log_message "  • Efficient computation with 20 trials"
 log_message ""
 log_message "Input rate range: ${INPUT_RATE_MIN}-${INPUT_RATE_MAX} Hz (${N_INPUT_RATES} values)"
 log_message "Output directory: ${OUTPUT_DIR}/data/"
 
-# Enhanced time estimation for 100 trials
-ESTIMATED_MINUTES=$((TOTAL_COMBINATIONS * 1))  # 1 minutes per combination (20 trials)
+# Enhanced time estimation for 20 trials
+ESTIMATED_MINUTES=$((TOTAL_COMBINATIONS * 1))  # 1 minute per combination (20 trials)
 ESTIMATED_HOURS=$((ESTIMATED_MINUTES / 60))
 
 log_message ""
 log_message "Estimated duration: ~${ESTIMATED_HOURS} hours (${ESTIMATED_MINUTES} minutes)"
-log_message "Note: 20 trials per combination for faster computation"
+log_message "Note: 20 trials per combination for efficient computation"
 
-if [ $ESTIMATED_HOURS -gt 48 ]; then
-    log_message "WARNING: Very long experiment (>${ESTIMATED_HOURS}h)"
+if [ $ESTIMATED_HOURS -gt 12 ]; then
+    log_message "WARNING: Long experiment (>${ESTIMATED_HOURS}h)"
     log_message "Consider reducing grid size or multiplier range for testing"
 fi
 
@@ -171,9 +171,9 @@ if [ $? -eq 0 ]; then
     AVAILABLE_SPACE=$(df -BG "${OUTPUT_DIR}" | awk 'NR==2 {print $4}' | sed 's/G//')
     log_message "Available disk space: ${AVAILABLE_SPACE}GB"
 
-    # 100 trials generate much larger files
-    if [ "$AVAILABLE_SPACE" -lt 20 ]; then
-        log_message "WARNING: <20GB available - 100-trial experiments generate large files"
+    # 20 trials generate smaller files
+    if [ "$AVAILABLE_SPACE" -lt 5 ]; then
+        log_message "WARNING: <5GB available - may need more space for results"
     fi
 else
     log_message "ERROR: Could not create output directory"
@@ -191,3 +191,98 @@ REQUIRED_FILES_AND_PATHS=(
     "src/synaptic_model.py"
     "src/rng_utils.py"
 )
+
+ALL_FILES_EXIST=true
+for file_path in "${REQUIRED_FILES_AND_PATHS[@]}"; do
+    if [ -f "$file_path" ]; then
+        log_message "✓ Found: $file_path"
+    else
+        log_message "✗ Missing: $file_path"
+        ALL_FILES_EXIST=false
+    fi
+done
+
+if [ "$ALL_FILES_EXIST" = false ]; then
+    log_message "ERROR: Missing required files. Cannot proceed."
+    exit 1
+fi
+
+# Python dependencies check
+log_section "PYTHON DEPENDENCIES CHECK"
+python3 -c "
+import sys
+try:
+    import numpy, scipy, mpi4py, psutil
+    print('✓ Core dependencies available')
+except ImportError as e:
+    print(f'✗ Missing dependency: {e}')
+    sys.exit(1)
+"
+
+if [ $? -ne 0 ]; then
+    log_message "ERROR: Python dependencies not satisfied"
+    exit 1
+fi
+
+# MPI availability check
+log_section "MPI SETUP CHECK"
+if command -v mpirun &> /dev/null; then
+    log_message "✓ mpirun found: $(which mpirun)"
+
+    # Test MPI with a simple command
+    mpirun -n 2 python3 -c "from mpi4py import MPI; print(f'Rank {MPI.COMM_WORLD.Get_rank()}/{MPI.COMM_WORLD.Get_size()}')" &> /dev/null
+    if [ $? -eq 0 ]; then
+        log_message "✓ MPI test successful"
+    else
+        log_message "✗ MPI test failed"
+        exit 1
+    fi
+else
+    log_message "ERROR: mpirun not found. Install MPI implementation."
+    exit 1
+fi
+
+# Final parameter summary
+log_section "LAUNCHING EXPERIMENT"
+log_message "Command: mpirun -n ${N_PROCESSES} python runners/mpi_chaos_runner.py"
+log_message "Parameters:"
+log_message "  --session_id ${SESSION_ID}"
+log_message "  --n_v_th ${N_V_TH}"
+log_message "  --n_g ${N_G}"
+log_message "  --n_neurons ${N_NEURONS}"
+log_message "  --output_dir ${OUTPUT_DIR}"
+log_message "  --multiplier_min ${MULTIPLIER_MIN}"
+log_message "  --multiplier_max ${MULTIPLIER_MAX}"
+log_message "  --input_rate_min ${INPUT_RATE_MIN}"
+log_message "  --input_rate_max ${INPUT_RATE_MAX}"
+log_message "  --n_input_rates ${N_INPUT_RATES}"
+
+# Launch the experiment
+log_message "Starting MPI chaos experiment..."
+log_message "Progress will be reported by individual MPI ranks"
+
+mpirun -n ${N_PROCESSES} python runners/mpi_chaos_runner.py \
+    --session_id ${SESSION_ID} \
+    --n_v_th ${N_V_TH} \
+    --n_g ${N_G} \
+    --n_neurons ${N_NEURONS} \
+    --output_dir ${OUTPUT_DIR} \
+    --multiplier_min ${MULTIPLIER_MIN} \
+    --multiplier_max ${MULTIPLIER_MAX} \
+    --input_rate_min ${INPUT_RATE_MIN} \
+    --input_rate_max ${INPUT_RATE_MAX} \
+    --n_input_rates ${N_INPUT_RATES}
+
+# Check exit status
+EXIT_CODE=$?
+if [ $EXIT_CODE -eq 0 ]; then
+    log_section "EXPERIMENT COMPLETED SUCCESSFULLY"
+    log_message "Results saved in: ${OUTPUT_DIR}/data/"
+    log_message "Check for file: chaos_fixed_structure_session_${SESSION_ID}.pkl"
+else
+    log_section "EXPERIMENT FAILED"
+    log_message "Exit code: $EXIT_CODE"
+    log_message "Check logs above for error details"
+fi
+
+exit $EXIT_CODE
