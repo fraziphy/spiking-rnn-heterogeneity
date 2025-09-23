@@ -1,6 +1,6 @@
-# src/spiking_network.py - Updated with multiplier scaling and fixed structure
+# src/spiking_network.py - Updated with random structure and synaptic modes
 """
-Spiking RNN network with fixed base structure and heterogeneity multipliers.
+Spiking RNN network with random structure per parameter combination and synaptic mode selection.
 """
 
 import numpy as np
@@ -10,19 +10,21 @@ from synaptic_model import ExponentialSynapses, StaticPoissonInput, DynamicPoiss
 from rng_utils import get_rng
 
 class SpikingRNN:
-    """Spiking RNN with fixed structure and multiplier-based heterogeneity scaling."""
+    """Spiking RNN with random structure and immediate/dynamic synaptic modes."""
 
     def __init__(self, n_neurons: int = 1000, n_input_channels: int = 20,
-                 n_readout_neurons: int = 10, dt: float = 0.1):
-        """Initialize spiking RNN with fixed structure capability."""
+                 n_readout_neurons: int = 10, dt: float = 0.1,
+                 synaptic_mode: str = "dynamic"):
+        """Initialize spiking RNN with synaptic mode selection."""
         self.n_neurons = n_neurons
         self.n_input_channels = n_input_channels
         self.n_readout_neurons = n_readout_neurons
         self.dt = dt
+        self.synaptic_mode = synaptic_mode
 
         # Initialize components
         self.neurons = LIFNeuron(n_neurons, dt)
-        self.synapses = ExponentialSynapses(n_neurons, dt)
+        self.synapses = ExponentialSynapses(n_neurons, dt, synaptic_mode)
         self.static_input = StaticPoissonInput(n_neurons, dt)
         self.dynamic_input = DynamicPoissonInput(n_neurons, n_input_channels, dt)
         self.readout = ReadoutLayer(n_neurons, n_readout_neurons, dt)
@@ -32,17 +34,16 @@ class SpikingRNN:
         self.spike_times = []
         self.readout_history = []
 
-    def initialize_network(self, session_id: int, block_id: int,
-                          v_th_multiplier: float = 1.0, g_multiplier: float = 1.0,
-                          **kwargs):
+    def initialize_network(self, session_id: int, v_th_std: float, g_std: float,
+                          v_th_distribution: str = "normal", **kwargs):
         """
-        Initialize network with multiplier-based heterogeneity scaling.
+        Initialize network with random structure for each parameter combination.
 
         Args:
-            session_id: Session ID for base structure
-            block_id: Block ID (affects only readout weights currently)
-            v_th_multiplier: Multiplier for spike threshold heterogeneity
-            g_multiplier: Multiplier for synaptic weight heterogeneity
+            session_id: Session ID for reproducibility across sessions
+            v_th_std: Direct standard deviation for spike thresholds
+            g_std: Direct standard deviation for synaptic weights
+            v_th_distribution: "normal" or "uniform" threshold distribution
             **kwargs: Additional parameters
         """
         # Get parameters with defaults
@@ -51,51 +52,54 @@ class SpikingRNN:
         dynamic_connection_prob = kwargs.get('dynamic_connection_prob', 0.3)
         readout_weight_scale = kwargs.get('readout_weight_scale', 1.0)
 
-        # Initialize neuron parameters with multiplier scaling
+        # Initialize neuron parameters (structure depends on session + parameters)
         self.neurons.initialize_parameters(
             session_id=session_id,
-            block_id=block_id,
-            v_th_mean=-55.0,  # Fixed mean
-            v_th_multiplier=v_th_multiplier
+            v_th_std=v_th_std,
+            trial_id=0,  # Structure doesn't depend on trial
+            v_th_mean=-55.0,
+            v_th_distribution=v_th_distribution
         )
 
-        # Initialize synaptic weights with multiplier scaling
+        # Initialize synaptic weights (structure depends on session + parameters)
         self.synapses.initialize_weights(
             session_id=session_id,
-            block_id=block_id,
-            g_mean=0.0,  # Fixed mean
-            g_multiplier=g_multiplier,
-            connection_prob=0.1  # This should match base distribution
+            v_th_std=v_th_std,
+            g_std=g_std,
+            g_mean=0.0,
+            connection_prob=0.1
         )
 
         # Initialize static Poisson input
         self.static_input.initialize_parameters(static_input_strength)
 
-        # Initialize dynamic Poisson input with fixed structure
+        # Initialize dynamic Poisson input (structure depends on session + parameters)
         self.dynamic_input.initialize_connectivity(
             session_id=session_id,
-            block_id=block_id,
+            v_th_std=v_th_std,
+            g_std=g_std,
             connection_prob=dynamic_connection_prob,
             input_strength=dynamic_input_strength
         )
 
-        # Initialize readout layer (could be made session-only if desired)
+        # Initialize readout layer (structure depends on session + parameters)
         self.readout.initialize_weights(
             session_id=session_id,
-            block_id=block_id,
+            v_th_std=v_th_std,
+            g_std=g_std,
             weight_scale=readout_weight_scale
         )
 
-    def reset_simulation(self, session_id: int, block_id: int, trial_id: int):
+    def reset_simulation(self, session_id: int, v_th_std: float, g_std: float, trial_id: int):
         """Reset simulation state for new trial (trial-dependent)."""
         self.current_time = 0.0
         self.spike_times = []
         self.readout_history = []
 
         # Initialize neuron states (trial-dependent)
-        self.neurons.initialize_state(session_id, block_id, trial_id)
+        self.neurons.initialize_state(session_id, v_th_std, g_std, trial_id)
 
-    def step(self, session_id: int, block_id: int, trial_id: int,
+    def step(self, session_id: int, v_th_std: float, g_std: float, trial_id: int,
              static_input_rate: float = 0.0,
              dynamic_input_rates: Optional[np.ndarray] = None) -> Tuple[List[int], np.ndarray]:
         """Execute one simulation time step."""
@@ -105,18 +109,18 @@ class SpikingRNN:
         # 1. Static Poisson input (trial-dependent generation)
         if static_input_rate > 0:
             static_current = self.static_input.update(
-                session_id, block_id, trial_id, static_input_rate
+                session_id, v_th_std, g_std, trial_id, static_input_rate
             )
             total_input += static_current
 
         # 2. Dynamic Poisson input (trial-dependent generation)
         if dynamic_input_rates is not None and len(dynamic_input_rates) > 0:
             dynamic_current = self.dynamic_input.update(
-                session_id, block_id, trial_id, dynamic_input_rates
+                session_id, v_th_std, g_std, trial_id, dynamic_input_rates
             )
             total_input += dynamic_current
 
-        # 3. Recurrent synaptic input (based on fixed structure)
+        # 3. Recurrent synaptic input (based on random structure for this parameter combo)
         if len(self.spike_times) > 0:
             current_spikes = [neuron_id for t, neuron_id in self.spike_times
                             if abs(t - self.current_time) < self.dt/2]
@@ -150,13 +154,13 @@ class SpikingRNN:
         # Record the perturbation spike
         self.spike_times.append((self.current_time, neuron_id))
 
-    def simulate_network_dynamics(self, session_id: int, block_id: int, trial_id: int,
+    def simulate_network_dynamics(self, session_id: int, v_th_std: float, g_std: float, trial_id: int,
                                  duration: float, static_input_rate: float = 0.0,
                                  perturbation_time: float = None,
                                  perturbation_neuron: int = None) -> List[Tuple[float, int]]:
         """Run simulation for network dynamics study."""
         # Reset simulation with trial-dependent initialization
-        self.reset_simulation(session_id, block_id, trial_id)
+        self.reset_simulation(session_id, v_th_std, g_std, trial_id)
 
         # Main simulation loop
         n_steps = int(duration / self.dt)
@@ -169,18 +173,18 @@ class SpikingRNN:
                     self.inject_perturbation(perturbation_neuron)
 
             # Execute time step (only static input for network dynamics)
-            self.step(session_id, block_id, trial_id,
+            self.step(session_id, v_th_std, g_std, trial_id,
                      static_input_rate=static_input_rate,
                      dynamic_input_rates=None)
 
         return self.spike_times.copy()
 
-    def simulate_encoding_task(self, session_id: int, block_id: int, trial_id: int,
+    def simulate_encoding_task(self, session_id: int, v_th_std: float, g_std: float, trial_id: int,
                               duration: float, input_patterns: np.ndarray,
                               static_input_rate: float = 0.0) -> Tuple[List[Tuple[float, int]], List[Tuple[float, np.ndarray]]]:
         """Run simulation for encoding capacity study with dynamic inputs."""
         # Reset simulation
-        self.reset_simulation(session_id, block_id, trial_id)
+        self.reset_simulation(session_id, v_th_std, g_std, trial_id)
 
         # Main simulation loop
         n_steps = int(duration / self.dt)
@@ -193,20 +197,20 @@ class SpikingRNN:
                 dynamic_rates = np.zeros(self.n_input_channels)
 
             # Execute time step
-            self.step(session_id, block_id, trial_id,
+            self.step(session_id, v_th_std, g_std, trial_id,
                      static_input_rate=static_input_rate,
                      dynamic_input_rates=dynamic_rates)
 
         return self.spike_times.copy(), self.readout_history.copy()
 
-    def simulate_task_performance(self, session_id: int, block_id: int, trial_id: int,
+    def simulate_task_performance(self, session_id: int, v_th_std: float, g_std: float, trial_id: int,
                                  duration: float, input_patterns: np.ndarray,
                                  target_outputs: np.ndarray,
                                  static_input_rate: float = 0.0) -> Dict[str, Any]:
         """Run simulation for task performance evaluation."""
         # Run encoding simulation
         spike_times, readout_history = self.simulate_encoding_task(
-            session_id, block_id, trial_id, duration, input_patterns, static_input_rate
+            session_id, v_th_std, g_std, trial_id, duration, input_patterns, static_input_rate
         )
 
         # Extract readout activities
@@ -256,13 +260,14 @@ class SpikingRNN:
         return performance
 
     def get_network_info(self) -> Dict[str, Any]:
-        """Get network information including multiplier details."""
+        """Get network information including synaptic mode details."""
         info = {
             'n_neurons': self.n_neurons,
             'spike_thresholds': self.neurons.spike_thresholds if self.neurons.spike_thresholds is not None else [],
             'n_input_channels': self.n_input_channels,
             'n_readout_neurons': self.n_readout_neurons,
             'dt': self.dt,
+            'synaptic_mode': self.synaptic_mode,
             'weight_matrix_nnz': self.synapses.weight_matrix.nnz if self.synapses.weight_matrix is not None else 0,
             'readout_weights_shape': self.readout.readout_weights.shape if self.readout.readout_weights is not None else None
         }

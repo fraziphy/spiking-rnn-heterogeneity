@@ -1,13 +1,13 @@
-# tests/test_installation.py - Updated with enhanced analysis testing
+# tests/test_installation.py - Fixed for new random structure implementation
 """
-Test script to verify installation and enhanced analysis functionality.
+Test script to verify installation and functionality.
 """
 
 import sys
 import os
 import importlib
 import numpy as np
-import time  # Add this line
+import time
 from mpi4py import MPI
 
 # Add project directories to path for testing
@@ -99,7 +99,6 @@ def test_enhanced_spike_analysis():
             return False
 
         # Test enhanced perturbation analysis
-        # Create test spike data
         spikes_control = [(1.0, 0), (2.0, 1), (3.0, 0), (4.0, 2)]
         spikes_perturbed = [(1.0, 0), (2.5, 1), (3.5, 2), (4.0, 0)]
 
@@ -135,175 +134,175 @@ def test_enhanced_spike_analysis():
         traceback.print_exc()
         return False
 
-def test_enhanced_chaos_experiment():
-    """Test enhanced chaos experiment."""
-    print("\nTesting enhanced chaos experiment...")
+def test_chaos_experiment():
+    """Test new chaos experiment with random structure."""
+    print("\nTesting chaos experiment...")
 
     try:
-        from chaos_experiment import ChaosExperiment, create_parameter_grid_with_multipliers
+        from chaos_experiment import ChaosExperiment, create_parameter_grid
 
-        # Create small experiment for testing
-        experiment = ChaosExperiment(n_neurons=20)  # Very small for speed
+        # Test parameter grid creation
+        v_th_stds, g_stds, input_rates = create_parameter_grid(n_v_th_points=3, n_g_points=3)
 
-        # Test parameter grid with new ranges
-        v_th_values, g_values, input_rates = create_parameter_grid_with_multipliers(n_points=3)
-
-
-        if (len(v_th_values) == 3 and len(g_values) == 3 and
-            np.min(v_th_values) >= 1.0 and np.max(v_th_values) <= 100.0):
-            print(f"  ✓ Parameter grid: multipliers {np.min(v_th_values):.1f}-{np.max(v_th_values):.1f}")
+        if (len(v_th_stds) == 3 and len(g_stds) == 3 and
+            np.min(v_th_stds) >= 0.0 and np.max(v_th_stds) <= 4.0):
+            print(f"  ✓ Parameter grid: v_th_std {np.min(v_th_stds):.1f}-{np.max(v_th_stds):.1f}")
         else:
             print(f"  ✗ Parameter grid ranges incorrect")
             return False
 
-        # Test single parameter combination with enhanced metrics
-        # Convert std values to multipliers (assuming base_std = 0.01)
+        # Test single parameter combination
+        experiment = ChaosExperiment(n_neurons=20, synaptic_mode="dynamic")  # Very small for speed
+
         result = experiment.run_parameter_combination(
-            session_id=999, block_id=0,
-            v_th_multiplier=10.0,  # 10.0 * 0.01 = 0.1 actual std
-            g_multiplier=10.0,     # 10.0 * 0.01 = 0.1 actual std
+            session_id=999,
+            v_th_std=0.5,
+            g_std=0.5,
+            v_th_distribution="normal",
             static_input_rate=100.0
         )
 
-        # Check for all enhanced metrics
+        # Check for expected fields
         expected_fields = [
-            'v_th_std', 'g_std', 'static_input_rate',
+            'session_id', 'v_th_std', 'g_std', 'synaptic_mode',
             'lz_complexities', 'hamming_slopes', 'lz_mean', 'lz_std',
             'hamming_mean', 'hamming_std',
             'total_spike_differences', 'spike_diff_mean', 'spike_diff_std',
             'intrinsic_dimensionalities', 'effective_dimensionalities',
-            'intrinsic_dim_mean', 'effective_dim_mean',
-            'gamma_coincidences', 'gamma_coincidence_mean', 'gamma_coincidence_std',
+            'gamma_coincidences', 'gamma_coincidence_mean',
             'n_trials', 'computation_time'
         ]
 
         missing_fields = [field for field in expected_fields if field not in result]
 
         if not missing_fields:
-            print(f"  ✓ Enhanced parameter combination:")
+            print(f"  ✓ Chaos experiment:")
+            print(f"    Session: {result['session_id']}")
+            print(f"    Parameters: v_th_std={result['v_th_std']}, g_std={result['g_std']}")
+            print(f"    Mode: {result['synaptic_mode']}")
             print(f"    LZ: {result['lz_mean']:.2f} ± {result['lz_std']:.2f}")
-            print(f"    Hamming: {result['hamming_mean']:.4f} ± {result['hamming_std']:.4f}")
-            print(f"    Spike diffs: {result['spike_diff_mean']:.1f} ± {result['spike_diff_std']:.1f}")
-            print(f"    Dimensionality: {result['effective_dim_mean']:.1f} ± {result['effective_dim_std']:.1f}")
-            print(f"    Gamma: {result['gamma_coincidence_mean']:.3f} ± {result['gamma_coincidence_std']:.3f}")
             print(f"    Trials: {result['n_trials']}, Time: {result['computation_time']:.1f}s")
         else:
-            print(f"  ✗ Enhanced experiment missing fields: {missing_fields}")
+            print(f"  ✗ Chaos experiment missing fields: {missing_fields}")
             return False
 
         return True
 
     except Exception as e:
-        print(f"  ✗ Enhanced chaos experiment test failed: {e}")
+        print(f"  ✗ Chaos experiment test failed: {e}")
         import traceback
         traceback.print_exc()
         return False
 
 def test_network_integration():
-    """Test complete spiking network with updated parameters."""
-    print("\nTesting network integration with updated parameters...")
+    """Test complete spiking network."""
+    print("\nTesting network integration...")
 
     try:
         from spiking_network import SpikingRNN
 
         # Create network
-        network = SpikingRNN(n_neurons=50, dt=0.1)
+        network = SpikingRNN(n_neurons=50, dt=0.1, synaptic_mode="dynamic")
 
-        # Initialize with updated parameter ranges
+        # Initialize with random structure
         network.initialize_network(
-            session_id=1, block_id=1,
-            v_th_std=0.5,  # Test higher heterogeneity
-            g_std=0.5,     # Test higher heterogeneity
-            static_input_strength=1.0,
-            connection_prob=0.1
+            session_id=1,
+            v_th_std=0.5,
+            g_std=0.5,
+            v_th_distribution="normal"
         )
 
-        print("  ✓ Network initialization with higher heterogeneity")
+        print("  ✓ Network initialization with random structure")
 
-        # Test simulation with updated duration (300ms post-perturbation)
+        # Test simulation
         spikes = network.simulate_network_dynamics(
-            session_id=1, block_id=1, trial_id=1,
-            duration=350.0,  # 50ms pre + 300ms post
+            session_id=1,
+            v_th_std=0.5,
+            g_std=0.5,
+            trial_id=1,
+            duration=100.0,
             static_input_rate=200.0
         )
 
-        print(f"  ✓ Network simulation: {len(spikes)} spikes in 350ms")
+        print(f"  ✓ Network simulation: {len(spikes)} spikes in 100ms")
 
-        # Get network info and check threshold ranges
+        # Get network info
         info = network.get_network_info()
         threshold_range = np.max(info['spike_thresholds']) - np.min(info['spike_thresholds'])
 
-        if threshold_range > 1.0:  # Should be higher with increased heterogeneity
-            print(f"  ✓ High heterogeneity: threshold range {threshold_range:.2f} mV")
+        if threshold_range > 0.5:  # Should have heterogeneity
+            print(f"  ✓ Heterogeneity: threshold range {threshold_range:.2f} mV")
         else:
-            print(f"  ⚠ Lower heterogeneity than expected: {threshold_range:.2f} mV")
+            print(f"  ⚠  Low heterogeneity: {threshold_range:.2f} mV")
 
         return True
 
     except Exception as e:
         print(f"  ✗ Network integration test failed: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
-def run_enhanced_analysis_test():
-    """Run a complete test of the enhanced analysis pipeline."""
-    print("\nRunning complete enhanced analysis test...")
+def test_synaptic_modes():
+    """Test both synaptic modes."""
+    print("\nTesting synaptic modes...")
 
     try:
-        from chaos_experiment import ChaosExperiment
-        from spike_analysis import analyze_perturbation_response_enhanced
+        from spiking_network import SpikingRNN
 
-        # Very small experiment to test pipeline
-        experiment = ChaosExperiment(n_neurons=10)
+        # Test dynamic mode
+        network_dynamic = SpikingRNN(n_neurons=20, synaptic_mode="dynamic")
+        network_dynamic.initialize_network(session_id=1, v_th_std=0.5, g_std=0.5)
 
-        print("  Running mini enhanced experiment...")
+        # Test immediate mode
+        network_immediate = SpikingRNN(n_neurons=20, synaptic_mode="immediate")
+        network_immediate.initialize_network(session_id=1, v_th_std=0.5, g_std=0.5)
 
-        # Single combination test
-        start_time = time.time()
-        result = experiment.run_parameter_combination(
-            session_id=1, block_id=1,
-            v_th_multiplier=20.0,  # 20.0 * 0.01 = 0.2 actual std
-            g_multiplier=30.0,     # 30.0 * 0.01 = 0.3 actual std
-            static_input_rate=150.0
-        )
-        test_time = time.time() - start_time
+        # Check synaptic modes
+        dynamic_info = network_dynamic.get_network_info()
+        immediate_info = network_immediate.get_network_info()
 
-        # Verify all enhanced metrics are computed
-        metrics_check = {
-            'Original chaos': all(key in result for key in ['lz_mean', 'hamming_mean']),
-            'Spike differences': all(key in result for key in ['spike_diff_mean', 'spike_diff_std']),
-            'Dimensionality': all(key in result for key in ['effective_dim_mean', 'intrinsic_dim_mean']),
-            'Gamma coincidence': all(key in result for key in ['gamma_coincidence_mean', 'gamma_coincidence_std']),
-            'Arrays preserved': all(isinstance(result[key], np.ndarray) for key in
-                                  ['lz_complexities', 'total_spike_differences', 'gamma_coincidences'])
-        }
+        if dynamic_info['synaptic_mode'] == 'dynamic':
+            print("  ✓ Dynamic synaptic mode")
+        else:
+            print("  ✗ Dynamic synaptic mode not set")
+            return False
 
-        all_passed = all(metrics_check.values())
+        if immediate_info['synaptic_mode'] == 'immediate':
+            print("  ✓ Immediate synaptic mode")
+        else:
+            print("  ✗ Immediate synaptic mode not set")
+            return False
 
-        print(f"  ✓ Enhanced metrics verification:")
-        for metric, passed in metrics_check.items():
-            status = "✓" if passed else "✗"
-            print(f"    {status} {metric}")
+        # Check weight statistics for normalization
+        dynamic_stats = network_dynamic.synapses.get_weight_statistics()
+        immediate_stats = network_immediate.synapses.get_weight_statistics()
 
-        print(f"  ✓ Test completed in {test_time:.1f}s")
-        print(f"  ✓ Enhanced analysis pipeline working correctly")
+        if immediate_stats['normalization_factor'] == 50.0:  # tau_syn/dt = 5/0.1
+            print("  ✓ Impact normalization factor correct")
+        else:
+            print(f"  ✗ Impact normalization factor incorrect: {immediate_stats['normalization_factor']}")
+            return False
 
-        return all_passed
+        return True
 
     except Exception as e:
-        print(f"  ✗ Enhanced analysis test failed: {e}")
+        print(f"  ✗ Synaptic modes test failed: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 def main():
-    """Run all enhanced tests."""
-    print("Enhanced Spiking RNN Framework - Installation & Analysis Test")
+    """Run all tests."""
+    print("Random Structure Spiking RNN Framework - Installation Test")
     print("=" * 70)
 
     tests = [
         ("Imports", test_imports),
         ("Enhanced Spike Analysis", test_enhanced_spike_analysis),
-        ("Enhanced Chaos Experiment", test_enhanced_chaos_experiment),
+        ("Chaos Experiment", test_chaos_experiment),
         ("Network Integration", test_network_integration),
-        ("Complete Enhanced Pipeline", run_enhanced_analysis_test),
+        ("Synaptic Modes", test_synaptic_modes),
     ]
 
     results = []
@@ -316,7 +315,7 @@ def main():
             results.append((test_name, False))
 
     print("\n" + "=" * 70)
-    print("Enhanced Test Summary:")
+    print("Installation Test Summary:")
     print("=" * 70)
 
     for test_name, success in results:
@@ -329,22 +328,22 @@ def main():
     print(f"\nResults: {passed_tests}/{total_tests} tests passed")
 
     if passed_tests == total_tests:
-        print("\nEnhanced framework is working correctly!")
+        print("\nFramework is working correctly!")
         print("\nNew capabilities available:")
-        print("  • Network activity dimensionality analysis")
-        print("  • Spike train difference quantification")
-        print("  • Normalized gamma coincidence metrics")
-        print("  • Updated parameter ranges (0.01-1.0)")
-        print("  • Extended analysis duration (300ms)")
-        print("\nYou can now run enhanced experiments:")
-        print("  runners/run_chaos_experiment.sh --session 1 --n_v_th 5 --n_g 5 --n_input_rates 3")
+        print("  • Random network structure per parameter combination")
+        print("  • Mean-centered heterogeneity distributions")
+        print("  • Synaptic mode comparison (immediate vs dynamic)")
+        print("  • Session averaging for robust statistics")
+        print("  • 100 trials per combination for better sampling")
+        print("\nYou can now run experiments:")
+        print("  ./runners/run_chaos_experiment.sh --session_ids '1 2' --n_v_th 3 --n_g 3")
         return 0
     else:
-        print(f"\n{total_tests - passed_tests} enhanced tests failed.")
+        print(f"\n{total_tests - passed_tests} tests failed.")
         print("\nTroubleshooting:")
-        print("  1. Ensure all analysis modules are updated")
-        print("  2. Check parameter ranges in chaos_experiment.py")
-        print("  3. Verify enhanced spike_analysis.py functions")
+        print("  1. Ensure all modules are properly updated")
+        print("  2. Check that function names match new implementation")
+        print("  3. Verify MPI installation")
         return 1
 
 if __name__ == "__main__":

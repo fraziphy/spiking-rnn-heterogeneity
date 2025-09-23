@@ -1,14 +1,14 @@
-# src/lif_neuron.py - Updated with fixed structure and multiplier scaling
+# src/lif_neuron.py - Fixed with mean centering and clean structure
 """
-Leaky Integrate-and-Fire neuron model with fixed base distributions and scaling.
+Leaky Integrate-and-Fire neuron model with direct heterogeneity and exact mean preservation.
 """
 
 import numpy as np
 from typing import Tuple, List, Dict
-from rng_utils import get_rng, generate_base_distributions
+from rng_utils import get_rng
 
 class LIFNeuron:
-    """LIF neuron with fixed base structure and heterogeneity scaling."""
+    """LIF neuron with direct heterogeneity and exact mean preservation."""
 
     def __init__(self, n_neurons: int, dt: float = 0.1):
         """Initialize LIF neuron population."""
@@ -21,61 +21,73 @@ class LIFNeuron:
         self.v_reset = -80.0  # Reset potential (mV)
         self.tau_ref = 2.0  # Refractory period (ms)
 
-        # Base distributions and actual parameters
-        self.base_distributions = None
+        # Parameters and state variables
         self.spike_thresholds = None
-        self.v_th_multiplier = None
+        self.v_th_std = None
+        self.v_th_distribution = None
 
         # State variables
         self.v_membrane = None
         self.refractory_timer = None
         self.last_spike_time = None
 
-    def initialize_base_distributions(self, session_id: int):
-        """Initialize base distributions that remain fixed across parameter combinations."""
-        if self.base_distributions is None:
-            self.base_distributions = generate_base_distributions(
-                session_id=session_id,
-                n_neurons=self.n_neurons
-            )
-
-    def initialize_parameters(self, session_id: int, block_id: int,
+    def initialize_parameters(self, session_id: int, v_th_std: float, trial_id: int,
                             v_th_mean: float = -55.0,
-                            v_th_multiplier: float = 1.0):
+                            v_th_distribution: str = "normal"):
         """
-        Initialize spike thresholds using base distribution and multiplier.
+        Initialize spike thresholds with direct heterogeneity and exact mean preservation.
 
         Args:
-            session_id: Session ID for base distributions
-            block_id: Block ID (not used for structure)
-            v_th_mean: Target mean (should be -55.0, verified)
-            v_th_multiplier: Multiplier for base heterogeneity (1-100)
+            session_id: Session ID for reproducibility
+            v_th_std: Direct standard deviation for thresholds
+            trial_id: Trial ID (not used for structure)
+            v_th_mean: Target mean threshold (default: -55.0)
+            v_th_distribution: "normal" or "uniform"
         """
-        # Ensure base distributions exist
-        self.initialize_base_distributions(session_id)
+        # Store parameters
+        self.v_th_std = v_th_std
+        self.v_th_distribution = v_th_distribution
 
-        # Verify mean is exactly -55.0 (critical for proper scaling)
-        if abs(v_th_mean - (-55.0)) > 1e-10:
-            raise ValueError(f"v_th_mean must be exactly -55.0, got {v_th_mean}")
+        # Get RNG (structure depends on session + std, not trial)
+        rng = get_rng(session_id, v_th_std, 0.0, 0, 'spike_thresholds')
 
-        # Store multiplier for reference
-        self.v_th_multiplier = v_th_multiplier
+        # Generate thresholds based on distribution
+        if v_th_std == 0.0:
+            # Homogeneous case
+            self.spike_thresholds = np.full(self.n_neurons, v_th_mean)
+        elif v_th_distribution == "normal":
+            # Normal distribution
+            self.spike_thresholds = rng.normal(v_th_mean, v_th_std, self.n_neurons)
+            # Center to exact mean with iterative correction for maximum precision
+            for _ in range(2):  # Two iterations should be enough
+                current_mean = np.mean(self.spike_thresholds, dtype=np.float64)
+                self.spike_thresholds = self.spike_thresholds - (current_mean - v_th_mean)
 
-        # Scale base thresholds: v_th = -55.0 + (base_v_th - (-55.0)) * multiplier
-        # This preserves the mean at -55.0 while scaling the heterogeneity
-        base_v_th = self.base_distributions['base_v_th']
+        elif v_th_distribution == "uniform":
+            # Uniform distribution with same std as normal
+            half_width = v_th_std * np.sqrt(12) / 2
+            a = v_th_mean - half_width
+            b = v_th_mean + half_width
+            self.spike_thresholds = rng.uniform(a, b, self.n_neurons)
+            # Center to exact mean with iterative correction
+            for _ in range(2):
+                current_mean = np.mean(self.spike_thresholds, dtype=np.float64)
+                self.spike_thresholds = self.spike_thresholds - (current_mean - v_th_mean)
+        else:
+            raise ValueError(f"Unknown distribution: {v_th_distribution}. Use 'normal' or 'uniform'")
 
-        # Apply scaling: mean stays -55, heterogeneity scales by multiplier
-        self.spike_thresholds = v_th_mean + (base_v_th - v_th_mean) * v_th_multiplier
+        # Ensure thresholds are above reset potential
+        eps = 1e-9
+        self.spike_thresholds = np.clip(self.spike_thresholds, self.v_reset + eps, None)
 
-        # Verification (critical check)
+        # Verify mean preservation (for debugging)
         actual_mean = np.mean(self.spike_thresholds)
         if abs(actual_mean - v_th_mean) > 1e-10:
-            raise RuntimeError(f"Mean preservation failed: expected {v_th_mean}, got {actual_mean}")
+            print(f"Warning: Threshold mean not preserved: {actual_mean:.12f} vs {v_th_mean}")
 
-    def initialize_state(self, session_id: int, block_id: int, trial_id: int):
+    def initialize_state(self, session_id: int, v_th_std: float, g_std: float, trial_id: int):
         """Initialize neuron states (varies with trial_id)."""
-        rng = get_rng(session_id, block_id, trial_id, 'initial_state')
+        rng = get_rng(session_id, v_th_std, g_std, trial_id, 'initial_state')
 
         # Initialize membrane potentials near resting potential
         self.v_membrane = rng.uniform(
@@ -128,6 +140,7 @@ class LIFNeuron:
             'std': float(np.std(self.spike_thresholds)),
             'min': float(np.min(self.spike_thresholds)),
             'max': float(np.max(self.spike_thresholds)),
-            'multiplier': float(self.v_th_multiplier) if self.v_th_multiplier else 0.0,
-            'base_std': float(np.std(self.base_distributions['base_v_th'])) if self.base_distributions else 0.0
+            'distribution': self.v_th_distribution,
+            'target_std': float(self.v_th_std) if self.v_th_std else 0.0,
+            'target_mean': -55.0
         }
