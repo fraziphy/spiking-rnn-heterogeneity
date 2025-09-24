@@ -1,6 +1,6 @@
-# Spiking RNN Heterogeneity Framework - Synaptic Dynamics Comparison
+# Spiking RNN Heterogeneity Framework - Enhanced Complexity Analysis
 
-A comprehensive framework for studying chaos and network dynamics in heterogeneous spiking recurrent neural networks with **synaptic mode comparison** (immediate vs dynamic synapses) and **session averaging** for robust statistics.
+A comprehensive framework for studying chaos and network dynamics in heterogeneous spiking recurrent neural networks with **enhanced complexity measures**, **Kistler coincidence analysis**, **pattern stability detection**, and **multi-dimensional analysis**.
 
 ## Key Architecture Features
 
@@ -19,6 +19,12 @@ A comprehensive framework for studying chaos and network dynamics in heterogeneo
 - **Immediate synapses**: Instantaneous coupling (like previous studies)
 - **Impact normalization**: Immediate weights scaled by τ_syn/dt for fair comparison
 
+### Enhanced Complexity Analysis
+- **4 LZ-based measures**: Matrix flattened, spatial patterns, PCI variants
+- **Kistler coincidence factor**: Official formula with multiple precision windows
+- **Pattern stability detection**: Identifies repeating spatiotemporal patterns
+- **Multi-bin dimensionality**: Participation ratio at 2ms, 5ms, 20ms resolutions
+
 ### Session Averaging for Robustness
 - **Single session execution**: Efficient MPI parallelization
 - **Multi-session studies**: Average results across network realizations
@@ -33,18 +39,47 @@ spiking_rnn_heterogeneity/
 │   ├── lif_neuron.py              # Mean-centered LIF neurons
 │   ├── synaptic_model.py          # Immediate vs dynamic synapses
 │   └── spiking_network.py         # Complete RNN with mode selection
-├── analysis/                      # Analysis and measurement tools  
-│   └── spike_analysis.py          # Enhanced chaos quantification
+├── analysis/                      # Enhanced analysis tools  
+│   └── spike_analysis.py          # 4 LZ measures + Kistler + PCI
 ├── experiments/                   # Experiment coordination
 │   └── chaos_experiment.py        # Single session + averaging
 ├── runners/                       # Execution scripts
-│   ├── mpi_chaos_runner.py        # MPI single session runner
+│   ├── mpi_chaos_runner.py        # MPI enhanced runner
 │   └── run_chaos_experiment.sh    # Session coordination script
 ├── tests/                         # Testing framework
 │   ├── test_installation.py       # Installation verification
-│   └── test_random_structure.py   # Random structure validation
+│   └── test_comprehensive_structure.py  # Structure validation
 └── results/data/                  # Experiment outputs
 ```
+
+## Enhanced Analysis Features
+
+### Four LZ-based Complexity Measures
+1. **LZ Matrix Flattened**: Original approach using flattened difference matrix
+2. **LZ Spatial Patterns**: Complexity of spatial pattern sequences
+3. **PCI Raw**: Perturbational Complexity Index without normalization
+4. **PCI Normalized**: PCI with entropy normalization (Casali et al.)
+
+### Coincidence Analysis
+- **Kistler Coincidence Factor**: Official Γ formula with 2ms and 5ms precision windows
+- **Enhanced Gamma Coincidence**: Multiple window sizes (5ms, 10ms) for comparison
+- **Network-wide averaging**: Statistics across all neurons
+
+### Pattern Stability Detection
+```python
+# Identifies repeating patterns in neural dynamics
+stable_info = {
+    'period': 3,           # Pattern repeats every 3 time steps
+    'repeats': 5,          # Pattern repeats 5 times
+    'onset_time': 120,     # Pattern starts at t=120ms
+    'pattern': [1, 0, 1]   # The repeating pattern
+}
+```
+
+### Multi-Resolution Dimensionality
+- **2ms bins**: High temporal resolution for fast dynamics
+- **5ms bins**: Intermediate resolution matching refractory period
+- **20ms bins**: Coarse resolution for slow population dynamics
 
 ## Quick Start
 
@@ -52,36 +87,36 @@ spiking_rnn_heterogeneity/
 
 ```bash
 # Install dependencies
-pip install numpy scipy mpi4py psutil scikit-learn
+pip install numpy scipy mpi4py psutil
 
 # Install MPI (Ubuntu/Debian)
 sudo apt-get install openmpi-bin openmpi-dev
 
-# Test installation
+# Test enhanced installation
 python tests/test_installation.py
-python tests/test_random_structure.py
+python tests/test_comprehensive_structure.py
 ```
 
-### 2. Run Experiments
+### 2. Run Enhanced Experiments
 
-**Quick test (single session):**
+**Quick test with enhanced analysis:**
 ```bash
 chmod +x runners/run_chaos_experiment.sh
 ./runners/run_chaos_experiment.sh --session_ids "1" --n_v_th 3 --n_g 3 --no_average --nproc 4
 ```
 
-**Compare synaptic modes:**
+**Compare synaptic modes with full analysis:**
 ```bash
 # Test immediate synapses
-./runners/run_chaos_experiment.sh --synaptic_mode immediate --session_ids "1 2 3" --n_v_th 5 --n_g 5
+./runners/run_chaos_experiment.sh --synaptic_mode immediate --session_ids "1 2 3" --n_v_th 5 --n_g 5 --input_rate_max 1000
 
-# Test dynamic synapses  
-./runners/run_chaos_experiment.sh --synaptic_mode dynamic --session_ids "1 2 3" --n_v_th 5 --n_g 5
+# Test dynamic synapses with extended rates
+./runners/run_chaos_experiment.sh --synaptic_mode dynamic --session_ids "1 2 3" --n_v_th 5 --n_g 5 --input_rate_max 1000
 ```
 
-**Full heterogeneity study:**
+**Full enhanced heterogeneity study:**
 ```bash
-./runners/run_chaos_experiment.sh --session_ids "1 2 3 4 5" --n_v_th 20 --n_g 20 --v_th_std_max 2.0 --g_std_max 2.0 --nproc 50
+./runners/run_chaos_experiment.sh --session_ids "1 2 3 4 5" --n_v_th 20 --n_g 20 --v_th_std_max 2.0 --g_std_max 2.0 --input_rate_max 1000 --nproc 50
 ```
 
 **Test different threshold distributions:**
@@ -89,17 +124,22 @@ chmod +x runners/run_chaos_experiment.sh
 ./runners/run_chaos_experiment.sh --v_th_distributions "normal uniform" --session_ids "1 2 3"
 ```
 
-### 3. Monitor Progress
+### 3. Enhanced Progress Monitoring
 
 ```bash
-# Follow experiment progress
+# Follow enhanced experiment progress with detailed metrics
 tail -f output_run_chaos_experiment.log
 
-# Check MPI processes
-htop  # Look for python/mpirun processes
+# Monitor shows all new measures:
+# LZ (flattened): 45.2±3.1
+# LZ (spatial): 23.4±2.8  
+# PCI (normalized): 0.67±0.12
+# Kistler (2ms): 0.34±0.08
+# Silent neurons: 23.5%
+# Stable patterns: 0.15
 ```
 
-## Parameter Specification
+## Enhanced Parameter Specification
 
 ### Core Parameters
 - `--session_ids`: Space-separated session IDs for averaging (e.g., "1 2 3")
@@ -107,170 +147,200 @@ htop  # Look for python/mpirun processes
 - `--n_g`: Number of synaptic weight heterogeneity values (default: 10)
 - `--nproc`: Number of MPI processes (default: 50)
 
-### Heterogeneity Control
-- `--v_th_std_min/max`: Threshold heterogeneity range (default: 0.0-4.0)
-- `--g_std_min/max`: Weight heterogeneity range (default: 0.0-4.0)
-- `--v_th_distributions`: "normal", "uniform", or "normal uniform"
+### Extended Input Range
+- `--input_rate_min/max`: Background input range (default: 50-1000 Hz for dynamic mode)
+- **Dynamic synapses**: Tested up to 1000 Hz for high-activity regimes
+- **Immediate synapses**: Tested up to 500 Hz for stability
 
-### Synaptic Mode Comparison
-- `--synaptic_mode`: "immediate" or "dynamic" (critical parameter!)
-- Impact normalization ensures fair comparison between modes
-
-### System Configuration
-- `--n_neurons`: Network size (default: 1000)
-- `--n_input_rates`: Background input modulation levels (default: 5)
-- `--output`: Results directory (default: results)
+### Enhanced Analysis Control
+- **2ms binning**: Default for all spike matrices (matches refractory period)
+- **Multiple coincidence windows**: Automatic testing of different temporal precisions
+- **Pattern stability**: Automatic detection with configurable minimum repeats
 
 ## Scientific Innovation
 
-### Fair Synaptic Comparison
-The key innovation is **impact normalization** between synaptic modes:
+### Enhanced Complexity Quantification
+The framework now implements the official **Perturbational Complexity Index (PCI)** from Casali et al.:
 
-- **Dynamic synapses**: Standard exponential decay (τ_syn = 5ms)
-- **Immediate synapses**: Weights scaled by τ_syn/dt ≈ 50 to match total impact
-
-This allows clean comparison of temporal dynamics effects while controlling for synaptic strength.
-
-### Session Averaging Strategy
-- **Single session execution**: Each MPI job processes one session efficiently
-- **Automatic averaging**: Script combines results across sessions
-- **Statistical robustness**: 100 trials × N sessions per parameter combination
-
-### Mean-Centered Distributions
-All parameters are explicitly centered after sampling:
-```python
-# Thresholds: exact -55mV mean
-thresholds = thresholds - np.mean(thresholds) + (-55.0)
-
-# Weights: exact 0 mean  
-weights = weights - np.mean(weights) + 0.0
+```
+PCI = c_L(t = L₂) × log₂ L / (L × H(L))
 ```
 
-## Data Analysis
+Where:
+- `c_L`: Lempel-Ziv complexity of spatial patterns
+- `L`: Total spatiotemporal samples
+- `H(L)`: Source entropy of the binary matrix
+- **Activation threshold**: Only computed when >1% of samples are active
 
-### Loading Results
+### Kistler Coincidence Factor
+Implementation of the official coincidence factor from Kistler et al. (1997):
+
+```
+Γ = (N_coinc - ⟨N_coinc⟩) / (½(N_data + N_SRM) × N)
+```
+
+Where:
+- `N_coinc`: Observed coincidences within precision Δ
+- `⟨N_coinc⟩`: Expected coincidences for Poisson process
+- `N`: Normalization factor (1 - 2νΔ)
+
+### Pattern Stability Analysis
+Novel detection of stable spatiotemporal patterns:
+- **High complexity + stable patterns**: Initial complexity that settles
+- **Low complexity + stable patterns**: Network quickly reaches steady state
+- **High complexity + no patterns**: True ongoing complexity
+- **Low complexity + no patterns**: Minimal response to perturbation
+
+### Multi-Resolution Dimensionality
+Analysis across temporal scales reveals:
+- **Fine-scale (2ms)**: Individual spike precision
+- **Medium-scale (5ms)**: Population synchronization
+- **Coarse-scale (20ms)**: Slow population dynamics
+
+## Enhanced Data Analysis
+
+### Loading Enhanced Results
 
 ```python
 import pickle
 import numpy as np
 
-# Load single session results
-with open('results/data/chaos_session_1_dynamic.pkl', 'rb') as f:
-    session_results = pickle.load(f)
+# Load enhanced results
+with open('results/data/chaos_enhanced_session_1_dynamic.pkl', 'rb') as f:
+    results = pickle.load(f)
 
-# Load averaged results
-with open('results/data/chaos_averaged_dynamic_sessions_1_2_3.pkl', 'rb') as f:
-    averaged_results = pickle.load(f)
-
-print(f"Session 1: {len(session_results)} combinations")
-print(f"Averaged: {len(averaged_results)} combinations")
+for result in results:
+    # Enhanced complexity measures
+    lz_flattened = result['lz_matrix_flattened_mean']
+    lz_spatial = result['lz_spatial_patterns_mean']
+    pci_normalized = result['pci_normalized_mean']
+    pci_threshold = result['pci_with_threshold_mean']
+    
+    # Coincidence measures  
+    kistler_2ms = result['kistler_delta_2ms_mean']
+    kistler_5ms = result['kistler_delta_5ms_mean']
+    gamma_5ms = result['gamma_window_5ms_mean']
+    gamma_10ms = result['gamma_window_10ms_mean']
+    
+    # Pattern stability
+    stable_fraction = result['stable_pattern_fraction']
+    stable_period = result['stable_period_mean']
+    
+    # Multi-bin dimensionality
+    participation_2ms = result['participation_ratio_bin_2ms_mean']
+    participation_5ms = result['participation_ratio_bin_5ms_mean']  
+    participation_20ms = result['participation_ratio_bin_20ms_mean']
+    
+    # Firing rate analysis
+    silent_percent = result['control_percent_silent_mean']
+    mean_rate = result['control_mean_firing_rate_mean']
 ```
 
-### Synaptic Mode Comparison
+### Enhanced Synaptic Mode Comparison
 
 ```python
-# Load both synaptic modes
-with open('results/data/chaos_averaged_immediate_sessions_1_2_3.pkl', 'rb') as f:
-    immediate_results = pickle.load(f)
-
-with open('results/data/chaos_averaged_dynamic_sessions_1_2_3.pkl', 'rb') as f:
-    dynamic_results = pickle.load(f)
-
-# Compare chaos measures
-for i, d in zip(immediate_results, dynamic_results):
-    v_th = i['v_th_std']
-    g_std = i['g_std']
+# Compare all enhanced measures between modes
+for param_combo in zip(immediate_results, dynamic_results):
+    imm, dyn = param_combo
     
-    lz_immediate = i['lz_mean']
-    lz_dynamic = d['lz_mean']
-    
-    print(f"v_th={v_th:.1f}, g={g_std:.1f}: LZ_immediate={lz_immediate:.1f}, LZ_dynamic={lz_dynamic:.1f}")
+    print(f"v_th={imm['v_th_std']:.1f}, g={imm['g_std']:.1f}")
+    print(f"  LZ spatial:    {imm['lz_spatial_patterns_mean']:.1f} vs {dyn['lz_spatial_patterns_mean']:.1f}")
+    print(f"  PCI:           {imm['pci_normalized_mean']:.3f} vs {dyn['pci_normalized_mean']:.3f}")
+    print(f"  Kistler (2ms): {imm['kistler_delta_2ms_mean']:.3f} vs {dyn['kistler_delta_2ms_mean']:.3f}")
+    print(f"  Stable patterns: {imm['stable_pattern_fraction']:.3f} vs {dyn['stable_pattern_fraction']:.3f}")
+    print()
 ```
 
-### Enhanced Metrics Access
+### Firing Rate Onset Analysis
 
 ```python
-for result in averaged_results:
-    # Parameter values
-    v_th_std = result['v_th_std']
-    g_std = result['g_std'] 
-    synaptic_mode = result['synaptic_mode']
+# Analyze network activation thresholds
+for result in results:
+    input_rate = result['static_input_rate']
+    silent_pct = result['control_percent_silent_mean']
+    mean_rate = result['control_mean_firing_rate_mean']
     
-    # Chaos measures (averaged across sessions)
-    lz_complexity = result['lz_mean']
-    hamming_slope = result['hamming_mean']
-    
-    # Enhanced measures
-    spike_differences = result['spike_diff_mean']
-    network_dimensionality = result['effective_dim_mean']
-    temporal_precision = result['gamma_coincidence_mean']
-    
-    # Statistical info
-    n_sessions = result['n_sessions']
-    total_trials = result['total_trials']  # 100 × n_sessions
+    print(f"Input {input_rate:.0f}Hz: {silent_pct:.1f}% silent, {mean_rate:.2f}Hz mean")
 ```
 
-## System Requirements
+## Enhanced System Requirements
 
 ### Computational Resources
-- **CPU**: Multi-core system (20+ cores recommended)
-- **Memory**: 16GB+ for large parameter sweeps
-- **Storage**: 5GB+ per major experiment
-- **Time**: ~2 minutes per parameter combination per session
+- **CPU**: Multi-core system (32+ cores recommended for full analysis)
+- **Memory**: 32GB+ for enhanced analysis with large parameter sweeps
+- **Storage**: 10GB+ per major experiment (enhanced data)
+- **Time**: ~3-4 minutes per parameter combination per session (enhanced analysis)
 
-### Software Dependencies
+### Extended Analysis Time
+Enhanced analysis includes:
+- 4 LZ-based complexity computations
+- Multiple coincidence measure calculations  
+- Pattern stability detection across 100 trials
+- Multi-resolution dimensionality analysis
+- Comprehensive firing rate statistics
+
+## Enhanced Troubleshooting
+
+### New Analysis-Specific Issues
+1. **PCI computation errors**: Check activation threshold (>1% activity required)
+2. **Pattern stability false positives**: Adjust `min_repeats` parameter
+3. **Dimensionality matrix errors**: Handled automatically with safe eigenvalue computation
+4. **High rate analysis**: Dynamic mode tested up to 1000Hz, immediate mode up to 500Hz
+
+### Enhanced Health Monitoring
+Extended monitoring for intensive computations:
+- **Complexity computation**: Memory usage tracking during LZ analysis
+- **Pattern detection**: CPU monitoring during stability search
+- **Dimensionality analysis**: Safe eigenvalue computation with fallbacks
+
+### Enhanced Testing
 ```bash
-pip install numpy scipy mpi4py psutil scikit-learn matplotlib
-```
-
-## Troubleshooting
-
-### Common Issues
-1. **MPI not found**: Install OpenMPI or MPICH
-2. **Memory errors**: Reduce `--n_neurons` or increase system RAM
-3. **File permissions**: Ensure scripts are executable (`chmod +x`)
-4. **Missing results**: Check MPI process completion in logs
-
-### Health Monitoring
-Built-in system monitoring with recovery breaks:
-- **Temperature**: Pauses if CPU > 90°C
-- **Memory**: Recovery if usage > 95%
-- **CPU**: Throttling if utilization > 98%
-
-### Testing
-```bash
-# Verify random structure implementation
-python tests/test_random_structure.py
+# Verify enhanced implementation
+python tests/test_comprehensive_structure.py
 
 # Should confirm:
-# ✓ Network structure depends on session_id AND parameters
-# ✓ Mean centering works for normal and uniform distributions  
-# ✓ Synaptic modes have fair impact normalization
-# ✓ Session averaging combines results correctly
+# ✓ All 4 LZ measures computed correctly
+# ✓ Kistler coincidence matches reference implementation  
+# ✓ Pattern stability detection functional
+# ✓ Multi-bin dimensionality analysis working
+# ✓ Extended firing rate analysis comprehensive
 ```
 
-## Expected Results
+## Expected Enhanced Results
 
-### Synaptic Mode Differences
-You should observe different chaos landscapes between immediate and dynamic synapses:
+### Complexity Measure Relationships
+You should observe systematic relationships between measures:
+- **LZ spatial < LZ flattened**: Spatial patterns more compressible
+- **PCI normalized ≈ 0.5-0.8**: For chaotic regimes
+- **PCI threshold < PCI normalized**: Activation filtering effect
 
-- **Dynamic synapses**: Smoother parameter dependence due to temporal filtering
-- **Immediate synapses**: Sharper transitions, potentially higher sensitivity
+### Coincidence Analysis Insights
+- **Kistler (2ms) > Kistler (5ms)**: Precision window effects
+- **Dynamic mode**: Generally higher temporal precision
+- **Immediate mode**: More variable coincidence patterns
 
-### Heterogeneity Effects
-- **Low heterogeneity**: More synchronized, lower dimensional dynamics
-- **High heterogeneity**: More chaotic, higher dimensional dynamics
-- **Distribution shape**: Normal vs uniform may show different sensitivity
+### Pattern Stability Signatures
+- **Low heterogeneity**: Higher stable pattern fraction
+- **High input rates**: Reduced pattern stability
+- **Dynamic synapses**: More stable long-term patterns
 
-### Session Variability
-Session averaging should reduce noise while preserving systematic parameter effects.
+### Multi-Resolution Dimensionality
+- **Fine bins (2ms)**: Highest dimensionality
+- **Medium bins (5ms)**: Intermediate dimensionality  
+- **Coarse bins (20ms)**: Population-level dimensionality
+
+### Extended Rate Range Effects
+- **50-200 Hz**: Linear firing rate increase
+- **200-500 Hz**: Saturation effects appear
+- **500-1000 Hz**: Dynamic mode maintains responsivity, immediate mode saturates
 
 ## Version History
 
+- **v2.1.0-enhanced-analysis**: 4 LZ measures, Kistler coincidence, pattern stability, multi-bin analysis
 - **v2.0.0-random-structure**: Random structure with synaptic mode comparison
 - **v1.0.0-fixed-structure**: Fixed topology with multiplier scaling  
 - **v0.x**: Initial development and testing
 
 ---
 
-**Key Innovation**: This framework provides the first systematic comparison of immediate vs. dynamic synaptic coupling effects on network chaos with proper impact normalization, enabling clean separation of temporal dynamics from coupling strength effects.
+**Key Innovation**: This framework provides comprehensive complexity quantification with official PCI implementation, Kistler coincidence analysis, pattern stability detection, and multi-resolution dimensionality analysis, enabling deep characterization of chaotic dynamics in heterogeneous spiking networks across temporal scales.
