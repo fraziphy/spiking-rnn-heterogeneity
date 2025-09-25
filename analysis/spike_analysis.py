@@ -274,45 +274,45 @@ def compute_activity_dimensionality(binary_matrix: np.ndarray,
         'total_variance': float(total_variance)
     }
 
-def compute_activity_dimensionality_multi_bin(binary_matrix: np.ndarray,
+def compute_activity_dimensionality_multi_bin(spikes: List[Tuple[float, int]],
+                                             num_neurons: int,
+                                             duration: float,
                                              bin_sizes: List[float] = [2.0, 5.0, 20.0],
                                              variance_threshold: float = 0.95) -> Dict[str, Dict[str, float]]:
     """
     Compute dimensionality of network activity using PCA with multiple bin sizes.
 
+    Creates fresh spike matrices at different temporal resolutions to capture
+    multi-scale dimensionality of neural population dynamics.
+
     Args:
-        binary_matrix: Binary spike matrix (neurons x time_bins)
-        bin_sizes: List of bin sizes to test in ms
-        variance_threshold: Fraction of variance to capture for effective dimensionality
+        spikes: List of (spike_time, neuron_id) tuples
+        num_neurons: Total number of neurons in the network
+        duration: Total duration of the recording in milliseconds
+        bin_sizes: List of bin sizes to test in milliseconds (default: [2.0, 5.0, 20.0])
+        variance_threshold: Fraction of variance to capture for effective dimensionality (default: 0.95)
 
     Returns:
-        Dictionary with dimensionality metrics for each bin size
+        Dictionary with dimensionality metrics for each bin size, formatted as:
+        {
+            'bin_2ms': {
+                'intrinsic_dimensionality': float,
+                'effective_dimensionality': float,
+                'participation_ratio': float,
+                'total_variance': float
+            },
+            'bin_5ms': { ... },
+            'bin_20ms': { ... }
+        }
     """
     results = {}
 
     for bin_size in bin_sizes:
-        # Rebin the matrix if needed
-        if bin_size != 2.0:  # Assuming input is at 2ms resolution
-            rebin_factor = int(bin_size / 2.0)
-            if rebin_factor > 1 and binary_matrix.shape[1] >= rebin_factor:
-                # Rebin by summing adjacent bins and clipping to 0/1
-                n_new_bins = binary_matrix.shape[1] // rebin_factor
-                rebinned_matrix = np.zeros((binary_matrix.shape[0], n_new_bins), dtype=int)
+        # Create fresh binary matrix at this temporal resolution
+        binary_matrix = spikes_to_binary(spikes, num_neurons, duration, bin_size)
 
-                for i in range(n_new_bins):
-                    start_idx = i * rebin_factor
-                    end_idx = min((i + 1) * rebin_factor, binary_matrix.shape[1])
-                    rebinned_matrix[:, i] = np.clip(
-                        np.sum(binary_matrix[:, start_idx:end_idx], axis=1), 0, 1
-                    )
-                matrix_to_use = rebinned_matrix
-            else:
-                matrix_to_use = binary_matrix
-        else:
-            matrix_to_use = binary_matrix
-
-        # Compute dimensionality for this bin size
-        dim_result = compute_activity_dimensionality(matrix_to_use, variance_threshold)
+        # Compute dimensionality metrics for this bin size
+        dim_result = compute_activity_dimensionality(binary_matrix, variance_threshold)
         results[f'bin_{bin_size:.0f}ms'] = dim_result
 
     return results
@@ -369,15 +369,12 @@ def kistler_coincidence_factor(spike_train1: List[float], spike_train2: List[flo
         expected_coinc = 0
 
     # Normalization factor N = 1 - 2*rate*delta
-    N = 1 - 2 * (rate_SRM * delta / 1000.0) if duration > 0 else 1  # Convert delta to seconds
+    N = 1 - expected_coinc / N_data
 
     # Compute Γ
-    if N > 0 and (N_data + N_SRM) > 0:
-        gamma = (N_coinc - expected_coinc) / (0.5 * (N_data + N_SRM) * N)
-    else:
-        gamma = 0.0
+    gamma = (N_coinc - expected_coinc) / (0.5 * (N_data + N_SRM) * N)
 
-    return max(0.0, min(1.0, gamma))  # Clamp between 0 and 1
+    return gamma
 
 def gamma_coincidence(spike_train1: List[float], spike_train2: List[float],
                      window_ms: float = 5.0) -> float:
@@ -724,11 +721,8 @@ def analyze_perturbation_response_enhanced(spikes_control: List[Tuple[float, int
     duration_post = simulation_end - perturbation_time
     spikes_control_post_full = [(t, n) for t, n in spikes_control if t >= perturbation_time]
 
-    control_binary = spikes_to_binary(spikes_control_post_full, num_neurons,
-                                    duration_post, bin_size=2.0)
-
     dimensionality_metrics = compute_activity_dimensionality_multi_bin(
-        control_binary, bin_sizes=[2.0, 5.0, 20.0]
+        spikes_control_post_full, num_neurons, duration_post, bin_sizes=[2.0, 5.0, 20.0]
     )
 
     # 7. Kistler coincidence analysis with multiple deltas
