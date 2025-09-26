@@ -7,24 +7,40 @@ This package contains high-level experiment classes that coordinate:
 - Parameter space exploration with direct heterogeneity values
 - Data collection with single session execution and session averaging
 - Synaptic mode comparison (immediate vs dynamic)
+
+Split into two main experiment types:
+- SpontaneousExperiment: Firing rates, dimensionality analysis, silent neurons
+- DynamicsExperiment: Perturbation response, coincidence measures, LZ complexity
 """
 
-from .chaos_experiment import (
-    ChaosExperiment,
-    create_parameter_grid,
-    save_results,
-    load_results,
-    average_across_sessions
+from .spontaneous_experiment import (
+    SpontaneousExperiment,
+    create_parameter_grid as spontaneous_create_parameter_grid,
+    save_results as spontaneous_save_results,
+    load_results as spontaneous_load_results,
+    average_across_sessions as spontaneous_average_across_sessions
+)
+
+from .stability_experiment import (
+    DynamicsExperiment,
+    create_parameter_grid as stability_create_parameter_grid,
+    save_results as stability_save_results,
+    load_results as stability_load_results,
+    average_across_sessions as stability_average_across_sessions
 )
 
 __all__ = [
-    'ChaosExperiment',
-    'create_parameter_grid',
-    'save_results',
-    'load_results',
-    'average_across_sessions'
-]
+    # Spontaneous activity
+    'SpontaneousExperiment',
+    'spontaneous_create_parameter_grid',
+    'spontaneous_save_results',
+    'spontaneous_load_results',
+    'spontaneous_average_across_sessions',
 
-# Future experiments will be added here:
-# from .encoding_experiment import EncodingExperiment
-# from .task_performance_experiment import TaskPerformanceExperiment
+    # Network stability
+    'DynamicsExperiment',
+    'stability_create_parameter_grid',
+    'stability_save_results',
+    'stability_load_results',
+    'stability_average_across_sessions'
+]

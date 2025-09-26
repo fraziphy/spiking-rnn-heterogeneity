@@ -1,7 +1,8 @@
 # setup.py
 """
-Setup configuration for Spiking RNN Heterogeneity Framework v2.1.0
-Enhanced complexity analysis with 4 LZ measures, Kistler coincidence, and pattern stability.
+Setup configuration for Spiking RNN Heterogeneity Framework v3.0.0
+Split experiments architecture: spontaneous activity + network stability analysis
+Enhanced connectivity (25), optimized coincidence calculation, randomized job distribution
 """
 
 from setuptools import setup, find_packages
@@ -14,7 +15,7 @@ def read_readme():
         with open(readme_path, 'r', encoding='utf-8') as f:
             return f.read()
     except FileNotFoundError:
-        return "Enhanced framework for studying chaos and complexity in heterogeneous spiking neural networks with comprehensive analysis tools"
+        return "Split experiments framework for studying spontaneous activity and network stability in heterogeneous spiking neural networks"
 
 # Read requirements from requirements.txt
 def read_requirements():
@@ -29,7 +30,7 @@ def read_requirements():
                     requirements.append(line)
             return requirements
     except FileNotFoundError:
-        # Fallback requirements for enhanced analysis
+        # Fallback requirements for split experiments
         return [
             "numpy>=1.20.0",
             "scipy>=1.7.0",
@@ -40,9 +41,9 @@ def read_requirements():
 
 setup(
     name="spiking-rnn-heterogeneity",
-    version="2.1.0",
+    version="3.0.0",
 
-    description="Enhanced framework for chaos and complexity analysis in heterogeneous spiking neural networks",
+    description="Split experiments framework: spontaneous activity + network stability analysis for heterogeneous spiking networks",
     long_description=read_readme(),
     long_description_content_type="text/markdown",
 
@@ -62,7 +63,7 @@ setup(
         'results': ['*.pkl', '*.json'],
     },
 
-    # Dependencies for enhanced analysis
+    # Dependencies for split experiments
     python_requires=">=3.8",
     install_requires=read_requirements(),
 
@@ -84,9 +85,9 @@ setup(
             "h5py>=3.0.0",
             "plotly>=5.0.0",
         ],
-        "enhanced": [
-            # Additional packages for enhanced complexity analysis
-            "numba>=0.56.0",  # JIT compilation for fast LZ computation
+        "optimized": [
+            # Additional packages for optimized computation
+            "numba>=0.56.0",  # JIT compilation for fast LZ and coincidence computation
             "joblib>=1.1.0",  # Parallel processing for pattern analysis
             "tqdm>=4.62.0",   # Progress bars for long computations
         ],
@@ -117,16 +118,17 @@ setup(
         ]
     },
 
-    # Entry points for enhanced command-line tools
+    # Entry points for split experiment command-line tools
     entry_points={
         'console_scripts': [
             'spiking-rnn-test=tests.test_installation:main',
             'spiking-rnn-structure-test=tests.test_comprehensive_structure:run_all_comprehensive_tests',
-            'spiking-rnn-chaos=runners.mpi_chaos_runner:main',
+            'spiking-rnn-spontaneous=runners.mpi_spontaneous_runner:main',
+            'spiking-rnn-stability=runners.mpi_stability_runner:main',
         ],
     },
 
-    # Project classification for enhanced framework
+    # Project classification for split experiments framework
     classifiers=[
         # Development Status
         "Development Status :: 5 - Production/Stable",
@@ -136,7 +138,7 @@ setup(
         "Intended Audience :: Education",
         "Intended Audience :: Developers",
 
-        # Topic - Enhanced categories
+        # Topic - Split experiments categories
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
         "Topic :: Scientific/Engineering :: Bio-Informatics",
         "Topic :: Scientific/Engineering :: Physics",
@@ -166,42 +168,50 @@ setup(
         "Environment :: GPU",
     ],
 
-    # Enhanced keywords for PyPI discovery
+    # Keywords for PyPI discovery - split experiments focus
     keywords=[
-        # Core concepts
+        # Core split experiments concepts
         "spiking neural networks",
-        "chaos theory",
+        "spontaneous activity analysis",
+        "network stability analysis",
         "heterogeneity",
         "computational neuroscience",
-        "network dynamics",
+        "split experiments",
 
-        # Enhanced analysis features
-        "lempel-ziv complexity",
-        "perturbational complexity index",
-        "pci",
-        "kistler coincidence",
-        "pattern stability",
+        # Spontaneous activity features
+        "firing rate analysis",
         "dimensionality analysis",
+        "silent neurons",
+        "multi-bin analysis",
         "participation ratio",
 
-        # Technical features
-        "mpi parallelization",
+        # Network stability features
         "perturbation analysis",
-        "synaptic dynamics",
-        "firing rate analysis",
-        "temporal precision",
-        "multi-resolution analysis",
+        "lempel-ziv complexity",
+        "coincidence analysis",
+        "kistler coincidence",
+        "gamma coincidence",
+        "pattern stability",
+        "hamming distance",
+
+        # Technical optimizations
+        "optimized coincidence",
+        "unified calculation",
+        "enhanced connectivity",
+        "randomized jobs",
+        "cpu load balancing",
+        "mpi parallelization",
 
         # Research applications
         "chaos quantification",
         "neural complexity",
-        "network topology",
+        "network dynamics",
         "spatiotemporal patterns",
-        "consciousness research",
+        "synaptic dynamics",
         "brain dynamics",
     ],
 
-    # Enhanced project URLs
+    # Project URLs for split experiments
     project_urls={
         "Documentation": "https://github.com/yourusername/spiking-rnn-heterogeneity/wiki",
         "Bug Reports": "https://github.com/yourusername/spiking-rnn-heterogeneity/issues",
@@ -210,12 +220,14 @@ setup(
         "Changelog": "https://github.com/yourusername/spiking-rnn-heterogeneity/blob/main/CHANGELOG.md",
         "Research Paper": "https://doi.org/your-paper-doi",
         "Examples": "https://github.com/yourusername/spiking-rnn-heterogeneity/tree/main/examples",
+        "Spontaneous Analysis Guide": "https://github.com/yourusername/spiking-rnn-heterogeneity/wiki/Spontaneous-Activity",
+        "Stability Analysis Guide": "https://github.com/yourusername/spiking-rnn-heterogeneity/wiki/Network-Stability",
     },
 
     # Package metadata
     zip_safe=False,
 
-    # Additional metadata for enhanced framework
+    # Additional metadata for split experiments framework
     platforms=["any"],
     license="MIT",
 )

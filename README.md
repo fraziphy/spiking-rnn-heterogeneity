@@ -1,13 +1,19 @@
-# Spiking RNN Heterogeneity Framework - Enhanced Complexity Analysis
+# Spiking RNN Heterogeneity Framework - Split Experiments Architecture
 
-A comprehensive framework for studying chaos and network dynamics in heterogeneous spiking recurrent neural networks with **enhanced complexity measures**, **Kistler coincidence analysis**, **pattern stability detection**, and **multi-dimensional analysis**.
+A comprehensive framework for studying **spontaneous activity** and **network stability** in heterogeneous spiking recurrent neural networks with **optimized coincidence analysis**, **enhanced connectivity strength**, and **randomized job distribution for CPU load balancing**.
 
 ## Key Architecture Features
+
+### Split Experiments Design
+- **Spontaneous Activity Analysis**: Firing rates, dimensionality (6 bin sizes), silent neurons
+- **Network Stability Analysis**: Perturbation response, LZ spatial complexity, coincidence measures
+- **Enhanced static Poisson connectivity**: Strength 25 (up from 1)
+- **Optimized coincidence calculation**: Single loop for both Kistler and Gamma measures
 
 ### Random Structure with Parameter Dependence
 - **Network topology depends on `session_id` AND parameter values**
 - Different connectivity patterns for each (session, v_th_std, g_std) combination
-- Enables systematic study across multiple network realizations
+- **Randomized job distribution**: Prevents CPU load imbalance
 
 ### Mean-Centered Heterogeneity
 - **Direct heterogeneity values**: `v_th_std` and `g_std` (0.0-4.0 range)
@@ -19,16 +25,11 @@ A comprehensive framework for studying chaos and network dynamics in heterogeneo
 - **Immediate synapses**: Instantaneous coupling (like previous studies)
 - **Impact normalization**: Immediate weights scaled by τ_syn/dt for fair comparison
 
-### Enhanced Complexity Analysis
-- **4 LZ-based measures**: Matrix flattened, spatial patterns, PCI variants
-- **Kistler coincidence factor**: Official formula with multiple precision windows
-- **Pattern stability detection**: Identifies repeating spatiotemporal patterns
-- **Multi-bin dimensionality**: Participation ratio at 2ms, 5ms, 20ms resolutions
-
-### Session Averaging for Robustness
-- **Single session execution**: Efficient MPI parallelization
-- **Multi-session studies**: Average results across network realizations
-- **Statistical robustness**: 100 trials × N sessions per parameter combination
+### Optimized Analysis Features
+- **Unified coincidence calculation**: Single loop computes both Kistler and Gamma
+- **No PCI measures**: Removed pci_raw, pci_normalized, pci_with_threshold
+- **No lz_matrix_flattened**: Streamlined to LZ spatial patterns only
+- **Extended dimensionality bins**: 0.1ms, 2ms, 5ms, 20ms, 50ms, 100ms
 
 ## Project Structure
 
@@ -37,49 +38,56 @@ spiking_rnn_heterogeneity/
 ├── src/                           # Core neural network modules
 │   ├── rng_utils.py               # Parameter-dependent RNG
 │   ├── lif_neuron.py              # Mean-centered LIF neurons
-│   ├── synaptic_model.py          # Immediate vs dynamic synapses
+│   ├── synaptic_model.py          # Enhanced connectivity strength (25)
 │   └── spiking_network.py         # Complete RNN with mode selection
-├── analysis/                      # Enhanced analysis tools  
-│   └── spike_analysis.py          # 4 LZ measures + Kistler + PCI
-├── experiments/                   # Experiment coordination
-│   └── chaos_experiment.py        # Single session + averaging
+├── analysis/                      # Split analysis modules  
+│   ├── spontaneous_analysis.py    # Firing rates + dimensionality (6 bins)
+│   └── stability_analysis.py      # LZ spatial + optimized coincidence
+├── experiments/                   # Split experiment coordination
+│   ├── spontaneous_experiment.py  # Duration parameter + firing analysis
+│   └── stability_experiment.py    # Perturbation response + stability
 ├── runners/                       # Execution scripts
-│   ├── mpi_chaos_runner.py        # MPI enhanced runner
-│   └── run_chaos_experiment.sh    # Session coordination script
+│   ├── mpi_spontaneous_runner.py  # MPI spontaneous activity runner
+│   ├── mpi_stability_runner.py    # MPI network stability runner
+│   ├── run_spontaneous_experiment.sh    # Spontaneous activity script
+│   └── run_stability_experiment.sh      # Network stability script
 ├── tests/                         # Testing framework
 │   ├── test_installation.py       # Installation verification
 │   └── test_comprehensive_structure.py  # Structure validation
 └── results/data/                  # Experiment outputs
 ```
 
-## Enhanced Analysis Features
+## Split Analysis Features
 
-### Four LZ-based Complexity Measures
-1. **LZ Matrix Flattened**: Original approach using flattened difference matrix
-2. **LZ Spatial Patterns**: Complexity of spatial pattern sequences
-3. **PCI Raw**: Perturbational Complexity Index without normalization
-4. **PCI Normalized**: PCI with entropy normalization (Casali et al.)
+### Spontaneous Activity Analysis
+**Duration-based simulation with comprehensive statistics:**
+- **Firing rate analysis**: Mean, std, min, max firing rates
+- **Silent neuron analysis**: Percentage of silent/active neurons
+- **6-bin dimensionality analysis**: 0.1ms, 2ms, 5ms, 20ms, 50ms, 100ms temporal resolutions
+- **Participation ratio**: Network-wide activity distribution
+- **10 trials per combination**: Efficient for steady-state measures
 
-### Coincidence Analysis
-- **Kistler Coincidence Factor**: Official Γ formula with 2ms and 5ms precision windows
-- **Enhanced Gamma Coincidence**: Multiple window sizes (5ms, 10ms) for comparison
-- **Network-wide averaging**: Statistics across all neurons
+### Network Stability Analysis  
+**Perturbation response with optimized computation:**
+- **LZ spatial patterns**: Complexity of spatial pattern sequences only
+- **Optimized coincidence**: Single-loop calculation for Kistler + Gamma measures
+- **Hamming distance slopes**: Perturbation divergence analysis
+- **Pattern stability detection**: Identifies repeating spatiotemporal patterns
+- **100 trials per combination**: Comprehensive sampling for dynamics
 
-### Pattern Stability Detection
+### Enhanced Connectivity
 ```python
-# Identifies repeating patterns in neural dynamics
-stable_info = {
-    'period': 3,           # Pattern repeats every 3 time steps
-    'repeats': 5,          # Pattern repeats 5 times
-    'onset_time': 120,     # Pattern starts at t=120ms
-    'pattern': [1, 0, 1]   # The repeating pattern
-}
+# Enhanced static Poisson connectivity
+static_input_strength = 25.0  # Up from 1.0
 ```
 
-### Multi-Resolution Dimensionality
-- **2ms bins**: High temporal resolution for fast dynamics
-- **5ms bins**: Intermediate resolution matching refractory period
-- **20ms bins**: Coarse resolution for slow population dynamics
+### Optimized Coincidence Calculation
+```python
+# Single loop computes both measures efficiently
+kistler_factor, gamma_factor = unified_coincidence_factor(
+    spikes1, spikes2, delta=2.0, duration=100.0
+)
+```
 
 ## Quick Start
 
@@ -92,255 +100,272 @@ pip install numpy scipy mpi4py psutil
 # Install MPI (Ubuntu/Debian)
 sudo apt-get install openmpi-bin openmpi-dev
 
-# Test enhanced installation
+# Test split experiments installation
 python tests/test_installation.py
 python tests/test_comprehensive_structure.py
 ```
 
-### 2. Run Enhanced Experiments
+### 2. Run Split Experiments
 
-**Quick test with enhanced analysis:**
+**Spontaneous Activity Analysis (with duration parameter):**
 ```bash
-chmod +x runners/run_chaos_experiment.sh
-./runners/run_chaos_experiment.sh --session_ids "1" --n_v_th 3 --n_g 3 --no_average --nproc 4
+chmod +x runners/run_spontaneous_experiment.sh
+
+# Quick 2-second spontaneous activity test
+./runners/run_spontaneous_experiment.sh --duration 2 --session_ids "1" --n_v_th 3 --n_g 3 --nproc 4
+
+# Long 10-second analysis for detailed statistics  
+./runners/run_spontaneous_experiment.sh --duration 10 --session_ids "1 2 3" --n_v_th 10 --n_g 10
 ```
 
-**Compare synaptic modes with full analysis:**
+**Network Stability Analysis (perturbation response):**
 ```bash
-# Test immediate synapses
-./runners/run_chaos_experiment.sh --synaptic_mode immediate --session_ids "1 2 3" --n_v_th 5 --n_g 5 --input_rate_max 1000
+chmod +x runners/run_stability_experiment.sh
 
-# Test dynamic synapses with extended rates
-./runners/run_chaos_experiment.sh --synaptic_mode dynamic --session_ids "1 2 3" --n_v_th 5 --n_g 5 --input_rate_max 1000
+# Quick stability test with randomized jobs
+./runners/run_stability_experiment.sh --session_ids "1" --n_v_th 3 --n_g 3 --nproc 4
+
+# Full stability study with session averaging
+./runners/run_stability_experiment.sh --session_ids "1 2 3 4 5" --n_v_th 20 --n_g 20
 ```
 
-**Full enhanced heterogeneity study:**
+**Compare Synaptic Modes:**
 ```bash
-./runners/run_chaos_experiment.sh --session_ids "1 2 3 4 5" --n_v_th 20 --n_g 20 --v_th_std_max 2.0 --g_std_max 2.0 --input_rate_max 1000 --nproc 50
+# Test immediate synapses for both experiments
+./runners/run_spontaneous_experiment.sh --synaptic_mode immediate --duration 5
+./runners/run_stability_experiment.sh --synaptic_mode immediate
+
+# Test dynamic synapses for both experiments  
+./runners/run_spontaneous_experiment.sh --synaptic_mode dynamic --duration 5
+./runners/run_stability_experiment.sh --synaptic_mode dynamic
 ```
 
-**Test different threshold distributions:**
+### 3. Monitor Experiment Progress
+
+**Spontaneous Activity Progress:**
 ```bash
-./runners/run_chaos_experiment.sh --v_th_distributions "normal uniform" --session_ids "1 2 3"
+# Monitor spontaneous activity analysis
+tail -f output_spontaneous.log
+
+# Shows:
+# Mean firing rate: 15.2±2.3 Hz
+# Silent neurons: 23.5±4.1%
+# Dimensionality (5ms): 12.3±1.8
+# Total spikes: 8,450±1,200
 ```
 
-### 3. Enhanced Progress Monitoring
+**Network Stability Progress:**
+```bash  
+# Monitor stability analysis with optimized measures
+tail -f output_stability.log
 
-```bash
-# Follow enhanced experiment progress with detailed metrics
-tail -f output_run_chaos_experiment.log
-
-# Monitor shows all new measures:
-# LZ (flattened): 45.2±3.1
+# Shows:
 # LZ (spatial): 23.4±2.8  
-# PCI (normalized): 0.67±0.12
-# Kistler (2ms): 0.34±0.08
-# Silent neurons: 23.5%
-# Stable patterns: 0.15
+# Hamming slope: 0.0034±0.0012
+# Kistler (2ms): 0.34±0.08 (optimized calculation)
+# Stable patterns: 0.15±0.05
 ```
 
-## Enhanced Parameter Specification
+## Split Experiment Parameters
 
-### Core Parameters
-- `--session_ids`: Space-separated session IDs for averaging (e.g., "1 2 3")
-- `--n_v_th`: Number of spike threshold heterogeneity values (default: 10)
-- `--n_g`: Number of synaptic weight heterogeneity values (default: 10)
-- `--nproc`: Number of MPI processes (default: 50)
+### Spontaneous Activity Parameters
+- `--duration`: Simulation duration in seconds (auto-converts to milliseconds)
+- `--session_ids`: Sessions for network averaging (e.g., "1 2 3")
+- **6 dimensionality bin sizes**: Automatic analysis at all temporal resolutions
+- **10 trials per combination**: Efficient for steady-state measures
 
-### Extended Input Range
-- `--input_rate_min/max`: Background input range (default: 50-1000 Hz for dynamic mode)
-- **Dynamic synapses**: Tested up to 1000 Hz for high-activity regimes
-- **Immediate synapses**: Tested up to 500 Hz for stability
+### Network Stability Parameters  
+- `--session_ids`: Sessions for perturbation averaging (e.g., "1 2 3")
+- **100 trials per combination**: Comprehensive perturbation sampling
+- **Optimized coincidence**: Single-loop Kistler + Gamma calculation
+- **Randomized job distribution**: Automatic CPU load balancing
 
-### Enhanced Analysis Control
-- **2ms binning**: Default for all spike matrices (matches refractory period)
-- **Multiple coincidence windows**: Automatic testing of different temporal precisions
-- **Pattern stability**: Automatic detection with configurable minimum repeats
+### Common Parameters
+- `--n_v_th/--n_g`: Heterogeneity grid sizes (default: 10x10)
+- `--synaptic_mode`: "immediate" or "dynamic" synaptic coupling
+- `--input_rate_min/max`: Background input range (enhanced: 50-1000 Hz)
+- `--nproc`: MPI processes (default: 50)
 
 ## Scientific Innovation
 
-### Enhanced Complexity Quantification
-The framework now implements the official **Perturbational Complexity Index (PCI)** from Casali et al.:
+### CPU Load Balancing
+**Problem solved**: Easy parameter combinations (low rates, low heterogeneity) finish much faster than hard ones, causing CPU imbalance.
 
-```
-PCI = c_L(t = L₂) × log₂ L / (L × H(L))
-```
-
-Where:
-- `c_L`: Lempel-Ziv complexity of spatial patterns
-- `L`: Total spatiotemporal samples
-- `H(L)`: Source entropy of the binary matrix
-- **Activation threshold**: Only computed when >1% of samples are active
-
-### Kistler Coincidence Factor
-Implementation of the official coincidence factor from Kistler et al. (1997):
-
-```
-Γ = (N_coinc - ⟨N_coinc⟩) / (½(N_data + N_SRM) × N)
-```
-
-Where:
-- `N_coinc`: Observed coincidences within precision Δ
-- `⟨N_coinc⟩`: Expected coincidences for Poisson process
-- `N`: Normalization factor (1 - 2νΔ)
-
-### Pattern Stability Analysis
-Novel detection of stable spatiotemporal patterns:
-- **High complexity + stable patterns**: Initial complexity that settles
-- **Low complexity + stable patterns**: Network quickly reaches steady state
-- **High complexity + no patterns**: True ongoing complexity
-- **Low complexity + no patterns**: Minimal response to perturbation
-
-### Multi-Resolution Dimensionality
-Analysis across temporal scales reveals:
-- **Fine-scale (2ms)**: Individual spike precision
-- **Medium-scale (5ms)**: Population synchronization
-- **Coarse-scale (20ms)**: Slow population dynamics
-
-## Enhanced Data Analysis
-
-### Loading Enhanced Results
+**Solution**: Jobs are randomized before MPI distribution, ensuring each CPU gets a mix of easy/hard combinations.
 
 ```python
+# Randomize job order for better CPU load balancing  
+random.shuffle(all_combinations)
+print(f"Job order: RANDOMIZED for load balancing")
+```
+
+### Enhanced Connectivity Analysis
+**Static Poisson strength increased from 1.0 to 25.0:**
+- More realistic background drive
+- Better network activation across parameter ranges
+- Clearer differentiation between heterogeneity effects
+
+### Optimized Coincidence Computation
+**Before**: Two separate loops for Kistler and Gamma coincidence
+**Now**: Single unified loop computes both measures simultaneously
+
+```python
+# Old approach - duplicate computation
+kistler = kistler_coincidence_factor(spikes1, spikes2, delta=2.0)
+gamma = gamma_coincidence(spikes1, spikes2, window=2.0)
+
+# New approach - unified computation  
+kistler, gamma = unified_coincidence_factor(spikes1, spikes2, delta=2.0)
+```
+
+### Extended Dimensionality Analysis
+**6 temporal bin sizes** for comprehensive multi-scale analysis:
+- **0.1ms**: Individual spike precision
+- **2ms**: Refractory period scale  
+- **5ms**: Synaptic time scale
+- **20ms**: Population synchronization
+- **50ms**: Slow population dynamics
+- **100ms**: Network-wide integration
+
+## Data Analysis
+
+### Loading Split Experiment Results
+
+**Spontaneous Activity Results:**
+```python
 import pickle
-import numpy as np
 
-# Load enhanced results
-with open('results/data/chaos_enhanced_session_1_dynamic.pkl', 'rb') as f:
-    results = pickle.load(f)
+# Load spontaneous activity analysis
+with open('results/data/spontaneous_session_1_dynamic.pkl', 'rb') as f:
+    spontaneous_results = pickle.load(f)
 
-for result in results:
-    # Enhanced complexity measures
-    lz_flattened = result['lz_matrix_flattened_mean']
-    lz_spatial = result['lz_spatial_patterns_mean']
-    pci_normalized = result['pci_normalized_mean']
-    pci_threshold = result['pci_with_threshold_mean']
+for result in spontaneous_results:
+    # Duration and firing statistics
+    duration = result['duration']  # Duration in milliseconds
+    mean_rate = result['mean_firing_rate_mean']
+    silent_pct = result['percent_silent_mean']
     
-    # Coincidence measures  
+    # Multi-bin dimensionality  
+    dim_0_1ms = result['effective_dimensionality_bin_0.1ms_mean']
+    dim_2ms = result['effective_dimensionality_bin_2.0ms_mean']
+    dim_5ms = result['effective_dimensionality_bin_5.0ms_mean']
+    dim_20ms = result['effective_dimensionality_bin_20.0ms_mean']
+    dim_50ms = result['effective_dimensionality_bin_50.0ms_mean']
+    dim_100ms = result['effective_dimensionality_bin_100.0ms_mean']
+    
+    print(f"Duration {duration}ms: {mean_rate:.1f}Hz, {silent_pct:.1f}% silent")
+    print(f"Dimensionality: {dim_0_1ms:.1f} → {dim_5ms:.1f} → {dim_50ms:.1f}")
+```
+
+**Network Stability Results:**
+```python
+# Load network stability analysis  
+with open('results/data/stability_session_1_dynamic.pkl', 'rb') as f:
+    stability_results = pickle.load(f)
+
+for result in stability_results:
+    # Optimized stability measures (no PCI, no lz_matrix_flattened)
+    lz_spatial = result['lz_spatial_patterns_mean']
+    hamming_slope = result['hamming_slope_mean']  # Note: singular, not plural
+    
+    # Optimized coincidence measures
     kistler_2ms = result['kistler_delta_2ms_mean']
-    kistler_5ms = result['kistler_delta_5ms_mean']
+    kistler_5ms = result['kistler_delta_5ms_mean']  
+    gamma_2ms = result['gamma_window_2ms_mean']
     gamma_5ms = result['gamma_window_5ms_mean']
-    gamma_10ms = result['gamma_window_10ms_mean']
     
     # Pattern stability
     stable_fraction = result['stable_pattern_fraction']
-    stable_period = result['stable_period_mean']
     
-    # Multi-bin dimensionality
-    participation_2ms = result['participation_ratio_bin_2ms_mean']
-    participation_5ms = result['participation_ratio_bin_5ms_mean']  
-    participation_20ms = result['participation_ratio_bin_20ms_mean']
-    
-    # Firing rate analysis
-    silent_percent = result['control_percent_silent_mean']
-    mean_rate = result['control_mean_firing_rate_mean']
+    print(f"LZ spatial: {lz_spatial:.1f}, Hamming: {hamming_slope:.4f}")
+    print(f"Kistler: {kistler_2ms:.3f}, Gamma: {gamma_2ms:.3f}")
+    print(f"Stable patterns: {stable_fraction:.3f}")
 ```
 
-### Enhanced Synaptic Mode Comparison
+### Cross-Experiment Comparison
 
 ```python
-# Compare all enhanced measures between modes
-for param_combo in zip(immediate_results, dynamic_results):
-    imm, dyn = param_combo
+# Compare spontaneous vs stability measures
+for spont, stab in zip(spontaneous_results, stability_results):
+    v_th = spont['v_th_std']
+    g = spont['g_std']
     
-    print(f"v_th={imm['v_th_std']:.1f}, g={imm['g_std']:.1f}")
-    print(f"  LZ spatial:    {imm['lz_spatial_patterns_mean']:.1f} vs {dyn['lz_spatial_patterns_mean']:.1f}")
-    print(f"  PCI:           {imm['pci_normalized_mean']:.3f} vs {dyn['pci_normalized_mean']:.3f}")
-    print(f"  Kistler (2ms): {imm['kistler_delta_2ms_mean']:.3f} vs {dyn['kistler_delta_2ms_mean']:.3f}")
-    print(f"  Stable patterns: {imm['stable_pattern_fraction']:.3f} vs {dyn['stable_pattern_fraction']:.3f}")
-    print()
+    # Spontaneous measures
+    firing_rate = spont['mean_firing_rate_mean']
+    dimensionality = spont['effective_dimensionality_bin_5.0ms_mean']
+    
+    # Stability measures  
+    lz_complexity = stab['lz_spatial_patterns_mean']
+    coincidence = stab['kistler_delta_2ms_mean']
+    
+    print(f"v_th={v_th:.1f}, g={g:.1f}:")
+    print(f"  Spontaneous: {firing_rate:.1f}Hz, {dimensionality:.1f}D")
+    print(f"  Stability: LZ={lz_complexity:.1f}, Γ={coincidence:.3f}")
 ```
 
-### Firing Rate Onset Analysis
-
-```python
-# Analyze network activation thresholds
-for result in results:
-    input_rate = result['static_input_rate']
-    silent_pct = result['control_percent_silent_mean']
-    mean_rate = result['control_mean_firing_rate_mean']
-    
-    print(f"Input {input_rate:.0f}Hz: {silent_pct:.1f}% silent, {mean_rate:.2f}Hz mean")
-```
-
-## Enhanced System Requirements
+## System Requirements
 
 ### Computational Resources
-- **CPU**: Multi-core system (32+ cores recommended for full analysis)
-- **Memory**: 32GB+ for enhanced analysis with large parameter sweeps
-- **Storage**: 10GB+ per major experiment (enhanced data)
-- **Time**: ~3-4 minutes per parameter combination per session (enhanced analysis)
+- **CPU**: Multi-core system (32+ cores recommended)
+- **Memory**: 16GB+ (spontaneous), 32GB+ (stability with 100 trials)
+- **Storage**: 5GB+ per major experiment
+- **Time**: 
+  - Spontaneous: ~30s per combination per session
+  - Stability: ~2min per combination per session (optimized)
 
-### Extended Analysis Time
-Enhanced analysis includes:
-- 4 LZ-based complexity computations
-- Multiple coincidence measure calculations  
-- Pattern stability detection across 100 trials
-- Multi-resolution dimensionality analysis
-- Comprehensive firing rate statistics
+### Load Balancing Benefits
+- **Old approach**: Some CPUs finish 10x faster than others
+- **New approach**: Randomized jobs ensure even CPU utilization
+- **Speedup**: 2-3x faster completion for mixed parameter ranges
 
 ## Enhanced Troubleshooting
 
-### New Analysis-Specific Issues
-1. **PCI computation errors**: Check activation threshold (>1% activity required)
-2. **Pattern stability false positives**: Adjust `min_repeats` parameter
-3. **Dimensionality matrix errors**: Handled automatically with safe eigenvalue computation
-4. **High rate analysis**: Dynamic mode tested up to 1000Hz, immediate mode up to 500Hz
+### Split Experiment Issues
+1. **Duration conversion**: Automatically converts seconds to milliseconds
+2. **Field name consistency**: All arrays use `_values` suffix, stats use `_mean`
+3. **Static connectivity**: Should show 25.0, not 1.0
+4. **Optimized coincidence**: Single loop computes both Kistler and Gamma
 
-### Enhanced Health Monitoring
-Extended monitoring for intensive computations:
-- **Complexity computation**: Memory usage tracking during LZ analysis
-- **Pattern detection**: CPU monitoring during stability search
-- **Dimensionality analysis**: Safe eigenvalue computation with fallbacks
-
-### Enhanced Testing
+### Testing Split Framework
 ```bash
-# Verify enhanced implementation
+# Verify split experiments implementation
+python tests/test_installation.py
 python tests/test_comprehensive_structure.py
 
 # Should confirm:
-# ✓ All 4 LZ measures computed correctly
-# ✓ Kistler coincidence matches reference implementation  
-# ✓ Pattern stability detection functional
-# ✓ Multi-bin dimensionality analysis working
-# ✓ Extended firing rate analysis comprehensive
+# ✓ Spontaneous analysis with 6 bin sizes
+# ✓ Stability analysis without PCI measures
+# ✓ Enhanced static connectivity (25.0)  
+# ✓ Optimized coincidence calculation
+# ✓ Randomized job distribution
 ```
 
-## Expected Enhanced Results
+## Expected Results
 
-### Complexity Measure Relationships
-You should observe systematic relationships between measures:
-- **LZ spatial < LZ flattened**: Spatial patterns more compressible
-- **PCI normalized ≈ 0.5-0.8**: For chaotic regimes
-- **PCI threshold < PCI normalized**: Activation filtering effect
+### Spontaneous Activity Patterns
+- **Low heterogeneity**: High firing rates, low dimensionality
+- **High heterogeneity**: Variable firing rates, higher dimensionality
+- **Multi-bin trends**: Dimensionality decreases with larger bin sizes
+- **Duration effects**: Longer simulations give more stable statistics
 
-### Coincidence Analysis Insights
-- **Kistler (2ms) > Kistler (5ms)**: Precision window effects
-- **Dynamic mode**: Generally higher temporal precision
-- **Immediate mode**: More variable coincidence patterns
+### Network Stability Signatures  
+- **Low heterogeneity**: Simple spatial patterns, high coincidence
+- **High heterogeneity**: Complex spatial patterns, low coincidence  
+- **Dynamic vs immediate**: Dynamic shows more temporal structure
+- **Pattern stability**: More stable at low heterogeneity
 
-### Pattern Stability Signatures
-- **Low heterogeneity**: Higher stable pattern fraction
-- **High input rates**: Reduced pattern stability
-- **Dynamic synapses**: More stable long-term patterns
-
-### Multi-Resolution Dimensionality
-- **Fine bins (2ms)**: Highest dimensionality
-- **Medium bins (5ms)**: Intermediate dimensionality  
-- **Coarse bins (20ms)**: Population-level dimensionality
-
-### Extended Rate Range Effects
-- **50-200 Hz**: Linear firing rate increase
-- **200-500 Hz**: Saturation effects appear
-- **500-1000 Hz**: Dynamic mode maintains responsivity, immediate mode saturates
+### CPU Load Balancing Effects
+- **Randomized jobs**: Even CPU utilization across processes
+- **Completion time**: 2-3x faster than ordered job distribution
+- **Resource usage**: More consistent memory and CPU usage patterns
 
 ## Version History
 
-- **v2.1.0-enhanced-analysis**: 4 LZ measures, Kistler coincidence, pattern stability, multi-bin analysis
+- **v3.0.0-split-experiments**: Split architecture (spontaneous + stability), enhanced connectivity (25), optimized coincidence, randomized jobs
+- **v2.1.0-enhanced-analysis**: 4 LZ measures, Kistler coincidence, pattern stability, multi-bin analysis  
 - **v2.0.0-random-structure**: Random structure with synaptic mode comparison
-- **v1.0.0-fixed-structure**: Fixed topology with multiplier scaling  
-- **v0.x**: Initial development and testing
+- **v1.0.0-fixed-structure**: Fixed topology with multiplier scaling
 
 ---
 
-**Key Innovation**: This framework provides comprehensive complexity quantification with official PCI implementation, Kistler coincidence analysis, pattern stability detection, and multi-resolution dimensionality analysis, enabling deep characterization of chaotic dynamics in heterogeneous spiking networks across temporal scales.
+**Key Innovation**: Split experiments architecture separates spontaneous activity analysis (firing rates, 6-bin dimensionality) from network stability analysis (perturbation response, optimized coincidence), with enhanced connectivity strength (25), unified coincidence calculation, and randomized job distribution for optimal CPU load balancing.

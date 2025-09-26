@@ -71,7 +71,7 @@ class SpikingRNN:
         )
 
         # Initialize static Poisson input
-        self.static_input.initialize_parameters(static_input_strength)
+        self.static_input.initialize_parameters(kwargs.get('static_input_strength', 25.0))
 
         # Initialize dynamic Poisson input (structure depends on session + parameters)
         self.dynamic_input.initialize_connectivity(
@@ -158,7 +158,7 @@ class SpikingRNN:
                                  duration: float, static_input_rate: float = 0.0,
                                  perturbation_time: float = None,
                                  perturbation_neuron: int = None) -> List[Tuple[float, int]]:
-        """Run simulation for network dynamics study."""
+        """Run simulation for network stability study."""
         # Reset simulation with trial-dependent initialization
         self.reset_simulation(session_id, v_th_std, g_std, trial_id)
 
@@ -172,7 +172,7 @@ class SpikingRNN:
                 if perturbation_neuron is not None:
                     self.inject_perturbation(perturbation_neuron)
 
-            # Execute time step (only static input for network dynamics)
+            # Execute time step (only static input for network stability)
             self.step(session_id, v_th_std, g_std, trial_id,
                      static_input_rate=static_input_rate,
                      dynamic_input_rates=None)

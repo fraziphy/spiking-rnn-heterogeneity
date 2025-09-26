@@ -1,6 +1,6 @@
-# src/synaptic_model.py - Fixed with mean centering and clean structure
+# src/synaptic_model.py - Updated with connectivity strength 25 for static Poisson
 """
-Synaptic model with immediate vs dynamic modes, mean centering, and normalized synaptic impact.
+Synaptic model with immediate vs dynamic modes and enhanced static Poisson connectivity.
 """
 
 import numpy as np
@@ -139,7 +139,7 @@ class ExponentialSynapses:
         }
 
 class StaticPoissonInput:
-    """Static Poisson process input."""
+    """Static Poisson process input with enhanced connectivity strength."""
 
     def __init__(self, n_neurons: int, dt: float = 0.1):
         self.n_neurons = n_neurons
@@ -148,7 +148,8 @@ class StaticPoissonInput:
         self.input_strength = None
         self.input_current = None
 
-    def initialize_parameters(self, input_strength: float = 1.0):
+    def initialize_parameters(self, input_strength: float = 1.0):  # Keep as parameter but default will be overridden
+        """Initialize with enhanced connectivity strength."""
         self.input_strength = input_strength
         self.input_current = np.zeros(self.n_neurons)
 

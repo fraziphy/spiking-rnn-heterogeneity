@@ -1,15 +1,19 @@
-# Core dependencies for Spiking RNN Heterogeneity Framework v2.1.0
-# Enhanced complexity analysis with 4 LZ measures, Kistler coincidence, and pattern stability
+# Core dependencies for Spiking RNN Heterogeneity Framework v3.0.0
+# Split experiments architecture: spontaneous activity + network stability analysis
+# Enhanced connectivity strength (25), optimized coincidence calculation, randomized job distribution
 
 # Numerical computing
 numpy>=1.20.0
 scipy>=1.7.0
 
-# Parallel processing for MPI experiments
+# Parallel processing for split MPI experiments
 mpi4py>=3.1.0
 
-# System monitoring and resource management
+# System monitoring and CPU load balancing
 psutil>=5.8.0
 
-# Visualization (optional but recommended)
+# Visualization (optional but recommended for result analysis)
 matplotlib>=3.5.0
+
+# Random number generation for job scrambling
+# (Uses built-in random module - no additional dependency needed)

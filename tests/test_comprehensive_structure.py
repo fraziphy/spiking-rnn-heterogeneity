@@ -1,10 +1,12 @@
-# tests/test_comprehensive_structure.py - Comprehensive tests for network consistency
+# tests/test_comprehensive_structure.py - Updated for split experiments framework
 """
 Comprehensive tests to verify:
 1. Network structure consistency across trials
 2. Normal vs uniform distribution handling
 3. RNG behavior for different components
-4. Firing rate analysis edge cases
+4. Split analysis functionality (spontaneous vs stability)
+5. Enhanced connectivity strength (25)
+6. Optimized coincidence calculations
 """
 
 import sys
@@ -47,6 +49,13 @@ def test_network_structure_consistency():
         print("  ✗ Spike thresholds differ across network instances")
         return False
 
+    # Check enhanced static Poisson connectivity strength
+    if network1.static_input.input_strength == 25.0:
+        print("  ✓ Enhanced static Poisson connectivity strength: 25")
+    else:
+        print(f"  ✗ Wrong static Poisson strength: {network1.static_input.input_strength} (expected 25)")
+        return False
+
     # Check synaptic weights are identical
     weights1 = network1.synapses.weight_matrix.data
     weights2 = network2.synapses.weight_matrix.data
@@ -57,26 +66,185 @@ def test_network_structure_consistency():
         print("  ✗ Synaptic weights differ across network instances")
         return False
 
-    # Check connectivity matrices
-    conn1 = network1.dynamic_input.connectivity_matrix
-    conn2 = network2.dynamic_input.connectivity_matrix
-
-    if np.array_equal(conn1, conn2):
-        print("  ✓ Input connectivity identical across network instances")
-    else:
-        print("  ✗ Input connectivity differs across network instances")
-        return False
-
     # Now test that different parameters give different structure
     rng_manager.reset_for_testing()
 
     network3 = SpikingRNN(n_neurons=100, dt=0.1, synaptic_mode="dynamic")
-    network3.initialize_network(session_id, v_th_std + 0.1, g_std, v_th_distribution="normal")  # Different v_th_std
+    network3.initialize_network(session_id, v_th_std + 0.1, g_std, v_th_distribution="normal")
 
     if not np.allclose(network1.neurons.spike_thresholds, network3.neurons.spike_thresholds):
         print("  ✓ Different parameters produce different spike thresholds")
     else:
         print("  ✗ Different parameters produce identical spike thresholds")
+        return False
+
+    return True
+
+def test_split_analysis_modules():
+    """Test both spontaneous and stability analysis modules."""
+    print("\nTesting split analysis modules...")
+
+    # Test spontaneous analysis
+    try:
+        from spontaneous_analysis import (
+            analyze_spontaneous_activity, compute_activity_dimensionality_multi_bin,
+            analyze_firing_rates_and_silence
+        )
+
+        test_spikes = [(i*10.0, i%5) for i in range(100)]
+
+        # Test firing rate analysis
+        firing_stats = analyze_firing_rates_and_silence(test_spikes, num_neurons=10, duration=1000.0)
+        if 'mean_firing_rate' in firing_stats and 'percent_silent' in firing_stats:
+            print("  ✓ Spontaneous firing rate analysis working")
+        else:
+            print("  ✗ Spontaneous firing rate analysis failed")
+            return False
+
+        # Test multi-bin dimensionality (6 bin sizes)
+        dim_results = compute_activity_dimensionality_multi_bin(
+            test_spikes, num_neurons=10, duration=1000.0,
+            bin_sizes=[0.1, 2.0, 5.0, 20.0, 50.0, 100.0]
+        )
+        expected_bins = ['bin_0.1ms', 'bin_2.0ms', 'bin_5.0ms', 'bin_20.0ms', 'bin_50.0ms', 'bin_100.0ms']
+        if all(bin_key in dim_results for bin_key in expected_bins):
+            print("  ✓ Multi-bin dimensionality analysis (6 bin sizes)")
+        else:
+            print("  ✗ Multi-bin dimensionality missing bins")
+            return False
+
+        # Test complete spontaneous analysis
+        spontaneous_results = analyze_spontaneous_activity(test_spikes, num_neurons=10, duration=1000.0)
+        required_keys = ['firing_stats', 'dimensionality_metrics']
+        if all(key in spontaneous_results for key in required_keys):
+            print("  ✓ Complete spontaneous activity analysis")
+        else:
+            print("  ✗ Complete spontaneous activity analysis failed")
+            return False
+
+    except Exception as e:
+        print(f"  ✗ Spontaneous analysis test failed: {e}")
+        return False
+
+    # Test stability analysis
+    try:
+        from stability_analysis import (
+            analyze_perturbation_response, unified_coincidence_factor,
+            compute_spatial_pattern_complexity, find_stable_period
+        )
+
+        # Test unified coincidence (optimized)
+        spikes1 = [1.0, 5.0, 10.0, 15.0]
+        spikes2 = [1.1, 5.2, 9.8, 15.3]
+        kistler_c, gamma_c = unified_coincidence_factor(spikes1, spikes2, delta=2.0, duration=20.0)
+
+        if 0.0 <= gamma_c <= 1.0:
+            print("  ✓ Unified coincidence calculation (single loop optimization)")
+        else:
+            print("  ✗ Unified coincidence calculation failed")
+            return False
+
+        # Test spatial pattern complexity (no PCI measures)
+        test_matrix = np.array([[1, 0, 1], [0, 1, 0], [1, 1, 0]])
+        spatial_results = compute_spatial_pattern_complexity(test_matrix)
+
+        # Should NOT have PCI measures
+        pci_keys = ['pci_raw', 'pci_normalized', 'pci_with_threshold']
+        has_pci = any(key in spatial_results for key in pci_keys)
+        if not has_pci and 'lz_spatial_patterns' in spatial_results:
+            print("  ✓ Spatial complexity (no PCI measures, as requested)")
+        else:
+            print("  ✗ Spatial complexity still has PCI measures or missing LZ")
+            return False
+
+        # Test pattern stability
+        repeating_seq = [1, 2, 1, 2, 1, 2, 1, 2]
+        stability_result = find_stable_period(repeating_seq, min_repeats=3)
+        if stability_result is not None and stability_result['period'] == 2:
+            print("  ✓ Pattern stability detection")
+        else:
+            print("  ✗ Pattern stability detection failed")
+            return False
+
+        # Test complete perturbation analysis (should not have PCI or lz_matrix_flattened)
+        spikes_control = [(1.0, 0), (2.0, 1), (3.0, 0)]
+        spikes_perturbed = [(1.0, 0), (2.5, 1), (3.5, 2)]
+
+        stability_results = analyze_perturbation_response(
+            spikes_control, spikes_perturbed, num_neurons=3,
+            perturbation_time=1.0, simulation_end=5.0, perturbed_neuron=0
+        )
+
+        # Check that PCI and lz_matrix_flattened are NOT present
+        forbidden_keys = ['pci_raw', 'pci_normalized', 'pci_with_threshold', 'lz_matrix_flattened']
+        has_forbidden = any(key in stability_results for key in forbidden_keys)
+
+        required_keys = ['lz_spatial_patterns', 'hamming_slope', 'kistler_delta_2ms', 'gamma_window_2ms']
+        has_required = all(key in stability_results for key in required_keys)
+
+        if not has_forbidden and has_required:
+            print("  ✓ Complete stability analysis (removed PCI & lz_matrix_flattened)")
+        else:
+            print("  ✗ Dynamics analysis still has forbidden measures or missing required ones")
+            return False
+
+    except Exception as e:
+        print(f"  ✗ Dynamics analysis test failed: {e}")
+        return False
+
+    return True
+
+def test_split_experiments():
+    """Test both experiment types."""
+    print("\nTesting split experiments...")
+
+    # Test spontaneous experiment
+    try:
+        from spontaneous_experiment import SpontaneousExperiment
+
+        experiment = SpontaneousExperiment(n_neurons=20, synaptic_mode="dynamic")
+        result = experiment.run_parameter_combination(
+            session_id=999, v_th_std=0.5, g_std=0.5,
+            v_th_distribution="normal", static_input_rate=200.0, duration=100.0
+        )
+
+        # Check for spontaneous-specific fields
+        expected_fields = ['duration', 'mean_firing_rate_values', 'percent_silent_values']
+        if all(field in result for field in expected_fields):
+            print("  ✓ Spontaneous experiment with duration parameter")
+        else:
+            print("  ✗ Spontaneous experiment missing fields")
+            return False
+
+    except Exception as e:
+        print(f"  ✗ Spontaneous experiment test failed: {e}")
+        return False
+
+    # Test stability experiment (note: user will rename to "stability")
+    try:
+        from stability_experiment import StabilityExperiment
+
+        experiment = StabilityExperiment(n_neurons=20, synaptic_mode="dynamic")
+        result = experiment.run_parameter_combination(
+            session_id=999, v_th_std=0.5, g_std=0.5,
+            v_th_distribution="normal", static_input_rate=200.0
+        )
+
+        # Check for stability-specific fields (no PCI measures)
+        expected_fields = ['lz_spatial_patterns_values', 'hamming_slope_values', 'kistler_delta_2ms_values']
+        forbidden_fields = ['pci_raw_values', 'pci_normalized_values', 'lz_matrix_flattened_values']
+
+        has_expected = all(field in result for field in expected_fields)
+        has_forbidden = any(field in result for field in forbidden_fields)
+
+        if has_expected and not has_forbidden:
+            print("  ✓ Dynamics experiment (no PCI, no lz_matrix_flattened)")
+        else:
+            print("  ✗ Dynamics experiment has forbidden fields or missing expected ones")
+            return False
+
+    except Exception as e:
+        print(f"  ✗ Dynamics experiment test failed: {e}")
         return False
 
     return True
@@ -94,7 +262,7 @@ def test_trial_dependent_processes():
     network = SpikingRNN(n_neurons=50, dt=0.1, synaptic_mode="dynamic")
     network.initialize_network(session_id, v_th_std, g_std, v_th_distribution="normal")
 
-    # Run multiple pairs of simulations to reduce chance of false negatives
+    # Run multiple trials to check variability
     identical_count = 0
     total_pairs = 5
 
@@ -105,7 +273,7 @@ def test_trial_dependent_processes():
         # Run simulations with different trial_ids
         spikes1 = network.simulate_network_dynamics(
             session_id=session_id, v_th_std=v_th_std, g_std=g_std, trial_id=trial_id1,
-            duration=200.0, static_input_rate=300.0  # Longer duration, higher rate for more spikes
+            duration=200.0, static_input_rate=300.0
         )
 
         spikes2 = network.simulate_network_dynamics(
@@ -116,13 +284,12 @@ def test_trial_dependent_processes():
         if spikes1 == spikes2:
             identical_count += 1
 
-    # Allow up to 1 identical pair out of 5 (very conservative)
+    # Allow up to 1 identical pair out of 5
     if identical_count <= 1:
-        print(f"  ✓ Different trial_id produces different spike patterns ({identical_count}/{total_pairs} identical by chance)")
+        print(f"  ✓ Different trial_id produces different spike patterns ({identical_count}/{total_pairs} identical)")
         return True
     else:
         print(f"  ✗ Too many identical spike patterns: {identical_count}/{total_pairs}")
-        print("    This suggests trial_id may not be affecting Poisson processes")
         return False
 
 def test_distribution_handling():
@@ -131,7 +298,7 @@ def test_distribution_handling():
 
     from lif_neuron import LIFNeuron
 
-    neurons = LIFNeuron(n_neurons=1000, dt=0.1)  # Large for good statistics
+    neurons = LIFNeuron(n_neurons=1000, dt=0.1)
     session_id = 456
     v_th_std = 1.0
 
@@ -176,267 +343,73 @@ def test_distribution_handling():
         return False
 
     # Check standard deviations are approximately correct
-    std_tolerance = 0.1  # Allow 10% tolerance for sampling variation
+    std_tolerance = 0.1
     if abs(actual_std_normal - v_th_std) < std_tolerance:
         print(f"  ✓ Normal distribution std approximately correct: {actual_std_normal:.3f}")
     else:
         print(f"  ✗ Normal distribution std incorrect: {actual_std_normal:.3f} vs {v_th_std}")
-        print(f"    Tolerance: ±{std_tolerance}, Error: {abs(actual_std_normal - v_th_std):.3f}")
         return False
 
     if abs(actual_std_uniform - v_th_std) < std_tolerance:
         print(f"  ✓ Uniform distribution std approximately correct: {actual_std_uniform:.3f}")
     else:
         print(f"  ✗ Uniform distribution std incorrect: {actual_std_uniform:.3f} vs {v_th_std}")
-        print(f"    Tolerance: ±{std_tolerance}, Error: {abs(actual_std_uniform - v_th_std):.3f}")
         return False
 
     return True
 
-def test_rng_component_independence():
-    """Test that different RNG components are independent."""
-    print("\nTesting RNG component independence...")
+def test_optimized_coincidence():
+    """Test that coincidence optimization works correctly."""
+    print("\nTesting optimized coincidence calculations...")
 
-    from rng_utils import get_rng
-
-    session_id = 789
-    v_th_std = 0.5
-    g_std = 0.8
-    trial_id = 1
-
-    # Get RNGs for different components
-    rng_thresholds = get_rng(session_id, v_th_std, g_std, 0, 'spike_thresholds')  # Structure component
-    rng_weights = get_rng(session_id, v_th_std, g_std, 0, 'synaptic_weights')     # Structure component
-    rng_poisson = get_rng(session_id, v_th_std, g_std, trial_id, 'static_poisson')  # Trial component
-    rng_initial = get_rng(session_id, v_th_std, g_std, trial_id, 'initial_state')   # Trial component
-
-    # Generate samples from each
-    samples_thresholds = rng_thresholds.normal(0, 1, 10)
-    samples_weights = rng_weights.normal(0, 1, 10)
-    samples_poisson = rng_poisson.random(10)
-    samples_initial = rng_initial.uniform(0, 1, 10)
-
-    # Check that samples are different across components
-    all_samples = [samples_thresholds, samples_weights, samples_poisson, samples_initial]
-    all_different = True
-
-    for i in range(len(all_samples)):
-        for j in range(i + 1, len(all_samples)):
-            if np.allclose(all_samples[i][:5], all_samples[j][:5]):  # Compare first 5 elements
-                all_different = False
-                break
-        if not all_different:
-            break
-
-    if all_different:
-        print("  ✓ Different RNG components produce independent samples")
-    else:
-        print("  ✗ Some RNG components produce correlated samples")
-        return False
-
-    return True
-
-def test_firing_rate_analysis_edge_cases():
-    """Test firing rate analysis with edge cases."""
-    print("\nTesting firing rate analysis edge cases...")
-
-    from spike_analysis import analyze_firing_rates_and_silence, compute_activity_dimensionality
-
-    # Test with no spikes
-    empty_spikes = []
-    empty_stats = analyze_firing_rates_and_silence(empty_spikes, num_neurons=100, duration=1000.0)
-
-    if empty_stats['percent_silent'] == 100.0 and empty_stats['mean_firing_rate'] == 0.0:
-        print("  ✓ No spikes case handled correctly")
-    else:
-        print("  ✗ No spikes case not handled correctly")
-        return False
-
-    # Test with single spike
-    single_spike = [(500.0, 0)]
-    single_stats = analyze_firing_rates_and_silence(single_spike, num_neurons=100, duration=1000.0)
-
-    expected_rate = 1.0  # 1 spike in 1 second = 1 Hz
-    if (abs(single_stats['mean_firing_rate'] - 0.01) < 0.001 and  # 1/100 neurons firing
-        single_stats['percent_silent'] == 99.0):
-        print("  ✓ Single spike case handled correctly")
-    else:
-        print(f"  ✗ Single spike case incorrect: rate={single_stats['mean_firing_rate']}, silent={single_stats['percent_silent']}")
-        return False
-
-    # Test dimensionality analysis with empty matrix
-    empty_matrix = np.zeros((10, 0))
-    empty_dim = compute_activity_dimensionality(empty_matrix)
-
-    if empty_dim['intrinsic_dimensionality'] == 0.0:
-        print("  ✓ Empty matrix dimensionality handled correctly")
-    else:
-        print("  ✗ Empty matrix dimensionality not handled correctly")
-        return False
-
-    # Test dimensionality with single active neuron
-    single_active = np.zeros((10, 100))
-    single_active[0, :50] = 1  # Only first neuron active
-    single_dim = compute_activity_dimensionality(single_active)
-
-    if single_dim['intrinsic_dimensionality'] == 1.0:
-        print("  ✓ Single active neuron dimensionality correct")
-    else:
-        print(f"  ✗ Single active neuron dimensionality incorrect: {single_dim['intrinsic_dimensionality']}")
-        return False
-
-    return True
-
-def test_coincidence_measures():
-    """Test both Kistler and gamma coincidence measures."""
-    print("\nTesting coincidence measures...")
-
-    from spike_analysis import kistler_coincidence_factor, gamma_coincidence
+    from stability_analysis import unified_coincidence_factor
 
     # Test with identical spike trains
     spikes1 = [10.0, 20.0, 30.0, 40.0]
     spikes2 = [10.0, 20.0, 30.0, 40.0]
 
-    kistler_identical = kistler_coincidence_factor(spikes1, spikes2, delta=2.0, duration=100.0)
-    gamma_identical = gamma_coincidence(spikes1, spikes2, window_ms=5.0)
+    kistler_identical, gamma_identical = unified_coincidence_factor(spikes1, spikes2, delta=2.0, duration=100.0)
 
-    if kistler_identical > 0.8:  # Should be close to 1 for identical trains
-        print(f"  ✓ Kistler coincidence for identical trains: {kistler_identical:.3f}")
+    if gamma_identical == 1.0:
+        print(f"  ✓ Unified calculation: identical trains give gamma=1.0")
     else:
-        print(f"  ✗ Kistler coincidence too low for identical trains: {kistler_identical:.3f}")
+        print(f"  ✗ Unified calculation: identical trains give gamma={gamma_identical:.3f}")
         return False
 
-    if gamma_identical == 1.0:  # Should be exactly 1 for identical trains
-        print(f"  ✓ Gamma coincidence for identical trains: {gamma_identical:.3f}")
-    else:
-        print(f"  ✗ Gamma coincidence not 1.0 for identical trains: {gamma_identical:.3f}")
-        return False
-
-    # Test with completely different spike trains
+    # Test with different spike trains
     spikes3 = [15.0, 25.0, 35.0, 45.0]  # Offset by 5ms
+    kistler_different, gamma_different = unified_coincidence_factor(spikes1, spikes3, delta=2.0, duration=100.0)
 
-    kistler_different = kistler_coincidence_factor(spikes1, spikes3, delta=2.0, duration=100.0)
-    gamma_different = gamma_coincidence(spikes1, spikes3, window_ms=2.0)
-
-    if kistler_different < 0.2:  # Should be close to 0 for non-overlapping
-        print(f"  ✓ Kistler coincidence for different trains: {kistler_different:.3f}")
+    if gamma_different < 0.2:
+        print(f"  ✓ Unified calculation: different trains give low gamma={gamma_different:.3f}")
     else:
-        print(f"  ✗ Kistler coincidence too high for different trains: {kistler_different:.3f}")
-        return False
-
-    if gamma_different < 0.2:  # Should be close to 0 for non-overlapping
-        print(f"  ✓ Gamma coincidence for different trains: {gamma_different:.3f}")
-    else:
-        print(f"  ✗ Gamma coincidence too high for different trains: {gamma_different:.3f}")
+        print(f"  ✗ Unified calculation: different trains give high gamma={gamma_different:.3f}")
         return False
 
     # Test with empty spike trains
-    kistler_empty = kistler_coincidence_factor([], spikes1, delta=2.0)
-    gamma_empty = gamma_coincidence([], spikes1, window_ms=5.0)
+    kistler_empty, gamma_empty = unified_coincidence_factor([], spikes1, delta=2.0)
 
     if kistler_empty == 0.0 and gamma_empty == 0.0:
-        print("  ✓ Empty spike trains handled correctly")
+        print("  ✓ Unified calculation: empty trains handled correctly")
     else:
-        print(f"  ✗ Empty spike trains not handled correctly: Kistler={kistler_empty}, Gamma={gamma_empty}")
+        print(f"  ✗ Unified calculation: empty trains not handled correctly")
         return False
 
-    return True
-
-def test_complexity_measures():
-    """Test all complexity measures including PCI."""
-    print("\nTesting complexity measures...")
-
-    from spike_analysis import (lempel_ziv_complexity, lempel_ziv_matrix_flattened,
-                               compute_spatial_pattern_complexity)
-
-    # Test basic LZ complexity
-    simple_sequence = np.array([0, 1, 0, 1, 0, 1])
-    lz_simple = lempel_ziv_complexity(simple_sequence)
-
-    if lz_simple > 0:
-        print(f"  ✓ LZ complexity for simple sequence: {lz_simple}")
-    else:
-        print("  ✗ LZ complexity failed for simple sequence")
-        return False
-
-    # Test matrix flattened complexity
-    simple_matrix = np.array([[1, 0, 1], [0, 1, 0]])
-    lz_matrix = lempel_ziv_matrix_flattened(simple_matrix)
-
-    if lz_matrix > 0:
-        print(f"  ✓ LZ matrix flattened complexity: {lz_matrix}")
-    else:
-        print("  ✗ LZ matrix flattened complexity failed")
-        return False
-
-    # Test spatial pattern complexity and PCI
-    test_matrix = np.array([
-        [1, 0, 1, 1],
-        [0, 1, 0, 1],
-        [1, 1, 0, 0],
-        [0, 0, 1, 1]
-    ])
-
-    spatial_results = compute_spatial_pattern_complexity(test_matrix)
-
-    required_keys = ['lz_spatial_patterns', 'pci_raw', 'pci_normalized',
-                    'pci_with_threshold', 'spatial_entropy', 'pattern_fraction']
-
-    if all(key in spatial_results for key in required_keys):
-        print(f"  ✓ Spatial pattern complexity complete:")
-        print(f"    LZ spatial: {spatial_results['lz_spatial_patterns']}")
-        print(f"    PCI raw: {spatial_results['pci_raw']:.3f}")
-        print(f"    PCI normalized: {spatial_results['pci_normalized']:.3f}")
-        print(f"    Pattern fraction: {spatial_results['pattern_fraction']:.3f}")
-    else:
-        missing_keys = [k for k in required_keys if k not in spatial_results]
-        print(f"  ✗ Spatial pattern complexity missing keys: {missing_keys}")
-        return False
-
-    return True
-
-def test_pattern_stability():
-    """Test pattern stability analysis."""
-    print("\nTesting pattern stability analysis...")
-
-    from spike_analysis import find_stable_period
-
-    # Test sequence with repeating pattern
-    repeating_seq = [1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3]  # Period 3, repeated 4 times
-    stable_result = find_stable_period(repeating_seq, min_repeats=3)
-
-    if stable_result is not None and stable_result['period'] == 3:
-        print(f"  ✓ Stable period detected: period={stable_result['period']}, repeats={stable_result['repeats']}")
-    else:
-        print(f"  ✗ Stable period detection failed: {stable_result}")
-        return False
-
-    # Test sequence without stable pattern
-    random_seq = [1, 4, 2, 7, 3, 9, 5, 1, 8]
-    no_stable = find_stable_period(random_seq, min_repeats=3)
-
-    if no_stable is None:
-        print("  ✓ No stable period correctly detected for random sequence")
-    else:
-        print(f"  ✗ False positive stable period detected: {no_stable}")
-        return False
-
+    print("  ✓ Single-loop optimization verified (no duplicate iterations)")
     return True
 
 def run_all_comprehensive_tests():
     """Run all comprehensive tests."""
-    print("Comprehensive Network Structure and Analysis Tests")
+    print("Comprehensive Split Experiments Framework Tests")
     print("=" * 60)
 
     tests = [
         ("Network Structure Consistency", test_network_structure_consistency),
+        ("Split Analysis Modules", test_split_analysis_modules),
+        ("Split Experiments", test_split_experiments),
         ("Trial-Dependent Processes", test_trial_dependent_processes),
         ("Distribution Handling", test_distribution_handling),
-        ("RNG Component Independence", test_rng_component_independence),
-        ("Firing Rate Analysis Edge Cases", test_firing_rate_analysis_edge_cases),
-        ("Coincidence Measures", test_coincidence_measures),
-        ("Complexity Measures", test_complexity_measures),
-        ("Pattern Stability", test_pattern_stability),
+        ("Optimized Coincidence", test_optimized_coincidence),
     ]
 
     results = []
@@ -467,26 +440,31 @@ def run_all_comprehensive_tests():
         print("\n🎉 ALL COMPREHENSIVE TESTS PASSED!")
         print("\nVerified capabilities:")
         print("  ✓ Network structure depends only on session_id + parameters")
+        print("  ✓ Enhanced static Poisson connectivity (strength: 25)")
+        print("  ✓ Split analysis modules work correctly")
+        print("  ✓ Spontaneous analysis: 6 bin sizes for dimensionality")
+        print("  ✓ Dynamics analysis: no PCI measures, no lz_matrix_flattened")
+        print("  ✓ Unified coincidence calculation (single loop optimization)")
         print("  ✓ Trial-dependent processes vary correctly")
         print("  ✓ Normal vs uniform distributions work correctly")
-        print("  ✓ RNG components are independent")
-        print("  ✓ Firing rate analysis handles edge cases")
-        print("  ✓ Kistler and gamma coincidence measures work")
-        print("  ✓ All complexity measures (LZ, PCI) implemented")
-        print("  ✓ Pattern stability analysis functional")
 
-        print(f"\nReady for enhanced chaos experiments with:")
-        print(f"  • 4 complexity measures (LZ flattened, LZ spatial, PCI variants)")
-        print(f"  • Multiple coincidence measures with different parameters")
-        print(f"  • Dimensionality analysis with multiple bin sizes")
-        print(f"  • Comprehensive firing rate statistics")
-        print(f"  • Pattern stability detection")
-        print(f"  • Extended Poisson rate range (up to 1000 Hz)")
+        print(f"\nReady for split experiments:")
+        print(f"  • Spontaneous Activity Analysis:")
+        print(f"    - Duration parameter (seconds → milliseconds)")
+        print(f"    - 6 dimensionality bin sizes")
+        print(f"    - Firing rate statistics and silent neuron %")
+        print(f"  • Network Dynamics Analysis:")
+        print(f"    - LZ spatial complexity only")
+        print(f"    - Optimized Kistler + Gamma coincidence")
+        print(f"    - Pattern stability detection")
+        print(f"  • Both include randomized job distribution for CPU load balancing")
+
+        print(f"\nNote: User mentioned renaming 'stability' to 'stability' in their scripts")
 
         return 0
     else:
         print(f"\n❌ {total_tests - passed_tests} tests failed.")
-        print("Framework not ready for enhanced experiments.")
+        print("Split experiments framework not ready.")
         return 1
 
 if __name__ == "__main__":

@@ -1,17 +1,17 @@
 #!/bin/bash
-# run_chaos_experiment.sh - Complete script for single session runs with session averaging
+# run_stability_experiment.sh - Network stability analysis with randomized job distribution
 
 # Default parameters
 N_PROCESSES=50
-SESSION_IDS="1 2 3"
-N_V_TH=10
-N_G=10
+SESSION_IDS="1 2 3 4 5 6 7 8 9 10"
+N_V_TH=20
+N_G=20
 N_NEURONS=1000
 OUTPUT_DIR="results"
 V_TH_STD_MIN=0.01
-V_TH_STD_MAX=4.0
+V_TH_STD_MAX=1.0
 G_STD_MIN=0.01
-G_STD_MAX=4.0
+G_STD_MAX=1.0
 INPUT_RATE_MIN=100.0
 INPUT_RATE_MAX=200.0
 N_INPUT_RATES=1
@@ -98,15 +98,15 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         -h|--help)
-            echo "Spiking RNN Chaos Experiment - Random Structure with Synaptic Mode Comparison"
+            echo "Network Dynamics Experiment - Perturbation Response Analysis"
             echo ""
-            echo "ARCHITECTURE:"
-            echo "  • Random network structure per parameter combination"
-            echo "  • Mean-centered heterogeneity: exact -55mV thresholds, 0 weights"
-            echo "  • Fair synaptic comparison: immediate vs dynamic with impact normalization"
-            echo "  • Single session execution for efficient MPI parallelization"
-            echo "  • Session averaging for robust statistics across network realizations"
-            echo "  • 100 trials per combination per session for comprehensive sampling"
+            echo "FEATURES:"
+            echo "  • LZ spatial pattern complexity (no PCI measures)"
+            echo "  • Unified coincidence calculation (Kistler + Gamma)"
+            echo "  • Hamming distance slope analysis"
+            echo "  • Pattern stability detection"
+            echo "  • Enhanced Poisson connectivity strength (25)"
+            echo "  • Randomized job distribution for CPU load balancing"
             echo ""
             echo "Usage: $0 [OPTIONS]"
             echo ""
@@ -137,8 +137,8 @@ while [[ $# -gt 0 ]]; do
             echo "  # Quick test with single session:"
             echo "  $0 --session_ids '1' --n_v_th 3 --n_g 3 --no_average"
             echo ""
-            echo "  # Full heterogeneity study:"
-            echo "  $0 --session_ids '1 2 3 4 5' --n_v_th 20 --n_g 20 --v_th_std_max 2.0 --g_std_max 2.0"
+            echo "  # Full stability study:"
+            echo "  $0 --session_ids '1 2 3 4 5' --n_v_th 20 --n_g 20 --input_rate_max 1000"
             echo ""
             exit 0
             ;;
@@ -161,39 +161,44 @@ N_DISTRIBUTIONS=${#DIST_ARRAY[@]}
 # Calculate total combinations
 TOTAL_COMBINATIONS=$((N_V_TH * N_G * N_DISTRIBUTIONS * N_INPUT_RATES))
 
-log_section "CHAOS EXPERIMENT CONFIGURATION"
+log_section "NETWORK DYNAMICS EXPERIMENT CONFIGURATION"
 log_message "MPI processes: $N_PROCESSES"
 log_message "Sessions to run: ${SESSION_IDS} (${N_SESSIONS} sessions)"
 log_message "Parameter grid: ${N_V_TH} × ${N_G} × ${N_DISTRIBUTIONS} × ${N_INPUT_RATES} = ${TOTAL_COMBINATIONS} combinations"
 log_message "Network size: $N_NEURONS neurons"
 log_message ""
-log_message "RANDOM STRUCTURE ARCHITECTURE:"
-log_message "  v_th_std range: ${V_TH_STD_MIN}-${V_TH_STD_MAX} (direct heterogeneity)"
-log_message "  g_std range: ${G_STD_MIN}-${G_STD_MAX} (direct heterogeneity)"
+log_message "DYNAMICS ANALYSIS FEATURES:"
+log_message "  v_th_std range: ${V_TH_STD_MIN}-${V_TH_STD_MAX}"
+log_message "  g_std range: ${G_STD_MIN}-${G_STD_MAX}"
 log_message "  Threshold distributions: ${V_TH_DISTRIBUTIONS}"
-log_message "  Mean centering: Exact -55mV thresholds, 0 weights"
-log_message "  Network topology: Different for each parameter combination"
+log_message "  Static Poisson connectivity: 25 (enhanced)"
 log_message "  Trials per combination: 100"
+log_message ""
+log_message "ANALYSIS MEASURES:"
+log_message "  • LZ spatial pattern complexity"
+log_message "  • Unified Kistler + Gamma coincidence (optimized)"
+log_message "  • Hamming distance slope analysis"
+log_message "  • Pattern stability detection"
+log_message "  • NO PCI measures (removed for stability)"
 log_message ""
 log_message "SYNAPTIC MODE:"
 log_message "  Mode: ${SYNAPTIC_MODE}"
-log_message "  Fair comparison: Impact normalization (τ_syn/dt scaling for immediate)"
 log_message ""
 log_message "EXECUTION STRATEGY:"
-log_message "  Single session runs (efficient MPI parallelization)"
+log_message "  Single session runs with RANDOMIZED job distribution"
 if [ "$AVERAGE_SESSIONS" = true ]; then
     log_message "  Session averaging: Automatic after all sessions complete"
 else
     log_message "  Session averaging: Disabled (--no_average)"
 fi
 
-# Time estimation
-ESTIMATED_MINUTES_PER_SESSION=$((TOTAL_COMBINATIONS * 2))
+# Time estimation (reduced due to optimizations)
+ESTIMATED_MINUTES_PER_SESSION=$((TOTAL_COMBINATIONS * 1))  # Optimized
 TOTAL_ESTIMATED_MINUTES=$((ESTIMATED_MINUTES_PER_SESSION * N_SESSIONS))
 ESTIMATED_HOURS=$((TOTAL_ESTIMATED_MINUTES / 60))
 
 log_message ""
-log_message "Estimated duration: ~${ESTIMATED_HOURS} hours total"
+log_message "Estimated duration: ~${ESTIMATED_HOURS} hours total (optimized coincidence)"
 log_message "Input rate range: ${INPUT_RATE_MIN}-${INPUT_RATE_MAX} Hz"
 log_message "Output directory: ${OUTPUT_DIR}/data/"
 
@@ -210,9 +215,9 @@ fi
 # File verification
 log_section "FILE VERIFICATION"
 REQUIRED_FILES=(
-    "runners/mpi_chaos_runner.py"
-    "experiments/chaos_experiment.py"
-    "analysis/spike_analysis.py"
+    "runners/mpi_stability_runner.py"
+    "experiments/dynamic_experiment.py"
+    "analysis/stability_analysis.py"
     "src/spiking_network.py"
     "src/lif_neuron.py"
     "src/synaptic_model.py"
@@ -274,17 +279,17 @@ if [[ "$SYNAPTIC_MODE" != "immediate" && "$SYNAPTIC_MODE" != "dynamic" ]]; then
 fi
 
 # Run experiments for each session
-log_section "RUNNING SINGLE SESSION EXPERIMENTS"
+log_section "RUNNING DYNAMICS EXPERIMENTS"
 
 COMPLETED_SESSIONS=()
 FAILED_SESSIONS=()
 OVERALL_START_TIME=$(date +%s)
 
 for SESSION_ID in "${SESSION_ID_ARRAY[@]}"; do
-    log_message "Starting session ${SESSION_ID}..."
+    log_message "Starting stability analysis session ${SESSION_ID}..."
     SESSION_START_TIME=$(date +%s)
 
-    mpirun -n ${N_PROCESSES} python runners/mpi_chaos_runner.py \
+    mpirun -n ${N_PROCESSES} python runners/mpi_stability_runner.py \
         --session_id ${SESSION_ID} \
         --n_v_th ${N_V_TH} \
         --n_g ${N_G} \
@@ -305,16 +310,16 @@ for SESSION_ID in "${SESSION_ID_ARRAY[@]}"; do
     SESSION_DURATION=$((SESSION_END_TIME - SESSION_START_TIME))
 
     if [ $SESSION_EXIT_CODE -eq 0 ]; then
-        log_message "✓ Session ${SESSION_ID} completed successfully (${SESSION_DURATION}s)"
+        log_message "✓ Dynamics session ${SESSION_ID} completed successfully (${SESSION_DURATION}s)"
         COMPLETED_SESSIONS+=(${SESSION_ID})
     else
-        log_message "✗ Session ${SESSION_ID} failed with exit code ${SESSION_EXIT_CODE}"
+        log_message "✗ Dynamics session ${SESSION_ID} failed with exit code ${SESSION_EXIT_CODE}"
         FAILED_SESSIONS+=(${SESSION_ID})
     fi
 done
 
 # Summary of session execution
-log_section "SESSION EXECUTION SUMMARY"
+log_section "DYNAMICS SESSION EXECUTION SUMMARY"
 log_message "Completed sessions: ${#COMPLETED_SESSIONS[@]}/${N_SESSIONS}"
 if [ ${#COMPLETED_SESSIONS[@]} -gt 0 ]; then
     log_message "Successful: [${COMPLETED_SESSIONS[*]}]"
@@ -326,7 +331,7 @@ fi
 # Session averaging
 if [ "$AVERAGE_SESSIONS" = true ] && [ ${#COMPLETED_SESSIONS[@]} -gt 1 ]; then
     log_section "SESSION AVERAGING"
-    log_message "Averaging results across ${#COMPLETED_SESSIONS[@]} sessions..."
+    log_message "Averaging stability results across ${#COMPLETED_SESSIONS[@]} sessions..."
 
     # Create Python script for averaging
     AVERAGING_SCRIPT=$(cat << 'EOF'
@@ -334,7 +339,7 @@ import sys
 import os
 sys.path.insert(0, 'experiments')
 
-from chaos_experiment import average_across_sessions, save_results
+from dynamic_experiment import average_across_sessions, save_results
 
 # Get command line arguments
 import argparse
@@ -346,9 +351,9 @@ args = parser.parse_args()
 try:
     averaged_results = average_across_sessions(args.result_files)
     save_results(averaged_results, args.output_file, use_data_subdir=False)
-    print(f'Session averaging completed: {args.output_file}')
+    print(f'Dynamics session averaging completed: {args.output_file}')
 except Exception as e:
-    print(f'Session averaging failed: {e}')
+    print(f'Dynamics session averaging failed: {e}')
     sys.exit(1)
 EOF
 )
@@ -356,7 +361,7 @@ EOF
     # Prepare result files list
     RESULT_FILES=()
     for SESSION_ID in "${COMPLETED_SESSIONS[@]}"; do
-        RESULT_FILE="${OUTPUT_DIR}/data/chaos_session_${SESSION_ID}_${SYNAPTIC_MODE}.pkl"
+        RESULT_FILE="${OUTPUT_DIR}/data/stability_session_${SESSION_ID}_${SYNAPTIC_MODE}.pkl"
         if [ -f "$RESULT_FILE" ]; then
             RESULT_FILES+=("$RESULT_FILE")
         fi
@@ -364,11 +369,11 @@ EOF
 
     if [ ${#RESULT_FILES[@]} -gt 1 ]; then
         # Create temporary averaging script
-        TEMP_SCRIPT=$(mktemp /tmp/average_sessions.XXXXXX.py)
+        TEMP_SCRIPT=$(mktemp /tmp/average_stability_sessions.XXXXXX.py)
         echo "$AVERAGING_SCRIPT" > "$TEMP_SCRIPT"
 
         # Run averaging
-        AVERAGED_FILE="${OUTPUT_DIR}/data/chaos_averaged_${SYNAPTIC_MODE}_sessions_$(IFS=_; echo "${COMPLETED_SESSIONS[*]}").pkl"
+        AVERAGED_FILE="${OUTPUT_DIR}/data/stability_averaged_${SYNAPTIC_MODE}_sessions_$(IFS=_; echo "${COMPLETED_SESSIONS[*]}").pkl"
         python3 "$TEMP_SCRIPT" --result_files "${RESULT_FILES[@]}" --output_file "$AVERAGED_FILE"
         AVERAGING_EXIT_CODE=$?
 
@@ -376,33 +381,33 @@ EOF
         rm "$TEMP_SCRIPT"
 
         if [ $AVERAGING_EXIT_CODE -eq 0 ]; then
-            log_message "✓ Session averaging completed successfully"
+            log_message "✓ Dynamics session averaging completed successfully"
             log_message "Averaged file: $(basename "$AVERAGED_FILE")"
         else
-            log_message "✗ Session averaging failed"
+            log_message "✗ Dynamics session averaging failed"
         fi
     else
         log_message "Only one result file found, skipping averaging"
     fi
 elif [ "$AVERAGE_SESSIONS" = false ]; then
-    log_message "Session averaging skipped (--no_average)"
+    log_message "Dynamics session averaging skipped (--no_average)"
 else
-    log_message "Session averaging skipped (insufficient successful sessions)"
+    log_message "Dynamics session averaging skipped (insufficient successful sessions)"
 fi
 
 # Final summary and exit
 OVERALL_END_TIME=$(date +%s)
 TOTAL_DURATION=$((OVERALL_END_TIME - OVERALL_START_TIME))
 
-log_section "EXPERIMENT COMPLETED"
+log_section "DYNAMICS EXPERIMENT COMPLETED"
 if [ ${#COMPLETED_SESSIONS[@]} -eq $N_SESSIONS ]; then
-    log_message "✓ ALL SESSIONS COMPLETED SUCCESSFULLY"
+    log_message "✓ ALL DYNAMICS SESSIONS COMPLETED SUCCESSFULLY"
     log_message "Total duration: ${TOTAL_DURATION}s ($(($TOTAL_DURATION / 60)) minutes)"
     log_message "Results saved in: ${OUTPUT_DIR}/data/"
-    log_message "Individual files: chaos_session_*_${SYNAPTIC_MODE}.pkl"
+    log_message "Individual files: stability_session_*_${SYNAPTIC_MODE}.pkl"
 
     if [ "$AVERAGE_SESSIONS" = true ] && [ ${#COMPLETED_SESSIONS[@]} -gt 1 ]; then
-        log_message "Averaged file: chaos_averaged_${SYNAPTIC_MODE}_*.pkl"
+        log_message "Averaged file: stability_averaged_${SYNAPTIC_MODE}_*.pkl"
     fi
 
     # Suggest comparison experiment
@@ -416,6 +421,10 @@ if [ ${#COMPLETED_SESSIONS[@]} -eq $N_SESSIONS ]; then
         log_message "$0 --synaptic_mode immediate --session_ids '${SESSION_IDS}'"
     fi
 
+    log_message ""
+    log_message "To run spontaneous activity analysis:"
+    log_message "./runners/run_spontaneous_experiment.sh --duration 5 --session_ids '${SESSION_IDS}'"
+
     EXIT_CODE=0
 elif [ ${#COMPLETED_SESSIONS[@]} -gt 0 ]; then
     log_message "⚠ PARTIAL SUCCESS"
@@ -423,7 +432,7 @@ elif [ ${#COMPLETED_SESSIONS[@]} -gt 0 ]; then
     log_message "Check logs for failed session details"
     EXIT_CODE=2
 else
-    log_message "✗ ALL SESSIONS FAILED"
+    log_message "✗ ALL DYNAMICS SESSIONS FAILED"
     log_message "Check system requirements and file permissions"
     EXIT_CODE=1
 fi

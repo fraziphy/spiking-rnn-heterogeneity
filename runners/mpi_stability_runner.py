@@ -1,6 +1,6 @@
-# runners/mpi_chaos_runner.py - Updated MPI runner with enhanced analysis
+# runners/mpi_stability_runner.py - MPI runner for network stability analysis
 """
-MPI-parallelized chaos experiment runner with enhanced complexity measures and firing rate analysis.
+MPI-parallelized network stability experiment runner with optimized coincidence analysis.
 """
 
 import numpy as np
@@ -14,13 +14,13 @@ from typing import List, Dict, Any, Tuple
 
 # Import modules with path handling
 try:
-    from experiments.chaos_experiment import ChaosExperiment, create_parameter_grid, save_results
+    from experiments.stability_experiment import StabilityExperiment, create_parameter_grid, save_results
 except ImportError:
     current_dir = os.path.dirname(__file__)
     project_root = os.path.dirname(current_dir)
     experiments_dir = os.path.join(project_root, 'experiments')
     sys.path.insert(0, experiments_dir)
-    from chaos_experiment import ChaosExperiment, create_parameter_grid, save_results
+    from stability_experiment import StabilityExperiment, create_parameter_grid, save_results
 
 def distribute_work_for_rank(total_jobs: int, rank: int, size: int) -> Tuple[int, int]:
     """Calculate work distribution for a specific MPI rank."""
@@ -103,11 +103,11 @@ def recovery_break(rank: int, duration: int = 300, reason: str = "system_stress"
 
     print(f"[Rank {rank}] Recovery complete")
 
-def execute_combination_with_recovery(experiment: ChaosExperiment, rank: int,
+def execute_combination_with_recovery(experiment: StabilityExperiment, rank: int,
                                     session_id: int, v_th_std: float, g_std: float,
                                     v_th_distribution: str, static_input_rate: float,
                                     combination_index: int) -> Dict[str, Any]:
-    """Execute single parameter combination with recovery and enhanced monitoring."""
+    """Execute single parameter combination with recovery and monitoring."""
     max_attempts = 5
 
     for attempt in range(1, max_attempts + 1):
@@ -139,13 +139,11 @@ def execute_combination_with_recovery(experiment: ChaosExperiment, rank: int,
                 'successful_completion': True
             })
 
-            # Log enhanced results
+            # Log stability results
             print(f"[Rank {rank}] Success:")
-            print(f"    LZ (flattened): {result['lz_matrix_flattened_mean']:.2f}")
             print(f"    LZ (spatial): {result['lz_spatial_patterns_mean']:.2f}")
-            print(f"    PCI (normalized): {result['pci_normalized_mean']:.3f}")
+            print(f"    Hamming slope: {result['hamming_slopes_mean']:.4f}")
             print(f"    Kistler 2ms: {result['kistler_delta_2ms_mean']:.3f}")
-            print(f"    Silent neurons: {result['control_percent_silent_mean']:.1f}%")
             print(f"    Stable patterns: {result['stable_pattern_fraction']:.2f}")
 
             return result
@@ -154,7 +152,7 @@ def execute_combination_with_recovery(experiment: ChaosExperiment, rank: int,
             print(f"[Rank {rank}] Error (attempt {attempt}): {str(e)}")
             if "memory" in str(e).lower():
                 recovery_break(rank, 600, "memory_error")
-            elif "firing" in str(e).lower() or "dimensionality" in str(e).lower():
+            elif "coincidence" in str(e).lower() or "dimensionality" in str(e).lower():
                 recovery_break(rank, 300, "analysis_error")
             else:
                 recovery_break(rank, 300, "general_error")
@@ -171,35 +169,32 @@ def execute_combination_with_recovery(experiment: ChaosExperiment, rank: int,
         'synaptic_mode': experiment.synaptic_mode,
         'rank': rank,
         'combination_index': combination_index,
-        'lz_matrix_flattened_mean': np.nan,
         'lz_spatial_patterns_mean': np.nan,
-        'pci_normalized_mean': np.nan,
-        'hamming_mean': np.nan,
+        'hamming_slopes_mean': np.nan,
         'kistler_delta_2ms_mean': np.nan,
-        'gamma_window_5ms_mean': np.nan,
-        'control_percent_silent_mean': np.nan,
+        'gamma_window_2ms_mean': np.nan,
         'computation_time': 0.0,
         'attempt_count': max_attempts,
         'successful_completion': False,
         'failure_reason': "Exceeded maximum attempts"
     }
 
-def run_mpi_chaos_experiment(session_id: int = 1,
-                           n_v_th: int = 10, n_g: int = 10,
-                           n_neurons: int = 1000, output_dir: str = "results",
-                           v_th_std_min: float = 0.0, v_th_std_max: float = 4.0,
-                           g_std_min: float = 0.0, g_std_max: float = 4.0,
-                           input_rate_min: float = 50.0, input_rate_max: float = 1000.0,
-                           n_input_rates: int = 5, synaptic_mode: str = "dynamic",
-                           v_th_distributions: List[str] = ["normal"]):
-    """Run enhanced chaos experiment for single session with extended analysis."""
+def run_mpi_stability_experiment(session_id: int = 1,
+                              n_v_th: int = 10, n_g: int = 10,
+                              n_neurons: int = 1000, output_dir: str = "results",
+                              v_th_std_min: float = 0.0, v_th_std_max: float = 4.0,
+                              g_std_min: float = 0.0, g_std_max: float = 4.0,
+                              input_rate_min: float = 50.0, input_rate_max: float = 1000.0,
+                              n_input_rates: int = 5, synaptic_mode: str = "dynamic",
+                              v_th_distributions: List[str] = ["normal"]):
+    """Run network stability experiment for single session."""
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     size = comm.Get_size()
 
     if rank == 0:
         print("=" * 80)
-        print("ENHANCED SPIKING RNN CHAOS EXPERIMENT - SINGLE SESSION")
+        print("NETWORK DYNAMICS EXPERIMENT - SINGLE SESSION")
         print("=" * 80)
         print(f"Configuration:")
         print(f"  MPI processes: {size}")
@@ -210,15 +205,16 @@ def run_mpi_chaos_experiment(session_id: int = 1,
         print(f"  g_std range: {g_std_min}-{g_std_max}")
         print(f"  Input rate range: {input_rate_min}-{input_rate_max} Hz")
         print(f"  Synaptic mode: {synaptic_mode}")
+        print(f"  Static Poisson connectivity: 25 (enhanced)")
         print(f"  Threshold distributions: {v_th_distributions}")
         print(f"  Trials per combination: 100")
 
-        print(f"\nEnhanced Analysis Features:")
-        print(f"  • 4 complexity measures (LZ flattened, LZ spatial, PCI variants)")
-        print(f"  • Kistler coincidence (2ms, 5ms) + Gamma coincidence (5ms, 10ms)")
-        print(f"  • Dimensionality analysis (2ms, 5ms, 20ms bins)")
-        print(f"  • Firing rate statistics and silent neuron analysis")
+        print(f"\nDynamics Analysis Features:")
+        print(f"  • LZ spatial patterns complexity")
+        print(f"  • Unified Kistler + Gamma coincidence (2ms, 5ms)")
+        print(f"  • Hamming distance slope analysis")
         print(f"  • Pattern stability detection")
+        print(f"  • Optimized coincidence calculation (single loop)")
 
         # Setup output directory
         if not os.path.isabs(output_dir):
@@ -230,7 +226,7 @@ def run_mpi_chaos_experiment(session_id: int = 1,
     output_dir = comm.bcast(output_dir if rank == 0 else None, root=0)
     comm.Barrier()
 
-    # Create parameter grids with extended ranges
+    # Create parameter grids
     v_th_stds, g_stds, static_input_rates = create_parameter_grid(
         n_v_th_points=n_v_th,
         n_g_points=n_g,
@@ -263,9 +259,9 @@ def run_mpi_chaos_experiment(session_id: int = 1,
 
         # Estimate computation time
         trials_per_combo = 100
-        expected_time_per_combo = 120 if synaptic_mode == "dynamic" else 60  # seconds
+        expected_time_per_combo = 90 if synaptic_mode == "dynamic" else 45  # Optimized
         total_expected_time = (total_jobs * expected_time_per_combo * trials_per_combo) / (size * 3600)
-        print(f"\nEstimated total time: {total_expected_time:.1f} hours")
+        print(f"\nEstimated total time: {total_expected_time:.1f} hours (optimized coincidence)")
 
     # Distribute work among ranks
     start_idx, end_idx = distribute_work(total_jobs, comm)
@@ -275,8 +271,8 @@ def run_mpi_chaos_experiment(session_id: int = 1,
     if len(my_combinations) > 0:
         print(f"[Rank {rank}] Rate range: {my_combinations[0][4]:.0f}-{my_combinations[-1][4]:.0f}Hz")
 
-    # Initialize enhanced experiment
-    experiment = ChaosExperiment(n_neurons=n_neurons, synaptic_mode=synaptic_mode)
+    # Initialize stability experiment
+    experiment = StabilityExperiment(n_neurons=n_neurons, synaptic_mode=synaptic_mode)
 
     # Execute assigned combinations
     local_results = []
@@ -303,10 +299,6 @@ def run_mpi_chaos_experiment(session_id: int = 1,
 
         local_results.append(result)
 
-        # Progress update for high-rate combinations
-        if input_rate >= 500.0:
-            print(f"[Rank {rank}] High-rate analysis ({input_rate:.0f}Hz) completed")
-
     # Final local report
     rank_total_time = time.time() - rank_start_time
     successful_local = [r for r in local_results if r.get('successful_completion', False)]
@@ -318,7 +310,7 @@ def run_mpi_chaos_experiment(session_id: int = 1,
 
     # Process and save results (root rank only)
     if rank == 0:
-        print(f"\nProcessing enhanced results from all {size} ranks...")
+        print(f"\nProcessing stability results from all {size} ranks...")
 
         # Combine results from all ranks
         final_results = []
@@ -328,13 +320,13 @@ def run_mpi_chaos_experiment(session_id: int = 1,
         # Sort by combination index
         final_results.sort(key=lambda x: x['combination_index'])
 
-        # Calculate enhanced statistics
+        # Calculate statistics
         total_experiment_time = time.time() - rank_start_time
         successful_results = [r for r in final_results if r.get('successful_completion', False)]
         failed_results = [r for r in final_results if not r.get('successful_completion', False)]
 
         print(f"\n" + "=" * 80)
-        print("ENHANCED CHAOS EXPERIMENT COMPLETED")
+        print("NETWORK DYNAMICS EXPERIMENT COMPLETED")
         print("=" * 80)
         print(f"Session ID: {session_id}")
         print(f"Synaptic mode: {synaptic_mode}")
@@ -347,35 +339,29 @@ def run_mpi_chaos_experiment(session_id: int = 1,
             attempts = [r.get('attempt_count', 1) for r in successful_results]
             print(f"Average attempts: {np.mean(attempts):.1f}")
 
-            # Enhanced measure ranges
-            lz_flat_values = [r['lz_matrix_flattened_mean'] for r in successful_results if not np.isnan(r.get('lz_matrix_flattened_mean', np.nan))]
+            # Dynamics measure ranges
             lz_spatial_values = [r['lz_spatial_patterns_mean'] for r in successful_results if not np.isnan(r.get('lz_spatial_patterns_mean', np.nan))]
-            pci_values = [r['pci_normalized_mean'] for r in successful_results if not np.isnan(r.get('pci_normalized_mean', np.nan))]
+            hamming_values = [r['hamming_slopes_mean'] for r in successful_results if not np.isnan(r.get('hamming_slopes_mean', np.nan))]
             kistler_values = [r['kistler_delta_2ms_mean'] for r in successful_results if not np.isnan(r.get('kistler_delta_2ms_mean', np.nan))]
-            silent_values = [r['control_percent_silent_mean'] for r in successful_results if not np.isnan(r.get('control_percent_silent_mean', np.nan))]
 
-            if lz_flat_values:
-                print(f"LZ complexity (flattened): {np.min(lz_flat_values):.1f} - {np.max(lz_flat_values):.1f}")
             if lz_spatial_values:
                 print(f"LZ complexity (spatial): {np.min(lz_spatial_values):.1f} - {np.max(lz_spatial_values):.1f}")
-            if pci_values:
-                print(f"PCI (normalized): {np.min(pci_values):.3f} - {np.max(pci_values):.3f}")
+            if hamming_values:
+                print(f"Hamming slopes: {np.min(hamming_values):.4f} - {np.max(hamming_values):.4f}")
             if kistler_values:
                 print(f"Kistler coincidence (2ms): {np.min(kistler_values):.3f} - {np.max(kistler_values):.3f}")
-            if silent_values:
-                print(f"Silent neurons: {np.min(silent_values):.1f}% - {np.max(silent_values):.1f}%")
 
-        # Save enhanced results
-        output_file = os.path.join(output_dir, f"chaos_enhanced_session_{session_id}_{synaptic_mode}.pkl")
+        # Save stability results
+        output_file = os.path.join(output_dir, f"stability_session_{session_id}_{synaptic_mode}.pkl")
         save_results(final_results, output_file, use_data_subdir=False)
 
-        print(f"\nEnhanced results saved: {output_file}")
-        print("Enhanced single session experiment completed!")
+        print(f"\nDynamics results saved: {output_file}")
+        print("Network stability single session experiment completed!")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Run enhanced MPI chaos experiment with comprehensive analysis"
+        description="Run MPI network stability experiment with optimized analysis"
     )
 
     parser.add_argument("--session_id", type=int, default=1,
@@ -411,7 +397,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    run_mpi_chaos_experiment(
+    run_mpi_stability_experiment(
         session_id=args.session_id,
         n_v_th=args.n_v_th,
         n_g=args.n_g,

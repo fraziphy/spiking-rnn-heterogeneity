@@ -1,6 +1,6 @@
-# experiments/chaos_experiment.py - Complete implementation with enhanced measures
+# experiments/dynamic_experiment.py - Network stability analysis with job randomization
 """
-Chaos analysis experiment with random network structure per parameter combination and comprehensive analysis.
+Network stability experiment with random job distribution for CPU load balancing.
 """
 
 import numpy as np
@@ -8,18 +8,19 @@ import os
 import sys
 import time
 import pickle
+import random
 from typing import Dict, List, Tuple, Any
 
 # Import with flexible handling
 try:
     from src.spiking_network import SpikingRNN
     from src.rng_utils import get_rng
-    from analysis.spike_analysis import analyze_perturbation_response_enhanced
+    from analysis.stability_analysis import analyze_perturbation_response
 except ImportError:
     try:
         from ..src.spiking_network import SpikingRNN
         from ..src.rng_utils import get_rng
-        from ..analysis.spike_analysis import analyze_perturbation_response_enhanced
+        from ..analysis.stability_analysis import analyze_perturbation_response
     except ImportError:
         current_dir = os.path.dirname(__file__)
         project_root = os.path.dirname(current_dir)
@@ -29,10 +30,10 @@ except ImportError:
         sys.path.insert(0, analysis_dir)
         from spiking_network import SpikingRNN
         from rng_utils import get_rng
-        from spike_analysis import analyze_perturbation_response_enhanced
+        from stability_analysis import analyze_perturbation_response
 
-class ChaosExperiment:
-    """Enhanced chaos experiment with comprehensive analysis measures."""
+class StabilityExperiment:
+    """Network stability experiment with perturbation analysis."""
 
     def __init__(self, n_neurons: int = 1000, dt: float = 0.1, synaptic_mode: str = "dynamic"):
         self.n_neurons = n_neurons
@@ -64,7 +65,7 @@ class ChaosExperiment:
         # Network parameters
         network_params = {
             'v_th_distribution': v_th_distribution,
-            'static_input_strength': 1.0,
+            'static_input_strength': 25.0,  # Enhanced connectivity strength
             'dynamic_input_strength': 1.0,
             'readout_weight_scale': 1.0
         }
@@ -101,8 +102,8 @@ class ChaosExperiment:
             perturbation_neuron=perturbation_neuron
         )
 
-        # Enhanced analysis with all new measures
-        analysis_results = analyze_perturbation_response_enhanced(
+        # Dynamics analysis (optimized, no PCI measures)
+        analysis_results = analyze_perturbation_response(
             spikes_control=spikes_control,
             spikes_perturbed=spikes_perturbed,
             num_neurons=self.n_neurons,
@@ -120,7 +121,7 @@ class ChaosExperiment:
     def run_parameter_combination(self, session_id: int, v_th_std: float, g_std: float,
                                 v_th_distribution: str = "normal",
                                 static_input_rate: float = 200.0) -> Dict[str, Any]:
-        """Run parameter combination with comprehensive statistics."""
+        """Run parameter combination with stability analysis."""
         start_time = time.time()
 
         # Store all trial results
@@ -142,7 +143,7 @@ class ChaosExperiment:
 
             trial_results.append(trial_result)
 
-        # Extract arrays for all measures
+        # Extract arrays for all measures (updated for stability only)
         arrays = self._extract_trial_arrays(trial_results)
 
         # Compute all statistics
@@ -179,60 +180,19 @@ class ChaosExperiment:
         return results
 
     def _extract_trial_arrays(self, trial_results: List[Dict]) -> Dict[str, np.ndarray]:
-        """Extract arrays from all trial results."""
+        """Extract arrays from trial results (stability measures only)."""
         arrays = {}
 
-        # Basic chaos measures
-        arrays['lz_matrix_flattened_values'] = np.array([r['lz_matrix_flattened'] for r in trial_results])
-        arrays['hamming_slopes'] = np.array([r['hamming_slope'] for r in trial_results])
+        # Basic stability measures (removed lz_matrix_flattened)
+        arrays['lz_spatial_patterns_values'] = np.array([r['lz_spatial_patterns'] for r in trial_results])
+        arrays['hamming_slope_values'] = np.array([r['hamming_slope'] for r in trial_results])
         arrays['total_spike_differences'] = np.array([r['total_spike_differences'] for r in trial_results])
 
-        # Enhanced LZ and PCI measures
-        arrays['lz_spatial_patterns_values'] = np.array([r['lz_spatial_patterns'] for r in trial_results])
-        arrays['pci_raw_values'] = np.array([r['pci_raw'] for r in trial_results])
-        arrays['pci_normalized_values'] = np.array([r['pci_normalized'] for r in trial_results])
-        arrays['pci_with_threshold_values'] = np.array([r['pci_with_threshold'] for r in trial_results])
-
-        # Coincidence measures
+        # Unified coincidence measures
         arrays['kistler_delta_2ms_values'] = np.array([r['kistler_delta_2ms'] for r in trial_results])
         arrays['kistler_delta_5ms_values'] = np.array([r['kistler_delta_5ms'] for r in trial_results])
+        arrays['gamma_window_2ms_values'] = np.array([r['gamma_window_2ms'] for r in trial_results])
         arrays['gamma_window_5ms_values'] = np.array([r['gamma_window_5ms'] for r in trial_results])
-        arrays['gamma_window_10ms_values'] = np.array([r['gamma_window_10ms'] for r in trial_results])
-
-        # Dimensionality measures (multiple bin sizes)
-        bin_sizes = ['bin_2ms', 'bin_5ms', 'bin_20ms']
-        metrics = ['intrinsic_dimensionality', 'effective_dimensionality', 'participation_ratio', 'total_variance']
-
-        for bin_size in bin_sizes:
-            for metric in metrics:
-                key = f'{metric}_{bin_size}_values'
-                values = []
-                for result in trial_results:
-                    if 'dimensionality_metrics' in result and bin_size in result['dimensionality_metrics']:
-                        values.append(result['dimensionality_metrics'][bin_size][metric])
-                    else:
-                        values.append(0.0)  # Default value
-                arrays[key] = np.array(values)
-
-        # Firing rate statistics
-        firing_metrics = [
-            'control_mean_firing_rate', 'control_std_firing_rate', 'control_percent_silent', 'control_percent_active',
-            'perturbed_mean_firing_rate', 'perturbed_std_firing_rate', 'perturbed_percent_silent', 'perturbed_percent_active'
-        ]
-
-        for metric in firing_metrics:
-            control_key = metric.replace('control_', '')
-            perturbed_key = metric.replace('perturbed_', '')
-
-            values = []
-            for result in trial_results:
-                if 'control_firing_stats' in result and control_key in result['control_firing_stats']:
-                    values.append(result['control_firing_stats'][control_key])
-                elif 'perturbed_firing_stats' in result and perturbed_key in result['perturbed_firing_stats']:
-                    values.append(result['perturbed_firing_stats'][perturbed_key])
-                else:
-                    values.append(0.0)
-            arrays[f'{metric}_values'] = np.array(values)
 
         return arrays
 
@@ -249,7 +209,7 @@ class ChaosExperiment:
         return stats
 
     def _compute_additional_statistics(self, trial_results: List[Dict]) -> Dict[str, Any]:
-        """Compute additional statistics like stability and spatial patterns."""
+        """Compute additional statistics for stability."""
         additional = {}
 
         # Pattern stability statistics
@@ -301,58 +261,73 @@ class ChaosExperiment:
     def run_full_experiment(self, session_id: int, v_th_stds: np.ndarray,
                           g_stds: np.ndarray, v_th_distributions: List[str],
                           static_input_rates: np.ndarray = None) -> List[Dict[str, Any]]:
-        """Run full experiment for single session with extended analysis."""
+        """Run full stability experiment for single session with randomized job distribution."""
         if static_input_rates is None:
-            # Extended rate range based on synaptic mode
             if self.synaptic_mode == "dynamic":
                 static_input_rates = np.array([50.0, 100.0, 200.0, 500.0, 1000.0])
             else:
                 static_input_rates = np.array([50.0, 100.0, 200.0, 500.0])
 
-        results = []
-        total_combinations = len(v_th_stds) * len(g_stds) * len(v_th_distributions) * len(static_input_rates)
+        # Create all parameter combinations
+        all_combinations = []
+        combo_idx = 0
+        for input_rate in static_input_rates:
+            for v_th_dist in v_th_distributions:
+                for v_th_std in v_th_stds:
+                    for g_std in g_stds:
+                        all_combinations.append({
+                            'combo_idx': combo_idx,
+                            'session_id': session_id,
+                            'v_th_std': v_th_std,
+                            'g_std': g_std,
+                            'v_th_distribution': v_th_dist,
+                            'static_input_rate': input_rate
+                        })
+                        combo_idx += 1
 
-        print(f"Starting enhanced chaos experiment: {total_combinations} parameter combinations")
+        # RANDOMIZE job order for better CPU load balancing
+        random.shuffle(all_combinations)
+
+        total_combinations = len(all_combinations)
+
+        print(f"Starting stability experiment with randomized job distribution: {total_combinations} combinations")
         print(f"  Session ID: {session_id}")
         print(f"  v_th_stds: {len(v_th_stds)} (range: {np.min(v_th_stds):.3f}-{np.max(v_th_stds):.3f})")
         print(f"  g_stds: {len(g_stds)} (range: {np.min(g_stds):.3f}-{np.max(g_stds):.3f})")
         print(f"  v_th_distributions: {v_th_distributions}")
         print(f"  Static rates: {static_input_rates}")
         print(f"  Synaptic mode: {self.synaptic_mode}")
-        print(f"  Trials per combination: {self.n_perturbation_trials}")
+        print(f"  Job order: RANDOMIZED for load balancing")
 
-        combo_idx = 0
-        for input_rate in static_input_rates:
-            for v_th_dist in v_th_distributions:
-                for v_th_std in v_th_stds:
-                    for g_std in g_stds:
-                        combo_idx += 1
+        results = []
+        for i, combo in enumerate(all_combinations):
+            print(f"[{i+1}/{total_combinations}] Processing randomized job:")
+            print(f"    v_th_std={combo['v_th_std']:.3f}, g_std={combo['g_std']:.3f}")
+            print(f"    dist={combo['v_th_distribution']}, rate={combo['static_input_rate']:.0f}Hz")
 
-                        print(f"[{combo_idx}/{total_combinations}] Processing: "
-                              f"v_th_std={v_th_std:.3f}, g_std={g_std:.3f}, "
-                              f"dist={v_th_dist}, rate={input_rate:.0f}Hz")
+            result = self.run_parameter_combination(
+                session_id=combo['session_id'],
+                v_th_std=combo['v_th_std'],
+                g_std=combo['g_std'],
+                v_th_distribution=combo['v_th_distribution'],
+                static_input_rate=combo['static_input_rate']
+            )
 
-                        result = self.run_parameter_combination(
-                            session_id=session_id,
-                            v_th_std=v_th_std,
-                            g_std=g_std,
-                            v_th_distribution=v_th_dist,
-                            static_input_rate=input_rate
-                        )
+            result['original_combination_index'] = combo['combo_idx']
+            results.append(result)
 
-                        result['combination_index'] = combo_idx
-                        results.append(result)
+            # Progress reporting for stability measures
+            print(f"  LZ (spatial): {result['lz_spatial_patterns_mean']:.2f}±{result['lz_spatial_patterns_std']:.2f}")
+            print(f"  Hamming slope: {result['hamming_slopes_mean']:.4f}±{result['hamming_slopes_std']:.4f}")
+            print(f"  Kistler (2ms): {result['kistler_delta_2ms_mean']:.3f}±{result['kistler_delta_2ms_std']:.3f}")
+            print(f"  Stable patterns: {result['stable_pattern_fraction']:.2f}")
+            print(f"  Time: {result['computation_time']:.1f}s")
 
-                        # Enhanced progress reporting
-                        print(f"  LZ (flattened): {result['lz_matrix_flattened_mean']:.2f}±{result['lz_matrix_flattened_std']:.2f}")
-                        print(f"  LZ (spatial): {result['lz_spatial_patterns_mean']:.2f}±{result['lz_spatial_patterns_std']:.2f}")
-                        print(f"  PCI (normalized): {result['pci_normalized_mean']:.3f}±{result['pci_normalized_std']:.3f}")
-                        print(f"  Kistler (2ms): {result['kistler_delta_2ms_mean']:.3f}±{result['kistler_delta_2ms_std']:.3f}")
-                        print(f"  Silent neurons: {result['control_percent_silent_mean']:.1f}%")
-                        print(f"  Stable patterns: {result['stable_pattern_fraction']:.2f}")
-                        print(f"  Time: {result['computation_time']:.1f}s")
+        # Sort results back by original combination index for consistency
+        results.sort(key=lambda x: x['original_combination_index'])
 
-        print(f"Enhanced experiment completed: {len(results)} combinations processed")
+        print(f"Dynamics experiment completed: {len(results)} combinations processed")
+        print("Jobs were processed in randomized order for optimal CPU load balancing")
         return results
 
 
@@ -361,7 +336,7 @@ def create_parameter_grid(n_v_th_points: int = 10, n_g_points: int = 10,
                          g_std_range: Tuple[float, float] = (0.0, 4.0),
                          input_rate_range: Tuple[float, float] = (50.0, 1000.0),
                          n_input_rates: int = 5) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Create parameter grids with extended input rate range."""
+    """Create parameter grids."""
     v_th_stds = np.linspace(v_th_std_range[0], v_th_std_range[1], n_v_th_points)
     g_stds = np.linspace(g_std_range[0], g_std_range[1], n_g_points)
     static_input_rates = np.linspace(input_rate_range[0], input_rate_range[1], n_input_rates)
@@ -387,7 +362,7 @@ def save_results(results: List[Dict[str, Any]], filename: str, use_data_subdir: 
         pickle.dump(results, f)
 
     file_size = os.path.getsize(full_path) / (1024 * 1024)
-    print(f"Enhanced results saved successfully!")
+    print(f"Dynamics results saved successfully!")
     print(f"  File: {full_path}")
     print(f"  Size: {file_size:.2f} MB")
     print(f"  Combinations: {len(results)}")
@@ -396,20 +371,12 @@ def load_results(filename: str) -> List[Dict[str, Any]]:
     """Load experimental results."""
     with open(filename, 'rb') as f:
         results = pickle.load(f)
-    print(f"Enhanced results loaded: {len(results)} combinations from {filename}")
+    print(f"Dynamics results loaded: {len(results)} combinations from {filename}")
     return results
 
 def average_across_sessions(results_files: List[str]) -> List[Dict[str, Any]]:
-    """
-    Load multiple single-session result files and average them across sessions.
-
-    Args:
-        results_files: List of pickle file paths from different sessions
-
-    Returns:
-        List of averaged results across sessions
-    """
-    print(f"Averaging enhanced results across {len(results_files)} sessions...")
+    """Average stability results across sessions."""
+    print(f"Averaging stability results across {len(results_files)} sessions...")
 
     # Load all session results
     all_session_results = []
@@ -431,7 +398,7 @@ def average_across_sessions(results_files: List[str]) -> List[Dict[str, Any]]:
         combo_results = [session_results[combo_idx] for session_results in all_session_results]
         first_result = combo_results[0]
 
-        # Extract and concatenate all arrays across sessions
+        # Extract and concatenate arrays across sessions (stability only)
         concatenated_arrays = {}
         array_keys = [k for k in first_result.keys() if k.endswith('_values')]
 
@@ -447,7 +414,7 @@ def average_across_sessions(results_files: List[str]) -> List[Dict[str, Any]]:
             'v_th_distribution': first_result['v_th_distribution'],
             'static_input_rate': first_result['static_input_rate'],
             'synaptic_mode': first_result['synaptic_mode'],
-            'combination_index': first_result['combination_index'],
+            'original_combination_index': first_result.get('original_combination_index', combo_idx),
 
             # Session-averaged statistics
             **{key.replace('_values', '_mean'): float(np.mean(array))
@@ -465,7 +432,7 @@ def average_across_sessions(results_files: List[str]) -> List[Dict[str, Any]]:
             # Metadata
             'n_sessions': len(combo_results),
             'n_trials_per_session': first_result['n_trials'],
-            'total_trials': sum(len(concatenated_arrays[list(concatenated_arrays.keys())[0]])),
+            'total_trials': len(concatenated_arrays[list(concatenated_arrays.keys())[0]]) if concatenated_arrays else 0,
             'total_computation_time': sum(r['computation_time'] for r in combo_results),
             'session_ids_used': [r.get('session_id', 'unknown') for r in combo_results]
         }
