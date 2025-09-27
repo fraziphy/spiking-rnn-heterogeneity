@@ -1,4 +1,4 @@
-# Spiking RNN Heterogeneity Framework - Split Experiments Architecture v3.1.0
+# Spiking RNN Heterogeneity Framework - Split Experiments Architecture v3.1.1
 
 A comprehensive framework for studying **spontaneous activity** and **network stability** in heterogeneous spiking recurrent neural networks with **optimized coincidence analysis**, **enhanced connectivity strength**, and **randomized job distribution for CPU load balancing**.
 

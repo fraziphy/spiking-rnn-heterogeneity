@@ -92,14 +92,23 @@ def compute_spatial_pattern_complexity(binary_matrix: np.ndarray) -> Dict[str, A
             'total_patterns': len(spatial_patterns)
         }
 
+    # Calculate p1 (fraction of 1s in the matrix) - keep for pattern_fraction
     p1 = np.sum(binary_matrix) / total_samples
     pattern_fraction = p1
 
-    # Compute entropy
-    if p1 == 0 or p1 == 1:
-        entropy = 0.0
-    else:
-        entropy = -p1 * np.log2(p1) - (1-p1) * np.log2(1-p1)
+    # Compute entropy over spatial pattern distribution
+    pattern_counts = {}
+    for pattern in spatial_patterns:
+        pattern_counts[pattern] = pattern_counts.get(pattern, 0) + 1
+
+    # Calculate spatial pattern entropy
+    total_patterns = len(spatial_patterns)
+    entropy = 0.0
+    if total_patterns > 0:
+        for count in pattern_counts.values():
+            p = count / total_patterns
+            if p > 0:
+                entropy -= p * np.log2(p)
 
     return {
         'lz_spatial_patterns': lz_spatial,
