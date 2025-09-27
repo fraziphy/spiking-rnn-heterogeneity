@@ -142,7 +142,7 @@ def execute_combination_with_recovery(experiment: StabilityExperiment, rank: int
             # Log stability results
             print(f"[Rank {rank}] Success:")
             print(f"    LZ (spatial): {result['lz_spatial_patterns_mean']:.2f}")
-            print(f"    Hamming slope: {result['hamming_slopes_mean']:.4f}")
+            print(f"    Hamming slope: {result['hamming_slope_mean']:.4f}")
             print(f"    Kistler 2ms: {result['kistler_delta_2ms_mean']:.3f}")
             print(f"    Stable patterns: {result['stable_pattern_fraction']:.2f}")
 
@@ -170,7 +170,7 @@ def execute_combination_with_recovery(experiment: StabilityExperiment, rank: int
         'rank': rank,
         'combination_index': combination_index,
         'lz_spatial_patterns_mean': np.nan,
-        'hamming_slopes_mean': np.nan,
+        'hamming_slope_mean': np.nan,
         'kistler_delta_2ms_mean': np.nan,
         'gamma_window_2ms_mean': np.nan,
         'computation_time': 0.0,
@@ -341,7 +341,7 @@ def run_mpi_stability_experiment(session_id: int = 1,
 
             # Dynamics measure ranges
             lz_spatial_values = [r['lz_spatial_patterns_mean'] for r in successful_results if not np.isnan(r.get('lz_spatial_patterns_mean', np.nan))]
-            hamming_values = [r['hamming_slopes_mean'] for r in successful_results if not np.isnan(r.get('hamming_slopes_mean', np.nan))]
+            hamming_values = [r['hamming_slope_mean'] for r in successful_results if not np.isnan(r.get('hamming_slope_mean', np.nan))]
             kistler_values = [r['kistler_delta_2ms_mean'] for r in successful_results if not np.isnan(r.get('kistler_delta_2ms_mean', np.nan))]
 
             if lz_spatial_values:

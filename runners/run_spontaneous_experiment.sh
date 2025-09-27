@@ -204,7 +204,8 @@ else
 fi
 
 # Time estimation
-ESTIMATED_MINUTES_PER_SESSION=$((TOTAL_COMBINATIONS * DURATION / 60))  # Rough estimate
+DURATION_INT=${DURATION%.*}  # Remove decimal part
+ESTIMATED_MINUTES_PER_SESSION=$((TOTAL_COMBINATIONS * DURATION_INT / 60))  # Rough estimate
 TOTAL_ESTIMATED_MINUTES=$((ESTIMATED_MINUTES_PER_SESSION * N_SESSIONS))
 ESTIMATED_HOURS=$((TOTAL_ESTIMATED_MINUTES / 60))
 
@@ -289,8 +290,8 @@ if [[ "$SYNAPTIC_MODE" != "immediate" && "$SYNAPTIC_MODE" != "dynamic" ]]; then
     exit 1
 fi
 
-# Duration validation
-if (( $(echo "$DURATION <= 0" | bc -l) )); then
+# Duration validation without bc dependency
+if [ "$(python3 -c "print(1 if $DURATION <= 0 else 0)")" -eq 1 ]; then
     log_message "ERROR: Duration must be positive: $DURATION"
     exit 1
 fi

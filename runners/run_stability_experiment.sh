@@ -216,7 +216,7 @@ fi
 log_section "FILE VERIFICATION"
 REQUIRED_FILES=(
     "runners/mpi_stability_runner.py"
-    "experiments/dynamic_experiment.py"
+    "experiments/stability_experiment.py"
     "analysis/stability_analysis.py"
     "src/spiking_network.py"
     "src/lif_neuron.py"
@@ -339,7 +339,7 @@ import sys
 import os
 sys.path.insert(0, 'experiments')
 
-from dynamic_experiment import average_across_sessions, save_results
+from stability_experiment import average_across_sessions, save_results
 
 # Get command line arguments
 import argparse

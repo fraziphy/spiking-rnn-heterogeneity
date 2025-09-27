@@ -175,25 +175,26 @@ def unified_coincidence_factor(spike_train1: List[float], spike_train2: List[flo
         else:
             j += 1
 
-    # Gamma coincidence (simple normalization)
-    norm = (N_data + N_SRM) / 2.0
-    if norm == 0:
-        gamma = 0.0
-    else:
-        gamma = N_coinc / norm
-
-    # Kistler coincidence (with expected coincidences)
+    # Expected coincidences
     if duration > 0:
         rate_SRM = N_SRM / duration  # Rate in spikes/ms
         expected_coinc = rate_SRM * delta * N_data
     else:
         expected_coinc = 0
 
-    N = 1 - rate_SRM * delta
-    if N <= 0 or (N_data * N_SRM) == 0:
+
+    N = 1 - rate_SRM * delta # Normalization factor for Kistler coincidence
+
+    # Gamma coincidence and Kistler coincidence
+    if (N_data * N_SRM) == 0:
+        gamma = float('nan')
         kistler = float('nan')
     else:
-        kistler = (N_coinc - expected_coinc) / (0.5 * (N_data + N_SRM) * N)
+        gamma = (N_coinc - expected_coinc) / (0.5 * (N_data + N_SRM))
+        if N <= 0:
+            kistler = float('nan')
+        else:
+            kistler = gamma / N
 
     return kistler, gamma
 
@@ -230,14 +231,18 @@ def average_coincidence_multi_window(spikes1: List[Tuple[float, int]],
 
             if not np.isnan(kistler_c):
                 kistler_values.append(kistler_c)
-            gamma_values.append(gamma_c)
+            if not np.isnan(gamma_c):
+                gamma_values.append(gamma_c)
 
         if kistler_values:
             results[f'kistler_delta_{delta:.0f}ms'] = np.mean(kistler_values)
         else:
             results[f'kistler_delta_{delta:.0f}ms'] = float('nan')
 
-        results[f'gamma_window_{delta:.0f}ms'] = np.mean(gamma_values)
+        if gamma_values:
+            results[f'gamma_window_{delta:.0f}ms'] = np.mean(gamma_values)
+        else:
+            results[f'gamma_window_{delta:.0f}ms'] = float('nan')
 
     return results
 

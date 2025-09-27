@@ -318,7 +318,7 @@ class StabilityExperiment:
 
             # Progress reporting for stability measures
             print(f"  LZ (spatial): {result['lz_spatial_patterns_mean']:.2f}±{result['lz_spatial_patterns_std']:.2f}")
-            print(f"  Hamming slope: {result['hamming_slopes_mean']:.4f}±{result['hamming_slopes_std']:.4f}")
+            print(f"  Hamming slope: {result['hamming_slope_mean']:.4f}±{result['hamming_slopes_std']:.4f}")
             print(f"  Kistler (2ms): {result['kistler_delta_2ms_mean']:.3f}±{result['kistler_delta_2ms_std']:.3f}")
             print(f"  Stable patterns: {result['stable_pattern_fraction']:.2f}")
             print(f"  Time: {result['computation_time']:.1f}s")

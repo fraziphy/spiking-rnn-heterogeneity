@@ -41,7 +41,7 @@ def read_requirements():
 
 setup(
     name="spiking-rnn-heterogeneity",
-    version="3.0.0",
+    version="3.1.0",
 
     description="Split experiments framework: spontaneous activity + network stability analysis for heterogeneous spiking networks",
     long_description=read_readme(),
