@@ -1,6 +1,6 @@
-# Core dependencies for Spiking RNN Heterogeneity Framework v3.1.1
+# Core dependencies for Spiking RNN Heterogeneity Framework v3.2.0
 # Split experiments architecture: spontaneous activity + network stability analysis
-# Enhanced connectivity strength (25), optimized coincidence calculation, randomized job distribution
+# NEW: Poisson process analysis, rate-dependent RNG, transient removal, fixed time-step bug
 
 # Numerical computing
 numpy>=1.20.0
@@ -12,8 +12,11 @@ mpi4py>=3.1.0
 # System monitoring and CPU load balancing
 psutil>=5.8.0
 
-# Visualization (optional but recommended for result analysis)
+# Visualization (optional but recommended for Poisson analysis plots)
 matplotlib>=3.5.0
 
-# Random number generation for job scrambling
+# Statistical analysis for Poisson process validation
+# (Uses scipy.stats - no additional dependency needed)
+
+# Random number generation for rate-dependent seeds and job scrambling
 # (Uses built-in random module - no additional dependency needed)

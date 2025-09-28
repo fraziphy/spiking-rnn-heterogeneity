@@ -50,7 +50,7 @@ def test_network_structure_consistency():
         return False
 
     # Check enhanced static Poisson connectivity strength
-    if network1.static_input.input_strength == 25.0:
+    if network1.static_input.input_strength == 10.0:
         print("  ✓ Enhanced static Poisson connectivity strength: 25")
     else:
         print(f"  ✗ Wrong static Poisson strength: {network1.static_input.input_strength} (expected 25)")
@@ -508,7 +508,7 @@ def run_all_comprehensive_tests():
         ("Trial-Dependent Processes", test_trial_dependent_processes),
         ("Distribution Handling", test_distribution_handling),
         ("Optimized Coincidence", test_optimized_coincidence),
-        ("Network Identity Without Perturbation", test_network_identity_without_perturbation),  # ADD THIS LINE
+        ("Network Identity for Perturbation", test_network_identity_without_perturbation),  # ADD THIS LINE
     ]
 
     results = []

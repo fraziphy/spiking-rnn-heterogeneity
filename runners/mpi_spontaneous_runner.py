@@ -145,6 +145,9 @@ def execute_combination_with_recovery(experiment: SpontaneousExperiment, rank: i
             print(f"    Mean firing rate: {result['mean_firing_rate_mean']:.2f} Hz")
             print(f"    Silent neurons: {result['percent_silent_mean']:.1f}%")
             print(f"    Dimensionality (5ms): {result['effective_dimensionality_bin_5.0ms_mean']:.1f}")
+            print(f"    CV ISI: {result.get('mean_cv_isi_mean', 'N/A')}")
+            print(f"    Fano Factor: {result.get('mean_fano_factor_mean', 'N/A')}")
+            print(f"    Poisson-like (ISI): {result.get('poisson_isi_fraction_mean', 'N/A'):.1%}")
             print(f"    Total spikes: {result['total_spikes_mean']:.0f}")
 
             return result
@@ -175,6 +178,9 @@ def execute_combination_with_recovery(experiment: SpontaneousExperiment, rank: i
         'percent_silent_mean': np.nan,
         'effective_dimensionality_bin_5.0ms_mean': np.nan,
         'total_spikes_mean': np.nan,
+        'mean_cv_isi_mean': np.nan,           # NEW
+        'mean_fano_factor_mean': np.nan,      # NEW
+        'poisson_isi_fraction_mean': np.nan,  # NEW
         'computation_time': 0.0,
         'attempt_count': max_attempts,
         'successful_completion': False,

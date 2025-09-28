@@ -52,7 +52,7 @@ class SpontaneousExperiment:
         # Network parameters
         network_params = {
             'v_th_distribution': v_th_distribution,
-            'static_input_strength': 25.0,  # Enhanced connectivity strength
+            'static_input_strength': 10.0,  # Enhanced connectivity strength
             'dynamic_input_strength': 1.0,
             'readout_weight_scale': 1.0
         }
@@ -162,8 +162,23 @@ class SpontaneousExperiment:
                         values.append(0.0)
                 arrays[f'{metric}_{bin_size}_values'] = np.array(values)
 
+        poisson_metrics = [
+            'mean_cv_isi', 'std_cv_isi', 'mean_fano_factor', 'std_fano_factor',
+            'poisson_isi_fraction', 'poisson_count_fraction'
+        ]
+
+        for metric in poisson_metrics:
+            values = []
+            for result in trial_results:
+                if 'poisson_analysis' in result and 'population_statistics' in result['poisson_analysis']:
+                    values.append(result['poisson_analysis']['population_statistics'][metric])
+                else:
+                    values.append(np.nan)
+            arrays[f'{metric}_values'] = np.array(values)
+
         # Basic trial info
         arrays['total_spikes_values'] = np.array([r['total_spikes'] for r in trial_results])
+        arrays['steady_state_spikes_values'] = np.array([r['steady_state_spikes'] for r in trial_results])
 
         return arrays
 
@@ -246,8 +261,9 @@ class SpontaneousExperiment:
             print(f"  Mean firing rate: {result['mean_firing_rate_mean']:.2f}±{result['mean_firing_rate_std']:.2f} Hz")
             print(f"  Silent neurons: {result['percent_silent_mean']:.1f}±{result['percent_silent_std']:.1f}%")
             print(f"  Dimensionality (5ms): {result['effective_dimensionality_bin_5.0ms_mean']:.1f}±{result['effective_dimensionality_bin_5.0ms_std']:.1f}")
+            print(f"  CV ISI: {result.get('mean_cv_isi_mean', 'N/A'):.2f}±{result.get('mean_cv_isi_std', 'N/A'):.2f}")
+            print(f"  Poisson-like: {result.get('poisson_isi_fraction_mean', 'N/A'):.1%}")
             print(f"  Total spikes: {result['total_spikes_mean']:.0f}±{result['total_spikes_std']:.0f}")
-            print(f"  Time: {result['computation_time']:.1f}s")
 
         # Sort results back by original combination index for consistency
         results.sort(key=lambda x: x['original_combination_index'])

@@ -71,7 +71,7 @@ class SpikingRNN:
         )
 
         # Initialize static Poisson input
-        self.static_input.initialize_parameters(kwargs.get('static_input_strength', 25.0))
+        self.static_input.initialize_parameters(kwargs.get('static_input_strength', 10.0))
 
         # Initialize dynamic Poisson input (structure depends on session + parameters)
         self.dynamic_input.initialize_connectivity(
@@ -101,7 +101,8 @@ class SpikingRNN:
 
     def step(self, session_id: int, v_th_std: float, g_std: float, trial_id: int,
              static_input_rate: float = 0.0,
-             dynamic_input_rates: Optional[np.ndarray] = None) -> Tuple[List[int], np.ndarray]:
+             dynamic_input_rates: Optional[np.ndarray] = None,
+             time_step: int = 0) -> Tuple[List[int], np.ndarray]:
         """Execute one simulation time step."""
         # Initialize total input current
         total_input = np.zeros(self.n_neurons)
@@ -109,14 +110,14 @@ class SpikingRNN:
         # 1. Static Poisson input (trial-dependent generation)
         if static_input_rate > 0:
             static_current = self.static_input.update(
-                session_id, v_th_std, g_std, trial_id, static_input_rate
+                session_id, v_th_std, g_std, trial_id, static_input_rate, time_step
             )
             total_input += static_current
 
         # 2. Dynamic Poisson input (trial-dependent generation)
         if dynamic_input_rates is not None and len(dynamic_input_rates) > 0:
             dynamic_current = self.dynamic_input.update(
-                session_id, v_th_std, g_std, trial_id, dynamic_input_rates
+                session_id, v_th_std, g_std, trial_id, dynamic_input_rates, time_step
             )
             total_input += dynamic_current
 
@@ -175,7 +176,7 @@ class SpikingRNN:
             # Execute time step (only static input for network stability)
             self.step(session_id, v_th_std, g_std, trial_id,
                      static_input_rate=static_input_rate,
-                     dynamic_input_rates=None)
+                     dynamic_input_rates=None, time_step=step)
 
         return self.spike_times.copy()
 
@@ -199,7 +200,7 @@ class SpikingRNN:
             # Execute time step
             self.step(session_id, v_th_std, g_std, trial_id,
                      static_input_rate=static_input_rate,
-                     dynamic_input_rates=dynamic_rates)
+                     dynamic_input_rates=dynamic_rates, time_step=step)
 
         return self.spike_times.copy(), self.readout_history.copy()
 

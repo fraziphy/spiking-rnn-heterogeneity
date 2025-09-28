@@ -1,8 +1,8 @@
 # setup.py
 """
-Setup configuration for Spiking RNN Heterogeneity Framework v3.0.0
+Setup configuration for Spiking RNN Heterogeneity Framework v3.2.0
 Split experiments architecture: spontaneous activity + network stability analysis
-Enhanced connectivity (25), optimized coincidence calculation, randomized job distribution
+NEW: Poisson process analysis, rate-dependent RNG, transient removal, fixed time-step bug
 """
 
 from setuptools import setup, find_packages
@@ -15,7 +15,7 @@ def read_readme():
         with open(readme_path, 'r', encoding='utf-8') as f:
             return f.read()
     except FileNotFoundError:
-        return "Split experiments framework for studying spontaneous activity and network stability in heterogeneous spiking neural networks"
+        return "Split experiments framework for studying spontaneous activity and network stability in heterogeneous spiking neural networks with Poisson process validation"
 
 # Read requirements from requirements.txt
 def read_requirements():
@@ -30,7 +30,7 @@ def read_requirements():
                     requirements.append(line)
             return requirements
     except FileNotFoundError:
-        # Fallback requirements for split experiments
+        # Fallback requirements for split experiments with Poisson analysis
         return [
             "numpy>=1.20.0",
             "scipy>=1.7.0",
@@ -41,9 +41,9 @@ def read_requirements():
 
 setup(
     name="spiking-rnn-heterogeneity",
-    version="3.1.1",
+    version="3.2.0",
 
-    description="Split experiments framework: spontaneous activity + network stability analysis for heterogeneous spiking networks",
+    description="Split experiments framework with Poisson process validation: spontaneous activity + network stability analysis for heterogeneous spiking networks",
     long_description=read_readme(),
     long_description_content_type="text/markdown",
 
@@ -63,7 +63,7 @@ setup(
         'results': ['*.pkl', '*.json'],
     },
 
-    # Dependencies for split experiments
+    # Dependencies for split experiments with Poisson analysis
     python_requires=">=3.8",
     install_requires=read_requirements(),
 
@@ -91,6 +91,12 @@ setup(
             "joblib>=1.1.0",  # Parallel processing for pattern analysis
             "tqdm>=4.62.0",   # Progress bars for long computations
         ],
+        "statistics": [
+            # Enhanced statistical analysis for Poisson validation
+            "statsmodels>=0.13.0",  # Advanced statistical tests
+            "pingouin>=0.5.0",      # Statistical functions
+            "scipy>=1.9.0",         # Latest statistical functions
+        ],
         "hpc": [
             # High-performance computing extensions
             "mpi4py>=3.1.0",
@@ -115,6 +121,8 @@ setup(
             "joblib>=1.1.0",
             "tqdm>=4.62.0",
             "tables>=3.6.0",
+            "statsmodels>=0.13.0",
+            "pingouin>=0.5.0",
         ]
     },
 
@@ -128,7 +136,7 @@ setup(
         ],
     },
 
-    # Project classification for split experiments framework
+    # Project classification for split experiments framework with Poisson analysis
     classifiers=[
         # Development Status
         "Development Status :: 5 - Production/Stable",
@@ -138,7 +146,7 @@ setup(
         "Intended Audience :: Education",
         "Intended Audience :: Developers",
 
-        # Topic - Split experiments categories
+        # Topic - Split experiments categories with Poisson analysis
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
         "Topic :: Scientific/Engineering :: Bio-Informatics",
         "Topic :: Scientific/Engineering :: Physics",
@@ -168,7 +176,7 @@ setup(
         "Environment :: GPU",
     ],
 
-    # Keywords for PyPI discovery - split experiments focus
+    # Keywords for PyPI discovery - split experiments with Poisson focus
     keywords=[
         # Core split experiments concepts
         "spiking neural networks",
@@ -177,6 +185,15 @@ setup(
         "heterogeneity",
         "computational neuroscience",
         "split experiments",
+
+        # NEW: Poisson process features
+        "poisson process analysis",
+        "inter-spike interval",
+        "coefficient of variation",
+        "fano factor",
+        "exponential distribution",
+        "statistical validation",
+        "transient removal",
 
         # Spontaneous activity features
         "firing rate analysis",
@@ -194,10 +211,13 @@ setup(
         "pattern stability",
         "hamming distance",
 
-        # Technical optimizations
+        # Technical optimizations and fixes
         "optimized coincidence",
         "unified calculation",
         "enhanced connectivity",
+        "rate-dependent randomization",
+        "time-step dependent rng",
+        "fixed poisson bug",
         "randomized jobs",
         "cpu load balancing",
         "mpi parallelization",
@@ -209,9 +229,10 @@ setup(
         "spatiotemporal patterns",
         "synaptic dynamics",
         "brain dynamics",
+        "neural statistics",
     ],
 
-    # Project URLs for split experiments
+    # Project URLs for split experiments with Poisson analysis
     project_urls={
         "Documentation": "https://github.com/yourusername/spiking-rnn-heterogeneity/wiki",
         "Bug Reports": "https://github.com/yourusername/spiking-rnn-heterogeneity/issues",
@@ -222,12 +243,14 @@ setup(
         "Examples": "https://github.com/yourusername/spiking-rnn-heterogeneity/tree/main/examples",
         "Spontaneous Analysis Guide": "https://github.com/yourusername/spiking-rnn-heterogeneity/wiki/Spontaneous-Activity",
         "Stability Analysis Guide": "https://github.com/yourusername/spiking-rnn-heterogeneity/wiki/Network-Stability",
+        "Poisson Analysis Guide": "https://github.com/yourusername/spiking-rnn-heterogeneity/wiki/Poisson-Process-Validation",
+        "Background Jobs Guide": "https://github.com/yourusername/spiking-rnn-heterogeneity/wiki/Background-Jobs",
     },
 
     # Package metadata
     zip_safe=False,
 
-    # Additional metadata for split experiments framework
+    # Additional metadata for split experiments framework with Poisson validation
     platforms=["any"],
     license="MIT",
 )

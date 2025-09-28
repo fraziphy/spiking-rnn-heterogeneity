@@ -154,20 +154,20 @@ class StaticPoissonInput:
         self.input_current = np.zeros(self.n_neurons)
 
     def update(self, session_id: int, v_th_std: float, g_std: float, trial_id: int,
-               rate: float = 10.0) -> np.ndarray:
+            rate: float = 10.0, time_step: int = 0) -> np.ndarray:
         """Update with trial-dependent Poisson process."""
-        # Exponential decay
         self.input_current *= np.exp(-self.dt / self.tau_syn)
 
         # Generate independent Poisson spikes for each neuron
         if rate > 0:
-            rng = get_rng(session_id, v_th_std, g_std, trial_id, 'static_poisson')
-
+            rng = get_rng(session_id, v_th_std, g_std, trial_id, 'static_poisson', time_step, rate)
             spike_prob = rate * (self.dt / 1000.0)
             spike_mask = rng.random(self.n_neurons) < spike_prob
             self.input_current[spike_mask] += self.input_strength
 
         return self.input_current.copy()
+
+
 
 class DynamicPoissonInput:
     """Dynamic Poisson input with parameter-dependent connectivity."""
@@ -198,15 +198,14 @@ class DynamicPoissonInput:
         self.input_current = np.zeros(self.n_neurons)
 
     def update(self, session_id: int, v_th_std: float, g_std: float, trial_id: int,
-               rates: np.ndarray) -> np.ndarray:
+            rates: np.ndarray, time_step: int = 0) -> np.ndarray:
         """Update with trial-dependent spike generation."""
         # Exponential decay
         self.input_current *= np.exp(-self.dt / self.tau_syn)
 
         # Generate spikes for each channel (trial-dependent)
         if len(rates) > 0:
-            rng = get_rng(session_id, v_th_std, g_std, trial_id, 'dynamic_poisson_spikes')
-
+            rng = get_rng(session_id, v_th_std, g_std, trial_id, 'dynamic_poisson_spikes', time_step)
             spike_probs = rates * (self.dt / 1000.0)
             channel_spikes = rng.random(self.n_channels) < spike_probs
 
