@@ -122,11 +122,9 @@ class SpikingRNN:
             total_input += dynamic_current
 
         # 3. Recurrent synaptic input (based on random structure for this parameter combo)
-        if len(self.spike_times) > 0:
-            current_spikes = [neuron_id for t, neuron_id in self.spike_times
-                            if abs(t - self.current_time) < self.dt/2]
-        else:
-            current_spikes = []
+        spiked_last_step = np.abs(self.neurons.last_spike_time - (self.current_time - self.dt)) < self.dt/2
+        current_spikes = np.where(spiked_last_step)[0].tolist()
+
 
         synaptic_current = self.synapses.update(current_spikes)
         total_input += synaptic_current

@@ -48,7 +48,8 @@ class ExponentialSynapses:
                 weights = np.full(n_connections, g_mean)
             else:
                 # Heterogeneous weights with exact mean centering
-                weights = weight_rng.normal(g_mean, g_std, n_connections)
+                scale = 1 / (self.n_neurons * connection_prob)
+                weights = weight_rng.normal(g_mean, scale * g_std, n_connections)
                 weights = weights - np.mean(weights) + g_mean  # Force exact mean
 
             # Apply impact normalization for fair comparison

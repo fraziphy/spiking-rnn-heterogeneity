@@ -349,6 +349,11 @@ for result in stability_results:
 
 ## Version History
 
+- **v3.4.0**: **CRITICAL BUG FIX** - Synaptic input timing corrected, weight variance scaling added
+  - Fixed synaptic current to use previous timestep spikes (was broken, causing no recurrent effects)
+  - Changed from O(S) list search to O(N) array lookup for performance
+  - Added weight variance scaling 1/(N*p) to prevent synchronization at moderate g_std values
+
 - **v3.3.0**: Logarithmic input rate sampling (geomspace), sequential pipeline automation
 - **v3.2.0**: Poisson validation, fixed RNG bugs (time-step, rate), transient removal, pipeline automation
 - **v3.1.0**: Enhanced connectivity (25), optimized coincidence, randomized jobs
