@@ -12,9 +12,9 @@ V_TH_STD_MIN=0.01
 V_TH_STD_MAX=1.0
 G_STD_MIN=0.01
 G_STD_MAX=1.0
-INPUT_RATE_MIN=1.0
+INPUT_RATE_MIN=0.1
 INPUT_RATE_MAX=50.0
-N_INPUT_RATES=1
+N_INPUT_RATES=15
 SYNAPTIC_MODE="dynamic"
 V_TH_DISTRIBUTIONS="normal"
 DURATION=2.0  # Default 2 seconds
@@ -181,7 +181,7 @@ log_message "SPONTANEOUS ACTIVITY FEATURES:"
 log_message "  v_th_std range: ${V_TH_STD_MIN}-${V_TH_STD_MAX}"
 log_message "  g_std range: ${G_STD_MIN}-${G_STD_MAX}"
 log_message "  Threshold distributions: ${V_TH_DISTRIBUTIONS}"
-log_message "  Static Poisson connectivity: 25 (enhanced)"
+log_message "  Static Poisson connectivity: 10 (enhanced)"
 log_message "  Trials per combination: 10"
 log_message ""
 log_message "ANALYSIS MEASURES:"

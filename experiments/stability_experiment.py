@@ -1,4 +1,4 @@
-# experiments/dynamic_experiment.py - Network stability analysis with job randomization
+# experiments/stability_experiment.py - Network stability analysis with job randomization
 """
 Network stability experiment with random job distribution for CPU load balancing.
 """
@@ -339,7 +339,8 @@ def create_parameter_grid(n_v_th_points: int = 10, n_g_points: int = 10,
     """Create parameter grids."""
     v_th_stds = np.linspace(v_th_std_range[0], v_th_std_range[1], n_v_th_points)
     g_stds = np.linspace(g_std_range[0], g_std_range[1], n_g_points)
-    static_input_rates = np.linspace(input_rate_range[0], input_rate_range[1], n_input_rates)
+    # static_input_rates = np.linspace(input_rate_range[0], input_rate_range[1], n_input_rates)
+    static_input_rates = np.geomspace(input_rate_range[0], input_rate_range[1], n_input_rates)
 
     return v_th_stds, g_stds, static_input_rates
 
