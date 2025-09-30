@@ -9,8 +9,8 @@ This package contains high-level experiment classes that coordinate:
 - Synaptic mode comparison (immediate vs dynamic)
 
 Split into two main experiment types:
-- SpontaneousExperiment: Firing rates, dimensionality analysis, silent neurons
-- DynamicsExperiment: Perturbation response, coincidence measures, LZ complexity
+- SpontaneousExperiment: Firing rates, dimensionality analysis, Poisson tests
+- StabilityExperiment: Perturbation response, LZ complexity, Shannon entropy, settling time
 """
 
 from .spontaneous_experiment import (
@@ -22,7 +22,7 @@ from .spontaneous_experiment import (
 )
 
 from .stability_experiment import (
-    DynamicsExperiment,
+    StabilityExperiment,
     create_parameter_grid as stability_create_parameter_grid,
     save_results as stability_save_results,
     load_results as stability_load_results,
@@ -38,7 +38,7 @@ __all__ = [
     'spontaneous_average_across_sessions',
 
     # Network stability
-    'DynamicsExperiment',
+    'StabilityExperiment',
     'stability_create_parameter_grid',
     'stability_save_results',
     'stability_load_results',

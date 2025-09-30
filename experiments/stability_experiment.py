@@ -1,6 +1,6 @@
-# experiments/stability_experiment.py - Network stability analysis with job randomization
+# experiments/stability_experiment.py - Network stability analysis with updated measures
 """
-Network stability experiment with random job distribution for CPU load balancing.
+Network stability experiment with full-simulation LZ analysis and settling time.
 """
 
 import numpy as np
@@ -65,7 +65,7 @@ class StabilityExperiment:
         # Network parameters
         network_params = {
             'v_th_distribution': v_th_distribution,
-            'static_input_strength': 10.0,  # Enhanced connectivity strength
+            'static_input_strength': 10.0,
             'dynamic_input_strength': 1.0,
             'readout_weight_scale': 1.0
         }
@@ -102,14 +102,15 @@ class StabilityExperiment:
             perturbation_neuron=perturbation_neuron
         )
 
-        # Dynamics analysis (optimized, no PCI measures)
+        # Stability analysis with updated measures
         analysis_results = analyze_perturbation_response(
             spikes_control=spikes_control,
             spikes_perturbed=spikes_perturbed,
             num_neurons=self.n_neurons,
             perturbation_time=self.perturbation_time,
             simulation_end=self.total_duration,
-            perturbed_neuron=perturbation_neuron
+            perturbed_neuron=perturbation_neuron,
+            dt=self.dt  # Pass dt parameter
         )
 
         # Add perturbation metadata
@@ -143,7 +144,7 @@ class StabilityExperiment:
 
             trial_results.append(trial_result)
 
-        # Extract arrays for all measures (updated for stability only)
+        # Extract arrays for all measures
         arrays = self._extract_trial_arrays(trial_results)
 
         # Compute all statistics
@@ -180,15 +181,25 @@ class StabilityExperiment:
         return results
 
     def _extract_trial_arrays(self, trial_results: List[Dict]) -> Dict[str, np.ndarray]:
-        """Extract arrays from trial results (stability measures only)."""
+        """Extract arrays from trial results (updated measures)."""
         arrays = {}
 
-        # Basic stability measures (removed lz_matrix_flattened)
+        # LZ complexity
         arrays['lz_spatial_patterns_values'] = np.array([r['lz_spatial_patterns'] for r in trial_results])
-        arrays['hamming_slope_values'] = np.array([r['hamming_slope'] for r in trial_results])
-        arrays['total_spike_differences'] = np.array([r['total_spike_differences'] for r in trial_results])
 
-        # Unified coincidence measures
+        # Shannon entropies
+        arrays['shannon_entropy_symbols_values'] = np.array([r['shannon_entropy_symbols'] for r in trial_results])
+        arrays['shannon_entropy_spikes_values'] = np.array([r['shannon_entropy_spikes'] for r in trial_results])
+
+        # Pattern statistics
+        arrays['unique_patterns_count_values'] = np.array([r['unique_patterns_count'] for r in trial_results])
+        arrays['post_pert_symbol_sum_values'] = np.array([r['post_pert_symbol_sum'] for r in trial_results])
+        arrays['total_spike_differences_values'] = np.array([r['total_spike_differences'] for r in trial_results])
+
+        # Settling time
+        arrays['settling_time_ms_values'] = np.array([r['settling_time_ms'] for r in trial_results])
+
+        # Coincidence measures (unchanged)
         arrays['kistler_delta_2ms_values'] = np.array([r['kistler_delta_2ms'] for r in trial_results])
         arrays['kistler_delta_5ms_values'] = np.array([r['kistler_delta_5ms'] for r in trial_results])
         arrays['gamma_window_2ms_values'] = np.array([r['gamma_window_2ms'] for r in trial_results])
@@ -212,49 +223,22 @@ class StabilityExperiment:
         """Compute additional statistics for stability."""
         additional = {}
 
-        # Pattern stability statistics
-        stable_periods = [r.get('stable_period') for r in trial_results]
-        stable_count = sum(1 for sp in stable_periods if sp is not None)
-        additional['stable_pattern_fraction'] = stable_count / len(stable_periods)
-        additional['stable_pattern_count'] = stable_count
+        # Settling time statistics
+        settling_times = [r.get('settling_time_ms', np.nan) for r in trial_results]
+        settled_count = sum(1 for st in settling_times if not np.isnan(st))
 
-        if stable_count > 0:
-            stable_ones = [sp for sp in stable_periods if sp is not None]
-            periods = [sp['period'] for sp in stable_ones]
-            repeats = [sp['repeats'] for sp in stable_ones]
-            onset_times = [sp['onset_time'] for sp in stable_ones]
+        additional['settled_fraction'] = settled_count / len(settling_times) if settling_times else 0.0
+        additional['settled_count'] = settled_count
 
-            additional.update({
-                'stable_period_mean': float(np.mean(periods)),
-                'stable_period_std': float(np.std(periods)),
-                'stable_repeats_mean': float(np.mean(repeats)),
-                'stable_repeats_std': float(np.std(repeats)),
-                'stable_onset_time_mean': float(np.mean(onset_times)),
-                'stable_onset_time_std': float(np.std(onset_times))
-            })
+        if settled_count > 0:
+            valid_times = [st for st in settling_times if not np.isnan(st)]
+            additional['settling_time_mean'] = float(np.mean(valid_times))
+            additional['settling_time_std'] = float(np.std(valid_times))
+            additional['settling_time_median'] = float(np.median(valid_times))
         else:
-            additional.update({
-                'stable_period_mean': 0.0,
-                'stable_period_std': 0.0,
-                'stable_repeats_mean': 0.0,
-                'stable_repeats_std': 0.0,
-                'stable_onset_time_mean': 0.0,
-                'stable_onset_time_std': 0.0
-            })
-
-        # Spatial pattern statistics
-        spatial_entropies = [r.get('spatial_entropy', 0.0) for r in trial_results]
-        pattern_fractions = [r.get('pattern_fraction', 0.0) for r in trial_results]
-        unique_patterns = [r.get('unique_patterns', 0) for r in trial_results]
-
-        additional.update({
-            'spatial_entropy_mean': float(np.mean(spatial_entropies)),
-            'spatial_entropy_std': float(np.std(spatial_entropies)),
-            'pattern_fraction_mean': float(np.mean(pattern_fractions)),
-            'pattern_fraction_std': float(np.std(pattern_fractions)),
-            'unique_patterns_mean': float(np.mean(unique_patterns)),
-            'unique_patterns_std': float(np.std(unique_patterns))
-        })
+            additional['settling_time_mean'] = np.nan
+            additional['settling_time_std'] = np.nan
+            additional['settling_time_median'] = np.nan
 
         return additional
 
@@ -316,17 +300,19 @@ class StabilityExperiment:
             result['original_combination_index'] = combo['combo_idx']
             results.append(result)
 
-            # Progress reporting for stability measures
+            # Progress reporting for updated measures
             print(f"  LZ (spatial): {result['lz_spatial_patterns_mean']:.2f}±{result['lz_spatial_patterns_std']:.2f}")
-            print(f"  Hamming slope: {result['hamming_slope_mean']:.4f}±{result['hamming_slopes_std']:.4f}")
+            print(f"  Shannon (symbols): {result['shannon_entropy_symbols_mean']:.3f}±{result['shannon_entropy_symbols_std']:.3f}")
+            print(f"  Unique patterns: {result['unique_patterns_count_mean']:.1f}±{result['unique_patterns_count_std']:.1f}")
+            print(f"  Settling time: {result.get('settling_time_mean', np.nan):.1f}±{result.get('settling_time_std', np.nan):.1f} ms")
+            print(f"  Settled fraction: {result['settled_fraction']:.2f}")
             print(f"  Kistler (2ms): {result['kistler_delta_2ms_mean']:.3f}±{result['kistler_delta_2ms_std']:.3f}")
-            print(f"  Stable patterns: {result['stable_pattern_fraction']:.2f}")
             print(f"  Time: {result['computation_time']:.1f}s")
 
         # Sort results back by original combination index for consistency
         results.sort(key=lambda x: x['original_combination_index'])
 
-        print(f"Dynamics experiment completed: {len(results)} combinations processed")
+        print(f"Stability experiment completed: {len(results)} combinations processed")
         print("Jobs were processed in randomized order for optimal CPU load balancing")
         return results
 
@@ -339,7 +325,6 @@ def create_parameter_grid(n_v_th_points: int = 10, n_g_points: int = 10,
     """Create parameter grids."""
     v_th_stds = np.linspace(v_th_std_range[0], v_th_std_range[1], n_v_th_points)
     g_stds = np.linspace(g_std_range[0], g_std_range[1], n_g_points)
-    # static_input_rates = np.linspace(input_rate_range[0], input_rate_range[1], n_input_rates)
     static_input_rates = np.geomspace(input_rate_range[0], input_rate_range[1], n_input_rates)
 
     return v_th_stds, g_stds, static_input_rates
@@ -363,7 +348,7 @@ def save_results(results: List[Dict[str, Any]], filename: str, use_data_subdir: 
         pickle.dump(results, f)
 
     file_size = os.path.getsize(full_path) / (1024 * 1024)
-    print(f"Dynamics results saved successfully!")
+    print(f"Stability results saved successfully!")
     print(f"  File: {full_path}")
     print(f"  Size: {file_size:.2f} MB")
     print(f"  Combinations: {len(results)}")
@@ -372,7 +357,7 @@ def load_results(filename: str) -> List[Dict[str, Any]]:
     """Load experimental results."""
     with open(filename, 'rb') as f:
         results = pickle.load(f)
-    print(f"Dynamics results loaded: {len(results)} combinations from {filename}")
+    print(f"Stability results loaded: {len(results)} combinations from {filename}")
     return results
 
 def average_across_sessions(results_files: List[str]) -> List[Dict[str, Any]]:
@@ -399,7 +384,7 @@ def average_across_sessions(results_files: List[str]) -> List[Dict[str, Any]]:
         combo_results = [session_results[combo_idx] for session_results in all_session_results]
         first_result = combo_results[0]
 
-        # Extract and concatenate arrays across sessions (stability only)
+        # Extract and concatenate arrays across sessions
         concatenated_arrays = {}
         array_keys = [k for k in first_result.keys() if k.endswith('_values')]
 
@@ -423,12 +408,13 @@ def average_across_sessions(results_files: List[str]) -> List[Dict[str, Any]]:
             **{key.replace('_values', '_std'): float(np.std(array))
                for key, array in concatenated_arrays.items()},
 
-            # Stability and pattern statistics
-            'stable_pattern_fraction': np.mean([r['stable_pattern_fraction'] for r in combo_results]),
-            'stable_pattern_count': np.sum([r['stable_pattern_count'] for r in combo_results]),
-            'spatial_entropy_mean': np.mean([r['spatial_entropy_mean'] for r in combo_results]),
-            'pattern_fraction_mean': np.mean([r['pattern_fraction_mean'] for r in combo_results]),
-            'unique_patterns_mean': np.mean([r['unique_patterns_mean'] for r in combo_results]),
+            # Settling statistics
+            'settled_fraction': np.mean([r['settled_fraction'] for r in combo_results]),
+            'settled_count': np.sum([r['settled_count'] for r in combo_results]),
+            'settling_time_mean': np.mean([r['settling_time_mean'] for r in combo_results
+                                          if not np.isnan(r.get('settling_time_mean', np.nan))])
+                                 if any(not np.isnan(r.get('settling_time_mean', np.nan)) for r in combo_results)
+                                 else np.nan,
 
             # Metadata
             'n_sessions': len(combo_results),

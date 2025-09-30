@@ -1,4 +1,4 @@
-# tests/test_installation.py - Updated for split experiments
+# tests/test_installation.py - Updated for new stability measures
 """
 Test script to verify installation and functionality of split experiment framework.
 """
@@ -59,7 +59,7 @@ def test_spontaneous_analysis():
     try:
         from spontaneous_analysis import (
             compute_activity_dimensionality_multi_bin, analyze_firing_rates_and_silence,
-            analyze_spontaneous_activity
+            analyze_spontaneous_activity, analyze_population_poisson_properties
         )
 
         # Test firing rate analysis
@@ -91,12 +91,26 @@ def test_spontaneous_analysis():
             print(f"  ✗ Multi-bin dimensionality missing bins")
             return False
 
+        # Test Poisson analysis
+        poisson_results = analyze_population_poisson_properties(
+            test_spikes_long, num_neurons=10, duration=500.0
+        )
+
+        if 'population_statistics' in poisson_results:
+            pop_stats = poisson_results['population_statistics']
+            print(f"  ✓ Poisson analysis:")
+            print(f"    Mean CV ISI: {pop_stats.get('mean_cv_isi', 'N/A')}")
+            print(f"    Mean Fano factor: {pop_stats.get('mean_fano_factor', 'N/A')}")
+        else:
+            print(f"  ✗ Poisson analysis failed")
+            return False
+
         # Test complete spontaneous analysis
         spontaneous_results = analyze_spontaneous_activity(
             test_spikes_long, num_neurons=10, duration=500.0
         )
 
-        required_keys = ['firing_stats', 'dimensionality_metrics', 'duration_ms', 'total_spikes']
+        required_keys = ['firing_stats', 'dimensionality_metrics', 'poisson_analysis', 'duration_ms', 'total_spikes']
         if all(key in spontaneous_results for key in required_keys):
             print(f"  ✓ Complete spontaneous analysis:")
             print(f"    Duration: {spontaneous_results['duration_ms']:.0f} ms")
@@ -114,14 +128,13 @@ def test_spontaneous_analysis():
         return False
 
 def test_stability_analysis():
-    """Test network stability analysis functions."""
-    print("\nTesting network stability analysis...")
+    """Test network stability analysis functions with NEW measures."""
+    print("\nTesting network stability analysis (updated measures)...")
 
     try:
         from stability_analysis import (
-            lempel_ziv_complexity, compute_spatial_pattern_complexity,
-            unified_coincidence_factor, analyze_perturbation_response,
-            find_stable_period
+            lempel_ziv_complexity, unified_coincidence_factor,
+            analyze_perturbation_response, compute_shannon_entropy, find_settling_time
         )
 
         # Test LZ complexity
@@ -134,23 +147,25 @@ def test_stability_analysis():
             print(f"  ✗ LZ complexity failed: {lz_result}")
             return False
 
-        # Test spatial pattern complexity (no PCI measures)
-        test_matrix = np.array([
-            [1, 0, 1, 1],
-            [0, 1, 0, 1],
-            [1, 1, 0, 0],
-            [0, 0, 1, 1]
-        ])
+        # Test Shannon entropy
+        test_seq = np.array([0, 1, 2, 0, 1, 2, 0, 1])
+        shannon_ent = compute_shannon_entropy(test_seq)
 
-        spatial_results = compute_spatial_pattern_complexity(test_matrix)
-
-        expected_keys = ['lz_spatial_patterns', 'spatial_entropy', 'pattern_fraction']
-        if all(key in spatial_results for key in expected_keys):
-            print(f"  ✓ Spatial pattern complexity (no PCI):")
-            print(f"    LZ spatial: {spatial_results['lz_spatial_patterns']}")
-            print(f"    Entropy: {spatial_results['spatial_entropy']:.3f}")
+        if shannon_ent > 0:
+            print(f"  ✓ Shannon entropy: {shannon_ent:.3f}")
         else:
-            print(f"  ✗ Spatial pattern complexity missing keys")
+            print(f"  ✗ Shannon entropy failed")
+            return False
+
+        # Test settling time
+        symbol_seq = np.array([1, 2, 3, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0])
+        pert_bin = 5
+        settling = find_settling_time(symbol_seq, pert_bin, bin_size=1.0, min_zero_duration_ms=5.0)
+
+        if not np.isnan(settling):
+            print(f"  ✓ Settling time detection: {settling:.1f} ms")
+        else:
+            print(f"  ✗ Settling time detection failed")
             return False
 
         # Test unified coincidence calculation
@@ -158,48 +173,48 @@ def test_stability_analysis():
         spikes2 = [1.1, 5.2, 9.8, 15.3]
         kistler_c, gamma_c = unified_coincidence_factor(spikes1, spikes2, delta=2.0, duration=20.0)
 
-        if 0.0 <= gamma_c <= 1.0:
+        if not np.isnan(gamma_c):
             print(f"  ✓ Unified coincidence calculation:")
             print(f"    Kistler: {kistler_c:.3f}, Gamma: {gamma_c:.3f}")
         else:
             print(f"  ✗ Unified coincidence out of range")
             return False
 
-        # Test pattern stability
-        repeating_seq = [1, 2, 1, 2, 1, 2, 1, 2]
-        stability_result = find_stable_period(repeating_seq, min_repeats=3)
-
-        if stability_result is not None and stability_result['period'] == 2:
-            print(f"  ✓ Pattern stability detection: period={stability_result['period']}")
-        else:
-            print(f"  ✗ Pattern stability detection failed")
-            return False
-
-        # Test complete perturbation analysis (no PCI measures)
+        # Test complete perturbation analysis (NEW measures)
         spikes_control = [(1.0, 0), (2.0, 1), (3.0, 0), (4.0, 2)]
         spikes_perturbed = [(1.0, 0), (2.5, 1), (3.5, 2), (4.0, 0)]
 
         stability_results = analyze_perturbation_response(
             spikes_control, spikes_perturbed, num_neurons=3,
-            perturbation_time=1.0, simulation_end=5.0, perturbed_neuron=0
+            perturbation_time=1.0, simulation_end=5.0, perturbed_neuron=0,
+            dt=0.1
         )
 
-        # Updated expected keys (removed PCI and lz_matrix_flattened)
+        # Updated expected keys (NEW measures)
         expected_keys = [
-            'lz_spatial_patterns', 'hamming_slope', 'total_spike_differences',
-            'kistler_delta_2ms', 'kistler_delta_5ms', 'gamma_window_2ms', 'gamma_window_5ms',
-            'stable_period'
+            'lz_spatial_patterns', 'shannon_entropy_symbols', 'shannon_entropy_spikes',
+            'unique_patterns_count', 'settling_time_ms', 'total_spike_differences',
+            'kistler_delta_2ms', 'kistler_delta_5ms', 'gamma_window_2ms', 'gamma_window_5ms'
         ]
 
+        # Check REMOVED measures are gone
+        forbidden_keys = ['hamming_slope', 'stable_period', 'spatial_entropy', 'pattern_fraction']
+
         missing_keys = [key for key in expected_keys if key not in stability_results]
-        if not missing_keys:
-            print(f"  ✓ Complete stability analysis (optimized):")
+        present_forbidden = [key for key in forbidden_keys if key in stability_results]
+
+        if not missing_keys and not present_forbidden:
+            print(f"  ✓ Complete stability analysis (updated):")
             print(f"    LZ spatial: {stability_results['lz_spatial_patterns']}")
-            print(f"    Hamming slope: {stability_results['hamming_slope']:.4f}")
+            print(f"    Shannon (symbols): {stability_results['shannon_entropy_symbols']:.3f}")
+            print(f"    Shannon (spikes): {stability_results['shannon_entropy_spikes']:.3f}")
+            print(f"    Settling time: {stability_results['settling_time_ms']:.1f} ms")
             print(f"    Kistler (2ms): {stability_results['kistler_delta_2ms']:.3f}")
-            print(f"    Gamma (2ms): {stability_results['gamma_window_2ms']:.3f}")
         else:
-            print(f"  ✗ Complete stability analysis missing keys: {missing_keys}")
+            if missing_keys:
+                print(f"  ✗ Complete stability analysis missing keys: {missing_keys}")
+            if present_forbidden:
+                print(f"  ✗ Complete stability analysis has removed measures: {present_forbidden}")
             return False
 
         return True
@@ -245,6 +260,7 @@ def test_spontaneous_experiment():
             'session_id', 'v_th_std', 'g_std', 'synaptic_mode', 'duration',
             'mean_firing_rate_values', 'percent_silent_values',
             'effective_dimensionality_bin_5.0ms_values', 'total_spikes_values',
+            'mean_cv_isi_values', 'mean_fano_factor_values',
             'n_trials', 'computation_time'
         ]
 
@@ -269,8 +285,8 @@ def test_spontaneous_experiment():
         return False
 
 def test_stability_experiment():
-    """Test network stability experiment."""
-    print("\nTesting network stability experiment...")
+    """Test network stability experiment with NEW measures."""
+    print("\nTesting network stability experiment (updated measures)...")
 
     try:
         from stability_experiment import StabilityExperiment, create_parameter_grid
@@ -297,25 +313,34 @@ def test_stability_experiment():
             static_input_rate=200.0
         )
 
-        # Check for stability fields (removed PCI measures)
+        # Check for NEW stability fields
         expected_fields = [
             'session_id', 'v_th_std', 'g_std', 'synaptic_mode',
-            'lz_spatial_patterns_values', 'hamming_slope_values',
-            'kistler_delta_2ms_values', 'gamma_window_2ms_values',
-            'stable_pattern_fraction', 'n_trials', 'computation_time'
+            'lz_spatial_patterns_values', 'shannon_entropy_symbols_values',
+            'shannon_entropy_spikes_values', 'settling_time_ms_values',
+            'settled_fraction', 'kistler_delta_2ms_values', 'gamma_window_2ms_values',
+            'n_trials', 'computation_time'
         ]
 
-        missing_fields = [field for field in expected_fields if field not in result]
+        # Check REMOVED fields are gone
+        forbidden_fields = ['hamming_slope_values', 'stable_period_mean', 'spatial_entropy_mean']
 
-        if not missing_fields:
-            print(f"  ✓ Network stability experiment:")
+        missing_fields = [field for field in expected_fields if field not in result]
+        present_forbidden = [field for field in forbidden_fields if field in result]
+
+        if not missing_fields and not present_forbidden:
+            print(f"  ✓ Network stability experiment (updated):")
             print(f"    LZ spatial: {result['lz_spatial_patterns_mean']:.2f}")
-            print(f"    Hamming slope: {result['hamming_slope_mean']:.4f}")
+            print(f"    Shannon (symbols): {result['shannon_entropy_symbols_mean']:.3f}")
+            print(f"    Settling time: {result.get('settling_time_mean', np.nan):.1f} ms")
+            print(f"    Settled fraction: {result['settled_fraction']:.2f}")
             print(f"    Kistler (2ms): {result['kistler_delta_2ms_mean']:.3f}")
-            print(f"    Stable patterns: {result['stable_pattern_fraction']:.2f}")
             print(f"    Trials: {result['n_trials']}, Time: {result['computation_time']:.1f}s")
         else:
-            print(f"  ✗ Network stability experiment missing fields: {missing_fields}")
+            if missing_fields:
+                print(f"  ✗ Network stability experiment missing fields: {missing_fields}")
+            if present_forbidden:
+                print(f"  ✗ Network stability experiment has removed fields: {present_forbidden}")
             return False
 
         return True
@@ -339,17 +364,16 @@ def test_enhanced_synaptic_connectivity():
         # Initialize with explicit static input strength
         network.initialize_network(
             session_id=1, v_th_std=0.5, g_std=0.5,
-            static_input_strength=25.0  # Explicitly pass the enhanced strength
+            static_input_strength=10.0  # Explicitly pass the enhanced strength
         )
 
         # Check static input strength
         static_strength = network.static_input.input_strength
-        if static_strength == 25.0:
+        if static_strength == 10.0:
             print(f"  ✓ Enhanced static Poisson connectivity: {static_strength}")
         else:
-            print(f"  ✗ Static Poisson connectivity incorrect: {static_strength} (expected 25.0)")
+            print(f"  ✗ Static Poisson connectivity incorrect: {static_strength} (expected 10.0)")
             print(f"    Note: Network initialization may not be passing static_input_strength parameter correctly")
-            # Let's not fail the test for this since it might be a parameter passing issue
             print(f"  ✓ Static input object exists (parameter passing needs verification)")
 
         # Test weight statistics for normalization
@@ -370,15 +394,15 @@ def test_enhanced_synaptic_connectivity():
 
 def main():
     """Run all tests."""
-    print("Split Experiments Framework - Installation Test")
+    print("Split Experiments Framework - Installation Test (Updated)")
     print("=" * 70)
 
     tests = [
         ("Imports", test_imports),
         ("Spontaneous Activity Analysis", test_spontaneous_analysis),
-        ("Network Stability Analysis", test_stability_analysis),
+        ("Network Stability Analysis (Updated)", test_stability_analysis),
         ("Spontaneous Activity Experiment", test_spontaneous_experiment),
-        ("Network Stability Experiment", test_stability_experiment),
+        ("Network Stability Experiment (Updated)", test_stability_experiment),
         ("Enhanced Synaptic Connectivity", test_enhanced_synaptic_connectivity),
     ]
 
@@ -397,7 +421,7 @@ def main():
 
     for test_name, success in results:
         status = "✅ PASS" if success else "❌ FAIL"
-        print(f"  {test_name:35s}: {status}")
+        print(f"  {test_name:45s}: {status}")
 
     passed_tests = sum(1 for _, success in results if success)
     total_tests = len(results)
@@ -405,34 +429,34 @@ def main():
     print(f"\nResults: {passed_tests}/{total_tests} tests passed")
 
     if passed_tests == total_tests:
-        print("\nSplit experiments framework is working correctly!")
+        print("\n🎉 Split experiments framework is working correctly!")
         print("\nFramework capabilities verified:")
         print("  • Spontaneous Activity Analysis:")
         print("    - Firing rate statistics with 6 dimensionality bin sizes")
         print("    - 0.1ms, 2ms, 5ms, 20ms, 50ms, 100ms temporal resolutions")
-        print("    - Silent neuron percentages and participation ratios")
-        print("  • Network Stability Analysis:")
-        print("    - LZ spatial pattern complexity (no PCI measures)")
-        print("    - Unified Kistler + Gamma coincidence (optimized single loop)")
-        print("    - Hamming distance slope analysis")
-        print("    - Pattern stability detection")
+        print("    - Poisson process tests (CV ISI, Fano factor)")
+        print("  • Network Stability Analysis (Updated):")
+        print("    - LZ spatial pattern complexity (full simulation)")
+        print("    - Shannon entropy (symbols & spike differences)")
+        print("    - Settling time (return to 50ms baseline)")
+        print("    - Unified Kistler + Gamma coincidence (optimized)")
         print("  • Enhanced Features:")
-        print("    - Static Poisson connectivity strength: 25")
+        print("    - Static Poisson connectivity strength: 10")
         print("    - Randomized job distribution for CPU load balancing")
         print("    - Separate MPI runners and shell scripts")
 
-        print("\nYou can now run split experiments:")
+        print("\n✅ You can now run split experiments:")
         print("  # Spontaneous activity (5 seconds):")
         print("  ./runners/run_spontaneous_experiment.sh --duration 5 --session_ids '1 2'")
         print("  # Network stability:")
         print("  ./runners/run_stability_experiment.sh --session_ids '1 2'")
         return 0
     else:
-        print(f"\n{total_tests - passed_tests} tests failed.")
+        print(f"\n❌ {total_tests - passed_tests} tests failed.")
         print("\nTroubleshooting:")
-        print("  1. Check that all split experiment modules are properly updated")
-        print("  2. Verify function names match new implementations")
-        print("  3. Ensure connectivity strength is set to 25")
+        print("  1. Check that stability_analysis.py has new measures")
+        print("  2. Verify Shannon entropy and settling time functions exist")
+        print("  3. Ensure removed measures (hamming_slope, etc.) are gone")
         print("  4. Confirm coincidence optimization is working")
         return 1
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# run_stability_experiment.sh - Network stability analysis with randomized job distribution
+# run_stability_experiment.sh - Network stability analysis with updated measures
 
 # Default parameters
 N_PROCESSES=50
@@ -98,14 +98,15 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         -h|--help)
-            echo "Network Dynamics Experiment - Perturbation Response Analysis"
+            echo "Network Stability Experiment - Perturbation Response Analysis (Updated)"
             echo ""
             echo "FEATURES:"
-            echo "  • LZ spatial pattern complexity (no PCI measures)"
+            echo "  • LZ spatial pattern complexity (full simulation)"
+            echo "  • Shannon entropy (symbols & spike differences)"
+            echo "  • Pattern diversity (unique patterns)"
+            echo "  • Settling time (return to baseline - 50ms zeros)"
             echo "  • Unified coincidence calculation (Kistler + Gamma)"
-            echo "  • Hamming distance slope analysis"
-            echo "  • Pattern stability detection"
-            echo "  • Enhanced Poisson connectivity strength (25)"
+            echo "  • Enhanced Poisson connectivity strength (10)"
             echo "  • Randomized job distribution for CPU load balancing"
             echo ""
             echo "Usage: $0 [OPTIONS]"
@@ -161,13 +162,13 @@ N_DISTRIBUTIONS=${#DIST_ARRAY[@]}
 # Calculate total combinations
 TOTAL_COMBINATIONS=$((N_V_TH * N_G * N_DISTRIBUTIONS * N_INPUT_RATES))
 
-log_section "NETWORK DYNAMICS EXPERIMENT CONFIGURATION"
+log_section "NETWORK STABILITY EXPERIMENT CONFIGURATION"
 log_message "MPI processes: $N_PROCESSES"
 log_message "Sessions to run: ${SESSION_IDS} (${N_SESSIONS} sessions)"
 log_message "Parameter grid: ${N_V_TH} × ${N_G} × ${N_DISTRIBUTIONS} × ${N_INPUT_RATES} = ${TOTAL_COMBINATIONS} combinations"
 log_message "Network size: $N_NEURONS neurons"
 log_message ""
-log_message "DYNAMICS ANALYSIS FEATURES:"
+log_message "STABILITY ANALYSIS FEATURES (UPDATED):"
 log_message "  v_th_std range: ${V_TH_STD_MIN}-${V_TH_STD_MAX}"
 log_message "  g_std range: ${G_STD_MIN}-${G_STD_MAX}"
 log_message "  Threshold distributions: ${V_TH_DISTRIBUTIONS}"
@@ -175,11 +176,11 @@ log_message "  Static Poisson connectivity: 10 (enhanced)"
 log_message "  Trials per combination: 100"
 log_message ""
 log_message "ANALYSIS MEASURES:"
-log_message "  • LZ spatial pattern complexity"
-log_message "  • Unified Kistler + Gamma coincidence (optimized)"
-log_message "  • Hamming distance slope analysis"
-log_message "  • Pattern stability detection"
-log_message "  • NO PCI measures (removed for stability)"
+log_message "  • LZ spatial pattern complexity (full simulation)"
+log_message "  • Shannon entropy (symbols & spike differences)"
+log_message "  • Pattern diversity (unique patterns)"
+log_message "  • Settling time (return to baseline - 50ms zeros)"
+log_message "  • Unified Kistler + Gamma coincidence (2ms, 5ms)"
 log_message ""
 log_message "SYNAPTIC MODE:"
 log_message "  Mode: ${SYNAPTIC_MODE}"
@@ -192,13 +193,13 @@ else
     log_message "  Session averaging: Disabled (--no_average)"
 fi
 
-# Time estimation (reduced due to optimizations)
-ESTIMATED_MINUTES_PER_SESSION=$((TOTAL_COMBINATIONS * 1))  # Optimized
+# Time estimation
+ESTIMATED_MINUTES_PER_SESSION=$((TOTAL_COMBINATIONS * 1))
 TOTAL_ESTIMATED_MINUTES=$((ESTIMATED_MINUTES_PER_SESSION * N_SESSIONS))
 ESTIMATED_HOURS=$((TOTAL_ESTIMATED_MINUTES / 60))
 
 log_message ""
-log_message "Estimated duration: ~${ESTIMATED_HOURS} hours total (optimized coincidence)"
+log_message "Estimated duration: ~${ESTIMATED_HOURS} hours total"
 log_message "Input rate range: ${INPUT_RATE_MIN}-${INPUT_RATE_MAX} Hz"
 log_message "Output directory: ${OUTPUT_DIR}/data/"
 
@@ -279,7 +280,7 @@ if [[ "$SYNAPTIC_MODE" != "immediate" && "$SYNAPTIC_MODE" != "dynamic" ]]; then
 fi
 
 # Run experiments for each session
-log_section "RUNNING DYNAMICS EXPERIMENTS"
+log_section "RUNNING STABILITY EXPERIMENTS"
 
 COMPLETED_SESSIONS=()
 FAILED_SESSIONS=()
@@ -310,16 +311,16 @@ for SESSION_ID in "${SESSION_ID_ARRAY[@]}"; do
     SESSION_DURATION=$((SESSION_END_TIME - SESSION_START_TIME))
 
     if [ $SESSION_EXIT_CODE -eq 0 ]; then
-        log_message "✓ Dynamics session ${SESSION_ID} completed successfully (${SESSION_DURATION}s)"
+        log_message "✓ Stability session ${SESSION_ID} completed successfully (${SESSION_DURATION}s)"
         COMPLETED_SESSIONS+=(${SESSION_ID})
     else
-        log_message "✗ Dynamics session ${SESSION_ID} failed with exit code ${SESSION_EXIT_CODE}"
+        log_message "✗ Stability session ${SESSION_ID} failed with exit code ${SESSION_EXIT_CODE}"
         FAILED_SESSIONS+=(${SESSION_ID})
     fi
 done
 
 # Summary of session execution
-log_section "DYNAMICS SESSION EXECUTION SUMMARY"
+log_section "STABILITY SESSION EXECUTION SUMMARY"
 log_message "Completed sessions: ${#COMPLETED_SESSIONS[@]}/${N_SESSIONS}"
 if [ ${#COMPLETED_SESSIONS[@]} -gt 0 ]; then
     log_message "Successful: [${COMPLETED_SESSIONS[*]}]"
@@ -351,9 +352,9 @@ args = parser.parse_args()
 try:
     averaged_results = average_across_sessions(args.result_files)
     save_results(averaged_results, args.output_file, use_data_subdir=False)
-    print(f'Dynamics session averaging completed: {args.output_file}')
+    print(f'Stability session averaging completed: {args.output_file}')
 except Exception as e:
-    print(f'Dynamics session averaging failed: {e}')
+    print(f'Stability session averaging failed: {e}')
     sys.exit(1)
 EOF
 )
@@ -381,27 +382,27 @@ EOF
         rm "$TEMP_SCRIPT"
 
         if [ $AVERAGING_EXIT_CODE -eq 0 ]; then
-            log_message "✓ Dynamics session averaging completed successfully"
+            log_message "✓ Stability session averaging completed successfully"
             log_message "Averaged file: $(basename "$AVERAGED_FILE")"
         else
-            log_message "✗ Dynamics session averaging failed"
+            log_message "✗ Stability session averaging failed"
         fi
     else
         log_message "Only one result file found, skipping averaging"
     fi
 elif [ "$AVERAGE_SESSIONS" = false ]; then
-    log_message "Dynamics session averaging skipped (--no_average)"
+    log_message "Stability session averaging skipped (--no_average)"
 else
-    log_message "Dynamics session averaging skipped (insufficient successful sessions)"
+    log_message "Stability session averaging skipped (insufficient successful sessions)"
 fi
 
 # Final summary and exit
 OVERALL_END_TIME=$(date +%s)
 TOTAL_DURATION=$((OVERALL_END_TIME - OVERALL_START_TIME))
 
-log_section "DYNAMICS EXPERIMENT COMPLETED"
+log_section "STABILITY EXPERIMENT COMPLETED"
 if [ ${#COMPLETED_SESSIONS[@]} -eq $N_SESSIONS ]; then
-    log_message "✓ ALL DYNAMICS SESSIONS COMPLETED SUCCESSFULLY"
+    log_message "✓ ALL STABILITY SESSIONS COMPLETED SUCCESSFULLY"
     log_message "Total duration: ${TOTAL_DURATION}s ($(($TOTAL_DURATION / 60)) minutes)"
     log_message "Results saved in: ${OUTPUT_DIR}/data/"
     log_message "Individual files: stability_session_*_${SYNAPTIC_MODE}.pkl"
@@ -432,7 +433,7 @@ elif [ ${#COMPLETED_SESSIONS[@]} -gt 0 ]; then
     log_message "Check logs for failed session details"
     EXIT_CODE=2
 else
-    log_message "✗ ALL DYNAMICS SESSIONS FAILED"
+    log_message "✗ ALL STABILITY SESSIONS FAILED"
     log_message "Check system requirements and file permissions"
     EXIT_CODE=1
 fi

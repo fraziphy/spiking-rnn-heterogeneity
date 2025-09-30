@@ -1,6 +1,6 @@
 # runners/mpi_stability_runner.py - MPI runner for network stability analysis
 """
-MPI-parallelized network stability experiment runner with optimized coincidence analysis.
+MPI-parallelized network stability experiment runner with updated measures.
 """
 
 import numpy as np
@@ -139,12 +139,15 @@ def execute_combination_with_recovery(experiment: StabilityExperiment, rank: int
                 'successful_completion': True
             })
 
-            # Log stability results
+            # Log updated stability results
             print(f"[Rank {rank}] Success:")
             print(f"    LZ (spatial): {result['lz_spatial_patterns_mean']:.2f}")
-            print(f"    Hamming slope: {result['hamming_slope_mean']:.4f}")
+            print(f"    Shannon (symbols): {result['shannon_entropy_symbols_mean']:.3f}")
+            print(f"    Shannon (spikes): {result['shannon_entropy_spikes_mean']:.3f}")
+            print(f"    Unique patterns: {result['unique_patterns_count_mean']:.0f}")
+            print(f"    Settling time: {result.get('settling_time_mean', np.nan):.1f} ms")
+            print(f"    Settled fraction: {result['settled_fraction']:.2f}")
             print(f"    Kistler 2ms: {result['kistler_delta_2ms_mean']:.3f}")
-            print(f"    Stable patterns: {result['stable_pattern_fraction']:.2f}")
 
             return result
 
@@ -152,7 +155,7 @@ def execute_combination_with_recovery(experiment: StabilityExperiment, rank: int
             print(f"[Rank {rank}] Error (attempt {attempt}): {str(e)}")
             if "memory" in str(e).lower():
                 recovery_break(rank, 600, "memory_error")
-            elif "coincidence" in str(e).lower() or "dimensionality" in str(e).lower():
+            elif "coincidence" in str(e).lower() or "lz" in str(e).lower():
                 recovery_break(rank, 300, "analysis_error")
             else:
                 recovery_break(rank, 300, "general_error")
@@ -170,7 +173,11 @@ def execute_combination_with_recovery(experiment: StabilityExperiment, rank: int
         'rank': rank,
         'combination_index': combination_index,
         'lz_spatial_patterns_mean': np.nan,
-        'hamming_slope_mean': np.nan,
+        'shannon_entropy_symbols_mean': np.nan,
+        'shannon_entropy_spikes_mean': np.nan,
+        'unique_patterns_count_mean': np.nan,
+        'settling_time_mean': np.nan,
+        'settled_fraction': 0.0,
         'kistler_delta_2ms_mean': np.nan,
         'gamma_window_2ms_mean': np.nan,
         'computation_time': 0.0,
@@ -194,7 +201,7 @@ def run_mpi_stability_experiment(session_id: int = 1,
 
     if rank == 0:
         print("=" * 80)
-        print("NETWORK DYNAMICS EXPERIMENT - SINGLE SESSION")
+        print("NETWORK STABILITY EXPERIMENT - SINGLE SESSION")
         print("=" * 80)
         print(f"Configuration:")
         print(f"  MPI processes: {size}")
@@ -205,16 +212,16 @@ def run_mpi_stability_experiment(session_id: int = 1,
         print(f"  g_std range: {g_std_min}-{g_std_max}")
         print(f"  Input rate range: {input_rate_min}-{input_rate_max} Hz")
         print(f"  Synaptic mode: {synaptic_mode}")
-        print(f"  Static Poisson connectivity: 25 (enhanced)")
+        print(f"  Static Poisson connectivity: 10 (enhanced)")
         print(f"  Threshold distributions: {v_th_distributions}")
         print(f"  Trials per combination: 100")
 
-        print(f"\nDynamics Analysis Features:")
-        print(f"  • LZ spatial patterns complexity")
+        print(f"\nStability Analysis Features (Updated):")
+        print(f"  • LZ spatial patterns complexity (full simulation)")
+        print(f"  • Shannon entropy (symbols & spike differences)")
+        print(f"  • Pattern diversity (unique patterns)")
+        print(f"  • Settling time (return to baseline)")
         print(f"  • Unified Kistler + Gamma coincidence (2ms, 5ms)")
-        print(f"  • Hamming distance slope analysis")
-        print(f"  • Pattern stability detection")
-        print(f"  • Optimized coincidence calculation (single loop)")
 
         # Setup output directory
         if not os.path.isabs(output_dir):
@@ -259,9 +266,9 @@ def run_mpi_stability_experiment(session_id: int = 1,
 
         # Estimate computation time
         trials_per_combo = 100
-        expected_time_per_combo = 90 if synaptic_mode == "dynamic" else 45  # Optimized
+        expected_time_per_combo = 90 if synaptic_mode == "dynamic" else 45
         total_expected_time = (total_jobs * expected_time_per_combo * trials_per_combo) / (size * 3600)
-        print(f"\nEstimated total time: {total_expected_time:.1f} hours (optimized coincidence)")
+        print(f"\nEstimated total time: {total_expected_time:.1f} hours")
 
     # Distribute work among ranks
     start_idx, end_idx = distribute_work(total_jobs, comm)
@@ -326,7 +333,7 @@ def run_mpi_stability_experiment(session_id: int = 1,
         failed_results = [r for r in final_results if not r.get('successful_completion', False)]
 
         print(f"\n" + "=" * 80)
-        print("NETWORK DYNAMICS EXPERIMENT COMPLETED")
+        print("NETWORK STABILITY EXPERIMENT COMPLETED")
         print("=" * 80)
         print(f"Session ID: {session_id}")
         print(f"Synaptic mode: {synaptic_mode}")
@@ -339,15 +346,21 @@ def run_mpi_stability_experiment(session_id: int = 1,
             attempts = [r.get('attempt_count', 1) for r in successful_results]
             print(f"Average attempts: {np.mean(attempts):.1f}")
 
-            # Dynamics measure ranges
-            lz_spatial_values = [r['lz_spatial_patterns_mean'] for r in successful_results if not np.isnan(r.get('lz_spatial_patterns_mean', np.nan))]
-            hamming_values = [r['hamming_slope_mean'] for r in successful_results if not np.isnan(r.get('hamming_slope_mean', np.nan))]
+            # Updated measure ranges
+            lz_values = [r['lz_spatial_patterns_mean'] for r in successful_results if not np.isnan(r.get('lz_spatial_patterns_mean', np.nan))]
+            shannon_sym_values = [r['shannon_entropy_symbols_mean'] for r in successful_results if not np.isnan(r.get('shannon_entropy_symbols_mean', np.nan))]
+            settling_values = [r.get('settling_time_mean', np.nan) for r in successful_results]
+            valid_settling = [s for s in settling_values if not np.isnan(s)]
             kistler_values = [r['kistler_delta_2ms_mean'] for r in successful_results if not np.isnan(r.get('kistler_delta_2ms_mean', np.nan))]
 
-            if lz_spatial_values:
-                print(f"LZ complexity (spatial): {np.min(lz_spatial_values):.1f} - {np.max(lz_spatial_values):.1f}")
-            if hamming_values:
-                print(f"Hamming slopes: {np.min(hamming_values):.4f} - {np.max(hamming_values):.4f}")
+            if lz_values:
+                print(f"LZ complexity (spatial): {np.min(lz_values):.1f} - {np.max(lz_values):.1f}")
+            if shannon_sym_values:
+                print(f"Shannon entropy (symbols): {np.min(shannon_sym_values):.3f} - {np.max(shannon_sym_values):.3f}")
+            if valid_settling:
+                print(f"Settling time: {np.min(valid_settling):.1f} - {np.max(valid_settling):.1f} ms")
+                settled_fraction = len(valid_settling) / len(settling_values)
+                print(f"Settled fraction: {settled_fraction:.2%}")
             if kistler_values:
                 print(f"Kistler coincidence (2ms): {np.min(kistler_values):.3f} - {np.max(kistler_values):.3f}")
 
@@ -355,13 +368,13 @@ def run_mpi_stability_experiment(session_id: int = 1,
         output_file = os.path.join(output_dir, f"stability_session_{session_id}_{synaptic_mode}.pkl")
         save_results(final_results, output_file, use_data_subdir=False)
 
-        print(f"\nDynamics results saved: {output_file}")
+        print(f"\nStability results saved: {output_file}")
         print("Network stability single session experiment completed!")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Run MPI network stability experiment with optimized analysis"
+        description="Run MPI network stability experiment with updated measures"
     )
 
     parser.add_argument("--session_id", type=int, default=1,

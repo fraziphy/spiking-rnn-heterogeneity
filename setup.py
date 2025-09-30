@@ -1,6 +1,6 @@
 # setup.py
 """
-Setup configuration for Spiking RNN Heterogeneity Framework v3.4.0
+Setup configuration for Spiking RNN Heterogeneity Framework v3.5.0
 Split experiments architecture: spontaneous activity + network stability analysis
 NEW: Poisson process analysis, rate-dependent RNG, transient removal, fixed time-step bug
 """
@@ -41,7 +41,7 @@ def read_requirements():
 
 setup(
     name="spiking-rnn-heterogeneity",
-    version="3.4.0",
+    version="3.5.0",
 
     description="Split experiments framework with Poisson process validation: spontaneous activity + network stability analysis for heterogeneous spiking networks",
     long_description=read_readme(),
