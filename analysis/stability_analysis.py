@@ -247,9 +247,12 @@ def analyze_perturbation_response(spikes_control: List[Tuple[float, int]],
     # 5. LZ complexity of post-perturbation symbol sequence
     lz_spatial = lempel_ziv_complexity(symbol_seq[pert_bin:])
 
-    # 6. Shannon entropies
+    # 6. Shannon entropies (BOTH post-perturbation only)
     shannon_entropy_symbols = compute_shannon_entropy(symbol_seq[pert_bin:])
-    shannon_entropy_spikes = compute_shannon_entropy(spike_diff_full.flatten())
+
+    # Extract post-perturbation spike differences for consistent entropy calculation
+    spike_diff_post = spike_diff_full[:, pert_bin:]
+    shannon_entropy_spikes = compute_shannon_entropy(spike_diff_post.flatten())
 
     # 7. Pattern diversity and activity
     unique_patterns_count = len(pattern_dict)

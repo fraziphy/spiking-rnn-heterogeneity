@@ -145,7 +145,7 @@ def execute_combination_with_recovery(experiment: StabilityExperiment, rank: int
             print(f"    Shannon (symbols): {result['shannon_entropy_symbols_mean']:.3f}")
             print(f"    Shannon (spikes): {result['shannon_entropy_spikes_mean']:.3f}")
             print(f"    Unique patterns: {result['unique_patterns_count_mean']:.0f}")
-            print(f"    Settling time: {result.get('settling_time_mean', np.nan):.1f} ms")
+            print(f"    Settling time: {result['settling_time_ms_mean']:.1f} ms")
             print(f"    Settled fraction: {result['settled_fraction']:.2f}")
             print(f"    Kistler 2ms: {result['kistler_delta_2ms_mean']:.3f}")
 

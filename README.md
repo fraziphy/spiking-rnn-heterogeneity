@@ -1,4 +1,4 @@
-# Spiking RNN Heterogeneity Framework - Split Experiments Architecture v3.5.0
+# Spiking RNN Heterogeneity Framework - Split Experiments Architecture v3.5.1
 
 A comprehensive framework for studying **spontaneous activity** and **network stability** in heterogeneous spiking recurrent neural networks with **Poisson process validation**, **Shannon entropy**, **settling time analysis**, and **full-simulation stability measures**.
 
@@ -9,6 +9,10 @@ A comprehensive framework for studying **spontaneous activity** and **network st
 - **Network Stability Analysis**: Full-simulation perturbation response, **Shannon entropy**, **settling time**, LZ complexity, coincidence measures
 - **Enhanced static Poisson connectivity**: Strength 10 (up from 1)
 - **Optimized coincidence calculation**: Single loop for both Kistler and Gamma measures
+
+### Critical Fixes (v3.5.1)
+- Shannon spike entropy now computed on post-perturbation data only (was: full simulation)
+- Fixed settling time statistics duplication (removed redundant calculations)
 
 ### Network Stability Revolution (NEW in v3.5.0)
 - **Full-simulation analysis**: Spike differences computed from t=0 (not just post-perturbation)

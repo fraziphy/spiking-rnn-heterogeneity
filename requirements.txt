@@ -1,4 +1,4 @@
-# Core dependencies for Spiking RNN Heterogeneity Framework v3.5.0
+# Core dependencies for Spiking RNN Heterogeneity Framework v3.5.1
 # Split experiments architecture: spontaneous activity + network stability analysis
 # NEW: Poisson process analysis, rate-dependent RNG, transient removal, fixed time-step bug
 

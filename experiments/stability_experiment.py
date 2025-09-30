@@ -214,8 +214,11 @@ class StabilityExperiment:
         for key, array in arrays.items():
             if key.endswith('_values'):
                 base_name = key[:-7]  # Remove '_values' suffix
-                stats[f'{base_name}_mean'] = float(np.mean(array))
-                stats[f'{base_name}_std'] = float(np.std(array))
+
+                # Use nanmean and nanstd to handle NaN values properly
+                # This is especially important for settling_time_ms which may have NaN
+                stats[f'{base_name}_mean'] = float(np.nanmean(array))
+                stats[f'{base_name}_std'] = float(np.nanstd(array))
 
         return stats
 
@@ -230,14 +233,12 @@ class StabilityExperiment:
         additional['settled_fraction'] = settled_count / len(settling_times) if settling_times else 0.0
         additional['settled_count'] = settled_count
 
+        # Only compute median here - mean and std already computed in _compute_all_statistics
+        # as settling_time_ms_mean and settling_time_ms_std
         if settled_count > 0:
             valid_times = [st for st in settling_times if not np.isnan(st)]
-            additional['settling_time_mean'] = float(np.mean(valid_times))
-            additional['settling_time_std'] = float(np.std(valid_times))
             additional['settling_time_median'] = float(np.median(valid_times))
         else:
-            additional['settling_time_mean'] = np.nan
-            additional['settling_time_std'] = np.nan
             additional['settling_time_median'] = np.nan
 
         return additional
@@ -304,7 +305,7 @@ class StabilityExperiment:
             print(f"  LZ (spatial): {result['lz_spatial_patterns_mean']:.2f}±{result['lz_spatial_patterns_std']:.2f}")
             print(f"  Shannon (symbols): {result['shannon_entropy_symbols_mean']:.3f}±{result['shannon_entropy_symbols_std']:.3f}")
             print(f"  Unique patterns: {result['unique_patterns_count_mean']:.1f}±{result['unique_patterns_count_std']:.1f}")
-            print(f"  Settling time: {result.get('settling_time_mean', np.nan):.1f}±{result.get('settling_time_std', np.nan):.1f} ms")
+            print(f"  Settling time: {result['settling_time_ms_mean']:.1f}±{result['settling_time_ms_std']:.1f} ms")
             print(f"  Settled fraction: {result['settled_fraction']:.2f}")
             print(f"  Kistler (2ms): {result['kistler_delta_2ms_mean']:.3f}±{result['kistler_delta_2ms_std']:.3f}")
             print(f"  Time: {result['computation_time']:.1f}s")
@@ -411,10 +412,12 @@ def average_across_sessions(results_files: List[str]) -> List[Dict[str, Any]]:
             # Settling statistics
             'settled_fraction': np.mean([r['settled_fraction'] for r in combo_results]),
             'settled_count': np.sum([r['settled_count'] for r in combo_results]),
-            'settling_time_mean': np.mean([r['settling_time_mean'] for r in combo_results
-                                          if not np.isnan(r.get('settling_time_mean', np.nan))])
-                                 if any(not np.isnan(r.get('settling_time_mean', np.nan)) for r in combo_results)
-                                 else np.nan,
+            'settling_time_ms_mean': np.mean([r['settling_time_ms_mean'] for r in combo_results]),
+            'settling_time_ms_std': np.std([r['settling_time_ms_mean'] for r in combo_results]),  # Std of means across sessions
+            'settling_time_median': np.mean([r.get('settling_time_median', np.nan) for r in combo_results
+                                            if not np.isnan(r.get('settling_time_median', np.nan))])
+                                   if any(not np.isnan(r.get('settling_time_median', np.nan)) for r in combo_results)
+                                   else np.nan,
 
             # Metadata
             'n_sessions': len(combo_results),
