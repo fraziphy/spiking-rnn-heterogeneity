@@ -1,4 +1,4 @@
-# experiments/spontaneous_experiment.py - Spontaneous activity analysis experiment
+# experiments/spontaneous_experiment.py - Updated with pulse/filter, static_input_mode, and improved file naming
 """
 Spontaneous activity analysis: firing rates, dimensionality, silent neurons.
 """
@@ -10,6 +10,22 @@ import time
 import pickle
 import random
 from typing import Dict, List, Tuple, Any
+
+import warnings
+
+def compute_safe_mean(array):
+    """Compute mean suppressing empty slice warnings."""
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore', category=RuntimeWarning,
+                              message='Mean of empty slice')
+        return float(np.nanmean(array))
+
+def compute_safe_std(array):
+    """Compute std suppressing degrees of freedom warnings."""
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore', category=RuntimeWarning,
+                              message='Degrees of freedom')
+        return float(np.nanstd(array))
 
 # Import with flexible handling
 try:
@@ -35,10 +51,12 @@ except ImportError:
 class SpontaneousExperiment:
     """Spontaneous activity analysis experiment."""
 
-    def __init__(self, n_neurons: int = 1000, dt: float = 0.1, synaptic_mode: str = "dynamic"):
+    def __init__(self, n_neurons: int = 1000, dt: float = 0.1,
+                 synaptic_mode: str = "filter", static_input_mode: str = "independent"):
         self.n_neurons = n_neurons
         self.dt = dt
         self.synaptic_mode = synaptic_mode
+        self.static_input_mode = static_input_mode
         self.n_trials = 10  # Fewer trials since we're measuring spontaneous activity
 
     def run_single_trial(self, session_id: int, v_th_std: float, g_std: float, trial_id: int,
@@ -47,7 +65,9 @@ class SpontaneousExperiment:
         """Run single spontaneous activity trial."""
 
         # Create network with random structure
-        network = SpikingRNN(self.n_neurons, dt=self.dt, synaptic_mode=self.synaptic_mode)
+        network = SpikingRNN(self.n_neurons, dt=self.dt,
+                            synaptic_mode=self.synaptic_mode,
+                            static_input_mode=self.static_input_mode)
 
         # Network parameters
         network_params = {
@@ -120,6 +140,7 @@ class SpontaneousExperiment:
             'static_input_rate': static_input_rate,
             'duration': duration,
             'synaptic_mode': self.synaptic_mode,
+            'static_input_mode': self.static_input_mode,
 
             # Raw arrays (for session averaging)
             **arrays,
@@ -186,21 +207,30 @@ class SpontaneousExperiment:
         """Compute mean and std for all arrays."""
         stats = {}
 
+        # Suppress warnings for empty slices (expected when all values are NaN)
+        import warnings
+
         for key, array in arrays.items():
             if key.endswith('_values'):
                 base_name = key[:-7]  # Remove '_values' suffix
-                stats[f'{base_name}_mean'] = float(np.mean(array))
-                stats[f'{base_name}_std'] = float(np.std(array))
+
+                with warnings.catch_warnings():
+                    warnings.filterwarnings('ignore', category=RuntimeWarning,
+                                        message='Mean of empty slice')
+                    warnings.filterwarnings('ignore', category=RuntimeWarning,
+                                        message='Degrees of freedom')
+                    stats[f'{base_name}_mean'] = float(np.nanmean(array))
+                    stats[f'{base_name}_std'] = float(np.nanstd(array))
 
         return stats
 
     def run_full_experiment(self, session_id: int, v_th_stds: np.ndarray,
-                          g_stds: np.ndarray, v_th_distributions: List[str],
+                          g_stds: np.ndarray, v_th_distribution: str = "normal",
                           static_input_rates: np.ndarray = None,
                           duration: float = 5000.0) -> List[Dict[str, Any]]:
         """Run full spontaneous activity experiment with randomized job distribution."""
         if static_input_rates is None:
-            if self.synaptic_mode == "dynamic":
+            if self.synaptic_mode == "filter":
                 static_input_rates = np.array([50.0, 100.0, 200.0, 500.0, 1000.0])
             else:
                 static_input_rates = np.array([50.0, 100.0, 200.0, 500.0])
@@ -209,19 +239,18 @@ class SpontaneousExperiment:
         all_combinations = []
         combo_idx = 0
         for input_rate in static_input_rates:
-            for v_th_dist in v_th_distributions:
-                for v_th_std in v_th_stds:
-                    for g_std in g_stds:
-                        all_combinations.append({
-                            'combo_idx': combo_idx,
-                            'session_id': session_id,
-                            'v_th_std': v_th_std,
-                            'g_std': g_std,
-                            'v_th_distribution': v_th_dist,
-                            'static_input_rate': input_rate,
-                            'duration': duration
-                        })
-                        combo_idx += 1
+            for v_th_std in v_th_stds:
+                for g_std in g_stds:
+                    all_combinations.append({
+                        'combo_idx': combo_idx,
+                        'session_id': session_id,
+                        'v_th_std': v_th_std,
+                        'g_std': g_std,
+                        'v_th_distribution': v_th_distribution,
+                        'static_input_rate': input_rate,
+                        'duration': duration
+                    })
+                    combo_idx += 1
 
         # RANDOMIZE job order for better CPU load balancing
         random.shuffle(all_combinations)
@@ -233,9 +262,10 @@ class SpontaneousExperiment:
         print(f"  Duration: {duration:.0f} ms")
         print(f"  v_th_stds: {len(v_th_stds)} (range: {np.min(v_th_stds):.3f}-{np.max(v_th_stds):.3f})")
         print(f"  g_stds: {len(g_stds)} (range: {np.min(g_stds):.3f}-{np.max(g_stds):.3f})")
-        print(f"  v_th_distributions: {v_th_distributions}")
+        print(f"  v_th_distribution: {v_th_distribution}")
         print(f"  Static rates: {static_input_rates}")
         print(f"  Synaptic mode: {self.synaptic_mode}")
+        print(f"  Static input mode: {self.static_input_mode}")
         print(f"  Bin sizes for dimensionality: 0.1ms, 2ms, 5ms, 20ms, 50ms, 100ms")
         print(f"  Job order: RANDOMIZED for load balancing")
 
@@ -281,34 +311,27 @@ def create_parameter_grid(n_v_th_points: int = 10, n_g_points: int = 10,
     """Create parameter grids."""
     v_th_stds = np.linspace(v_th_std_range[0], v_th_std_range[1], n_v_th_points)
     g_stds = np.linspace(g_std_range[0], g_std_range[1], n_g_points)
-    # static_input_rates = np.linspace(input_rate_range[0], input_rate_range[1], n_input_rates)
-    static_input_rates = np.geomspace(input_rate_range[0], input_rate_range[1], n_input_rates)
+    static_input_rates = np.linspace(input_rate_range[0], input_rate_range[1], n_input_rates)
 
     return v_th_stds, g_stds, static_input_rates
 
 
 def save_results(results: List[Dict[str, Any]], filename: str, use_data_subdir: bool = True):
-    """Save experimental results."""
     if not os.path.isabs(filename):
         if use_data_subdir:
             results_dir = os.path.join(os.getcwd(), "results", "data")
+            full_path = os.path.join(results_dir, filename)
         else:
-            results_dir = os.path.join(os.getcwd(), "results")
-        os.makedirs(results_dir, exist_ok=True)
-        full_path = os.path.join(results_dir, filename)
+            # Filename already includes path - just make absolute
+            full_path = os.path.join(os.getcwd(), filename)
     else:
-        directory = os.path.dirname(filename)
-        os.makedirs(directory, exist_ok=True)
         full_path = filename
+
+    directory = os.path.dirname(full_path)
+    os.makedirs(directory, exist_ok=True)
 
     with open(full_path, 'wb') as f:
         pickle.dump(results, f)
-
-    file_size = os.path.getsize(full_path) / (1024 * 1024)
-    print(f"Spontaneous activity results saved successfully!")
-    print(f"  File: {full_path}")
-    print(f"  Size: {file_size:.2f} MB")
-    print(f"  Combinations: {len(results)}")
 
 def load_results(filename: str) -> List[Dict[str, Any]]:
     """Load experimental results."""
@@ -358,13 +381,14 @@ def average_across_sessions(results_files: List[str]) -> List[Dict[str, Any]]:
             'static_input_rate': first_result['static_input_rate'],
             'duration': first_result['duration'],
             'synaptic_mode': first_result['synaptic_mode'],
+            'static_input_mode': first_result['static_input_mode'],
             'original_combination_index': first_result.get('original_combination_index', combo_idx),
 
             # Session-averaged statistics
-            **{key.replace('_values', '_mean'): float(np.mean(array))
-               for key, array in concatenated_arrays.items()},
-            **{key.replace('_values', '_std'): float(np.std(array))
-               for key, array in concatenated_arrays.items()},
+            **{key.replace('_values', '_mean'): compute_safe_mean(array)
+            for key, array in concatenated_arrays.items()},
+            **{key.replace('_values', '_std'): compute_safe_std(array)
+            for key, array in concatenated_arrays.items()},
 
             # Metadata
             'n_sessions': len(combo_results),

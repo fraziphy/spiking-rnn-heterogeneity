@@ -1,31 +1,34 @@
-# src/spiking_network.py - Updated with random structure and synaptic modes
+# src/spiking_network.py - Updated with pulse/filter and static_input_mode
 """
-Spiking RNN network with random structure per parameter combination and synaptic mode selection.
+Spiking RNN network with random structure, pulse/filter synaptic modes, and three static input modes.
 """
 
 import numpy as np
 from typing import List, Tuple, Dict, Any, Optional
 from lif_neuron import LIFNeuron
-from synaptic_model import ExponentialSynapses, StaticPoissonInput, DynamicPoissonInput, ReadoutLayer
+from synaptic_model import Synapse, StaticPoissonInput, DynamicPoissonInput, ReadoutLayer
 from rng_utils import get_rng
 
 class SpikingRNN:
-    """Spiking RNN with random structure and immediate/dynamic synaptic modes."""
+    """Spiking RNN with random structure and pulse/filter synaptic modes."""
 
     def __init__(self, n_neurons: int = 1000, n_input_channels: int = 20,
                  n_readout_neurons: int = 10, dt: float = 0.1,
-                 synaptic_mode: str = "dynamic"):
-        """Initialize spiking RNN with synaptic mode selection."""
+                 synaptic_mode: str = "filter", static_input_mode: str = "independent"):
+        """Initialize spiking RNN with synaptic mode and static input mode selection."""
         self.n_neurons = n_neurons
         self.n_input_channels = n_input_channels
         self.n_readout_neurons = n_readout_neurons
         self.dt = dt
         self.synaptic_mode = synaptic_mode
+        self.static_input_mode = static_input_mode
 
         # Initialize components
         self.neurons = LIFNeuron(n_neurons, dt)
-        self.synapses = ExponentialSynapses(n_neurons, dt, synaptic_mode)
-        self.static_input = StaticPoissonInput(n_neurons, dt)
+        self.recurrent_synapses = Synapse(n_neurons, dt, synaptic_mode)
+        self.static_input_synapses = Synapse(n_neurons, dt, synaptic_mode)
+        self.dynamic_input_synapses = Synapse(n_neurons, dt, synaptic_mode)
+        self.static_input = StaticPoissonInput(n_neurons, dt, static_input_mode)
         self.dynamic_input = DynamicPoissonInput(n_neurons, n_input_channels, dt)
         self.readout = ReadoutLayer(n_neurons, n_readout_neurons, dt)
 
@@ -62,7 +65,7 @@ class SpikingRNN:
         )
 
         # Initialize synaptic weights (structure depends on session + parameters)
-        self.synapses.initialize_weights(
+        self.recurrent_synapses.initialize_weights(
             session_id=session_id,
             v_th_std=v_th_std,
             g_std=g_std,
@@ -100,33 +103,34 @@ class SpikingRNN:
         self.neurons.initialize_state(session_id, v_th_std, g_std, trial_id)
 
     def step(self, session_id: int, v_th_std: float, g_std: float, trial_id: int,
-             static_input_rate: float = 0.0,
-             dynamic_input_rates: Optional[np.ndarray] = None,
-             time_step: int = 0) -> Tuple[List[int], np.ndarray]:
+            static_input_rate: float = 0.0,
+            dynamic_input_rates: Optional[np.ndarray] = None,
+            time_step: int = 0) -> Tuple[List[int], np.ndarray]:
         """Execute one simulation time step."""
         # Initialize total input current
         total_input = np.zeros(self.n_neurons)
 
-        # 1. Static Poisson input (trial-dependent generation)
+        # 1. Static Poisson input: generate events, then apply synaptic filtering
         if static_input_rate > 0:
-            static_current = self.static_input.update(
+            static_events = self.static_input.generate_events(
                 session_id, v_th_std, g_std, trial_id, static_input_rate, time_step
             )
+            static_current = self.static_input_synapses.apply_to_input(static_events)
             total_input += static_current
 
-        # 2. Dynamic Poisson input (trial-dependent generation)
+        # 2. Dynamic Poisson input: generate events, then apply synaptic filtering
         if dynamic_input_rates is not None and len(dynamic_input_rates) > 0:
-            dynamic_current = self.dynamic_input.update(
+            dynamic_events = self.dynamic_input.generate_events(
                 session_id, v_th_std, g_std, trial_id, dynamic_input_rates, time_step
             )
+            dynamic_current = self.dynamic_input_synapses.apply_to_input(dynamic_events)
             total_input += dynamic_current
 
         # 3. Recurrent synaptic input (based on random structure for this parameter combo)
         spiked_last_step = np.abs(self.neurons.last_spike_time - (self.current_time - self.dt)) < self.dt/2
         current_spikes = np.where(spiked_last_step)[0].tolist()
 
-
-        synaptic_current = self.synapses.update(current_spikes)
+        synaptic_current = self.recurrent_synapses.update(current_spikes)
         total_input += synaptic_current
 
         # 4. Update neurons
@@ -146,6 +150,7 @@ class SpikingRNN:
         self.current_time += self.dt
 
         return spike_indices, readout_activity
+
 
     def inject_perturbation(self, neuron_id: int):
         """Inject auxiliary spike for perturbation analysis."""
@@ -259,7 +264,7 @@ class SpikingRNN:
         return performance
 
     def get_network_info(self) -> Dict[str, Any]:
-        """Get network information including synaptic mode details."""
+        """Get network information including synaptic mode and static input mode details."""
         info = {
             'n_neurons': self.n_neurons,
             'spike_thresholds': self.neurons.spike_thresholds if self.neurons.spike_thresholds is not None else [],
@@ -267,6 +272,7 @@ class SpikingRNN:
             'n_readout_neurons': self.n_readout_neurons,
             'dt': self.dt,
             'synaptic_mode': self.synaptic_mode,
+            'static_input_mode': self.static_input_mode,
             'weight_matrix_nnz': self.synapses.weight_matrix.nnz if self.synapses.weight_matrix is not None else 0,
             'readout_weights_shape': self.readout.readout_weights.shape if self.readout.readout_weights is not None else None
         }

@@ -1,4 +1,4 @@
-# analysis/stability_analysis.py - Rewritten with full-simulation LZ analysis
+# analysis/stability_analysis.py - Updated with lz_column_wise and delta=0.1ms
 """
 Network stability analysis: full-simulation difference patterns, LZ complexity,
 settling time, and coincidence measures.
@@ -146,10 +146,11 @@ def unified_coincidence_factor(spike_train1: List[float], spike_train2: List[flo
 def average_coincidence_multi_window(spikes1: List[Tuple[float, int]],
                                    spikes2: List[Tuple[float, int]],
                                    num_neurons: int,
-                                   delta_values: List[float] = [2.0, 5.0],
+                                   delta_values: List[float] = [0.1, 2.0, 5.0],
                                    duration: float = None) -> Dict[str, float]:
     """
     Compute average coincidence using unified calculation for efficiency.
+    Now includes 0.1ms precision window.
     """
     # Organize spikes by neuron
     spikes_net1 = defaultdict(list)
@@ -180,14 +181,14 @@ def average_coincidence_multi_window(spikes1: List[Tuple[float, int]],
                 gamma_values.append(gamma_c)
 
         if kistler_values:
-            results[f'kistler_delta_{delta:.0f}ms'] = np.mean(kistler_values)
+            results[f'kistler_delta_{delta:.1f}ms'] = np.mean(kistler_values)
         else:
-            results[f'kistler_delta_{delta:.0f}ms'] = float('nan')
+            results[f'kistler_delta_{delta:.1f}ms'] = float('nan')
 
         if gamma_values:
-            results[f'gamma_window_{delta:.0f}ms'] = np.mean(gamma_values)
+            results[f'gamma_window_{delta:.1f}ms'] = np.mean(gamma_values)
         else:
-            results[f'gamma_window_{delta:.0f}ms'] = float('nan')
+            results[f'gamma_window_{delta:.1f}ms'] = float('nan')
 
     return results
 
@@ -198,7 +199,7 @@ def analyze_perturbation_response(spikes_control: List[Tuple[float, int]],
                                 perturbed_neuron: int,
                                 dt: float = 0.1) -> Dict[str, Any]:
     """
-    Enhanced perturbation analysis with full-simulation difference patterns.
+    Enhanced perturbation analysis with full-simulation difference patterns and lz_column_wise.
 
     Args:
         spikes_control: Control spike times [(time, neuron_id), ...]
@@ -210,7 +211,7 @@ def analyze_perturbation_response(spikes_control: List[Tuple[float, int]],
         dt: Time step size (ms), default 0.1 ms
 
     Returns:
-        Dictionary with stability measures
+        Dictionary with stability measures including lz_column_wise
     """
 
     bin_size = dt
@@ -247,36 +248,44 @@ def analyze_perturbation_response(spikes_control: List[Tuple[float, int]],
     # 5. LZ complexity of post-perturbation symbol sequence
     lz_spatial = lempel_ziv_complexity(symbol_seq[pert_bin:])
 
-    # 6. Shannon entropies (BOTH post-perturbation only)
+    # 6. NEW: LZ column-wise (activity-sorted, column-major flattening)
+    matrix_post = spike_diff_full[:, pert_bin:]
+    activity = matrix_post.sum(axis=1)
+    sorted_indices = np.argsort(activity)
+    matrix_sorted = matrix_post[sorted_indices, :]
+    lz_column_wise = lempel_ziv_complexity(matrix_sorted.flatten(order='F'))
+
+    # 7. Shannon entropies (BOTH post-perturbation only)
     shannon_entropy_symbols = compute_shannon_entropy(symbol_seq[pert_bin:])
 
     # Extract post-perturbation spike differences for consistent entropy calculation
     spike_diff_post = spike_diff_full[:, pert_bin:]
     shannon_entropy_spikes = compute_shannon_entropy(spike_diff_post.flatten())
 
-    # 7. Pattern diversity and activity
+    # 8. Pattern diversity and activity
     unique_patterns_count = len(pattern_dict)
     post_pert_symbol_sum = int(np.sum(symbol_seq[pert_bin:]))
     total_spike_differences = int(spike_diff_full.sum())
 
-    # 8. Settling time (time to return to baseline)
+    # 9. Settling time (time to return to baseline)
     settling_time_ms = find_settling_time(symbol_seq, pert_bin, bin_size,
                                          min_zero_duration_ms=50.0)
 
-    # 9. Unified coincidence analysis (post-perturbation only)
+    # 10. Unified coincidence analysis with 0.1ms, 2ms, 5ms windows (post-perturbation only)
     duration_post = simulation_end - perturbation_time
     spikes_control_post = [(t, n) for t, n in spikes_control if t >= perturbation_time]
     spikes_perturbed_post = [(t, n) for t, n in spikes_perturbed if t >= perturbation_time]
 
     coincidence_results = average_coincidence_multi_window(
         spikes_control_post, spikes_perturbed_post,
-        num_neurons, delta_values=[2.0, 5.0], duration=duration_post
+        num_neurons, delta_values=[0.1, 2.0, 5.0], duration=duration_post
     )
 
     # Compile results
     results = {
-        # LZ complexity
+        # LZ complexity measures
         'lz_spatial_patterns': lz_spatial,
+        'lz_column_wise': lz_column_wise,  # NEW
 
         # Shannon entropies
         'shannon_entropy_symbols': shannon_entropy_symbols,
@@ -290,7 +299,7 @@ def analyze_perturbation_response(spikes_control: List[Tuple[float, int]],
         # Settling dynamics
         'settling_time_ms': settling_time_ms,
 
-        # Coincidence measures
+        # Coincidence measures (now includes 0.1ms)
         **coincidence_results,
 
         # Metadata

@@ -11,7 +11,7 @@ This package contains the fundamental building blocks:
 
 from .rng_utils import HierarchicalRNG, get_rng
 from .lif_neuron import LIFNeuron
-from .synaptic_model import ExponentialSynapses, StaticPoissonInput, DynamicPoissonInput, ReadoutLayer
+from .synaptic_model import Synapse, StaticPoissonInput, DynamicPoissonInput, ReadoutLayer
 from .spiking_network import SpikingRNN
 
 __all__ = [

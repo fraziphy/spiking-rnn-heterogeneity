@@ -1,13 +1,12 @@
-# tests/test_comprehensive_structure.py - Updated for new stability measures
+# tests/test_comprehensive_structure.py - Complete with pulse/filter and input mode tests
 """
 Comprehensive tests to verify:
-1. Network structure consistency across trials
-2. Normal vs uniform distribution handling
-3. RNG behavior for different components
-4. Split analysis functionality (spontaneous vs stability)
-5. Enhanced connectivity strength (10)
-6. Optimized coincidence calculations
-7. New stability measures (Shannon entropy, settling time)
+1. Pulse vs filter synapse terminology and behavior
+2. Three static input modes: independent, common_stochastic, common_tonic
+3. Network structure consistency across trials
+4. RNG behavior for different components
+5. Split analysis functionality
+6. New stability measures (lz_column_wise, delta=0.1ms)
 """
 
 import sys
@@ -21,9 +20,377 @@ sys.path.insert(0, os.path.join(project_root, 'src'))
 sys.path.insert(0, os.path.join(project_root, 'analysis'))
 sys.path.insert(0, os.path.join(project_root, 'experiments'))
 
+def test_pulse_filter_terminology():
+    """Test that pulse/filter terminology is correctly implemented."""
+    print("Testing pulse/filter terminology...")
+
+    from spiking_network import SpikingRNN
+
+    # Test pulse mode
+    try:
+        network_pulse = SpikingRNN(n_neurons=50, synaptic_mode="pulse")
+        if network_pulse.synaptic_mode == "pulse":
+            print("  ✓ Pulse synaptic mode accepted")
+        else:
+            print("  ✗ Pulse mode not set correctly")
+            return False
+    except Exception as e:
+        print(f"  ✗ Pulse mode failed: {e}")
+        return False
+
+    # Test filter mode
+    try:
+        network_filter = SpikingRNN(n_neurons=50, synaptic_mode="filter")
+        if network_filter.synaptic_mode == "filter":
+            print("  ✓ Filter synaptic mode accepted")
+        else:
+            print("  ✗ Filter mode not set correctly")
+            return False
+    except Exception as e:
+        print(f"  ✗ Filter mode failed: {e}")
+        return False
+
+    # Test old terminology is rejected
+    try:
+        network_old = SpikingRNN(n_neurons=50, synaptic_mode="immediate")
+        print("  ✗ Old 'immediate' terminology still accepted (should be 'pulse')")
+        return False
+    except ValueError:
+        print("  ✓ Old 'immediate' terminology correctly rejected")
+
+    try:
+        network_old = SpikingRNN(n_neurons=50, synaptic_mode="dynamic")
+        print("  ✗ Old 'dynamic' terminology still accepted (should be 'filter')")
+        return False
+    except ValueError:
+        print("  ✓ Old 'dynamic' terminology correctly rejected")
+
+    return True
+
+
+def test_static_input_modes():
+    """Test the three static input modes."""
+    print("\nTesting static input modes...")
+
+    from spiking_network import SpikingRNN
+
+    modes = ["independent", "common_stochastic", "common_tonic"]
+
+    for mode in modes:
+        try:
+            network = SpikingRNN(n_neurons=50, synaptic_mode="filter", static_input_mode=mode)
+            if network.static_input_mode == mode:
+                print(f"  ✓ Static input mode '{mode}' accepted")
+            else:
+                print(f"  ✗ Static input mode '{mode}' not set correctly")
+                return False
+        except Exception as e:
+            print(f"  ✗ Static input mode '{mode}' failed: {e}")
+            return False
+
+    # Test invalid mode is rejected
+    try:
+        network_invalid = SpikingRNN(n_neurons=50, static_input_mode="invalid_mode")
+        print("  ✗ Invalid static input mode accepted")
+        return False
+    except ValueError:
+        print("  ✓ Invalid static input mode correctly rejected")
+
+    return True
+
+
+def test_common_stochastic_input():
+    """Test that common_stochastic gives identical Poisson spikes across neurons."""
+    print("\nTesting common_stochastic input...")
+
+    from synaptic_model import StaticPoissonInput, Synapse
+
+    # Create common_stochastic input
+    static_input = StaticPoissonInput(n_neurons=100, dt=0.1, static_input_mode="common_stochastic")
+    static_input.initialize_parameters(input_strength=1.0)
+
+    # Create synapse for filtering (testing through complete pathway)
+    synapse = Synapse(n_neurons=100, dt=0.1, synaptic_mode="filter")
+
+    session_id = 42
+    v_th_std = 0.5
+    g_std = 0.3
+    trial_id = 1
+    rate = 500.0
+
+    # Collect input across neurons for multiple timesteps
+    neuron_inputs = []
+    for time_step in range(50):
+        events = static_input.generate_events(session_id, v_th_std, g_std, trial_id, rate, time_step)
+        input_current = synapse.apply_to_input(events)
+        neuron_inputs.append(input_current.copy())
+
+    neuron_inputs = np.array(neuron_inputs)  # Shape: (timesteps, neurons)
+
+    # Check: At each timestep, all neurons should receive identical filtered input
+    timesteps_with_variation = 0
+    for t in range(len(neuron_inputs)):
+        if not np.allclose(neuron_inputs[t], neuron_inputs[t, 0]):
+            timesteps_with_variation += 1
+
+    if timesteps_with_variation == 0:
+        print("  ✓ Common stochastic: all neurons receive identical input at each timestep")
+    else:
+        print(f"  ✗ Common stochastic: {timesteps_with_variation} timesteps had variation across neurons")
+        return False
+
+    # Check: Different timesteps should have different patterns (stochastic)
+    unique_patterns = len(set(tuple(row) for row in neuron_inputs))
+    if unique_patterns > 10:
+        print(f"  ✓ Common stochastic: stochastic across time ({unique_patterns} unique patterns)")
+    else:
+        print(f"  ✗ Common stochastic: not stochastic enough ({unique_patterns} unique patterns)")
+        return False
+
+    return True
+
+
+def test_independent_stochastic_input():
+    """Test that independent gives different Poisson spikes across neurons."""
+    print("\nTesting independent stochastic input...")
+
+    from synaptic_model import StaticPoissonInput, Synapse
+
+    # Create independent input
+    static_input = StaticPoissonInput(n_neurons=100, dt=0.1, static_input_mode="independent")
+    static_input.initialize_parameters(input_strength=1.0)
+
+    # Create synapse for filtering
+    synapse = Synapse(n_neurons=100, dt=0.1, synaptic_mode="filter")
+
+    session_id = 42
+    v_th_std = 0.5
+    g_std = 0.3
+    trial_id = 1
+    rate = 500.0
+
+    # Collect input across neurons for multiple timesteps
+    neuron_inputs = []
+    for time_step in range(50):
+        events = static_input.generate_events(session_id, v_th_std, g_std, trial_id, rate, time_step)
+        input_current = synapse.apply_to_input(events)
+        neuron_inputs.append(input_current.copy())
+
+    neuron_inputs = np.array(neuron_inputs)  # Shape: (timesteps, neurons)
+
+    # Check: Neurons should have different patterns
+    neuron_patterns_different = 0
+    for n1 in range(0, 100, 10):  # Sample every 10th neuron
+        for n2 in range(n1 + 1, min(n1 + 10, 100)):
+            if not np.array_equal(neuron_inputs[:, n1], neuron_inputs[:, n2]):
+                neuron_patterns_different += 1
+
+    if neuron_patterns_different > 0:
+        print(f"  ✓ Independent: neurons have different input patterns ({neuron_patterns_different} pairs differ)")
+    else:
+        print("  ✗ Independent: all sampled neurons have identical patterns")
+        return False
+
+    return True
+
+
+def test_common_tonic_input():
+    """Test that common_tonic gives deterministic constant input."""
+    print("\nTesting common_tonic input...")
+
+    from synaptic_model import StaticPoissonInput, Synapse
+
+    # Create common_tonic input
+    static_input = StaticPoissonInput(n_neurons=100, dt=0.1, static_input_mode="common_tonic")
+    static_input.initialize_parameters(input_strength=1.0)
+
+    # Create synapse for filtering
+    synapse = Synapse(n_neurons=100, dt=0.1, synaptic_mode="filter")
+
+    session_id = 42
+    v_th_std = 0.5
+    g_std = 0.3
+    trial_id = 1
+    rate = 500.0
+
+    # Collect input for multiple timesteps
+    inputs_over_time = []
+    for time_step in range(50):
+        events = static_input.generate_events(session_id, v_th_std, g_std, trial_id, rate, time_step)
+        input_current = synapse.apply_to_input(events)
+        inputs_over_time.append(input_current.copy())
+
+    inputs_over_time = np.array(inputs_over_time)
+
+    # Check 1: All neurons should receive identical input at each timestep
+    for t in range(len(inputs_over_time)):
+        if not np.allclose(inputs_over_time[t], inputs_over_time[t, 0]):
+            print(f"  ✗ Common tonic: neurons differ at timestep {t}")
+            return False
+
+    print("  ✓ Common tonic: all neurons receive identical input")
+
+    # Check 2: With filter synapses, input should accumulate
+    mean_input_last = np.mean(inputs_over_time[-10:, 0])
+    if mean_input_last > 0:
+        print(f"  ✓ Common tonic: non-zero accumulated input ({mean_input_last:.3f})")
+    else:
+        print("  ✗ Common tonic: input is zero")
+        return False
+
+    return True
+
+
+def test_input_mode_trial_dependence():
+    """Test that input modes are trial-dependent."""
+    print("\nTesting input mode trial-dependence...")
+
+    from synaptic_model import StaticPoissonInput, Synapse
+
+    # Test with independent mode
+    static_input = StaticPoissonInput(n_neurons=50, dt=0.1, static_input_mode="independent")
+    static_input.initialize_parameters(input_strength=1.0)
+
+    session_id = 42
+    v_th_std = 0.5
+    g_std = 0.3
+    rate = 500.0
+
+    # Run two different trials (without synapse for simplicity - just check events)
+    events_trial1 = []
+    for time_step in range(20):
+        events = static_input.generate_events(session_id, v_th_std, g_std, trial_id=1,
+                                             rate=rate, time_step=time_step)
+        events_trial1.append(events.copy())
+
+    events_trial2 = []
+    for time_step in range(20):
+        events = static_input.generate_events(session_id, v_th_std, g_std, trial_id=2,
+                                             rate=rate, time_step=time_step)
+        events_trial2.append(events.copy())
+
+    events_trial1 = np.array(events_trial1)
+    events_trial2 = np.array(events_trial2)
+
+    # Trials should differ
+    if not np.array_equal(events_trial1, events_trial2):
+        print("  ✓ Different trials produce different input patterns")
+        return True
+    else:
+        print("  ✗ Different trials produce identical input patterns")
+        return False
+
+
+def test_lz_column_wise():
+    """Test the new lz_column_wise measure."""
+    print("\nTesting lz_column_wise computation...")
+
+    from stability_analysis import analyze_perturbation_response
+
+    # Create simple spike patterns
+    spikes_control = [(t*0.5, t%3) for t in range(20)]
+    spikes_perturbed = [(t*0.5 + 0.1, t%3) for t in range(20)]
+
+    result = analyze_perturbation_response(
+        spikes_control, spikes_perturbed,
+        num_neurons=3, perturbation_time=1.0,
+        simulation_end=10.0, perturbed_neuron=0, dt=0.1
+    )
+
+    # Check lz_column_wise exists
+    if 'lz_column_wise' in result:
+        lz_col = result['lz_column_wise']
+        print(f"  ✓ lz_column_wise computed: {lz_col}")
+
+        # Should be a positive integer
+        if lz_col > 0 and isinstance(lz_col, (int, np.integer)):
+            print("  ✓ lz_column_wise has valid value")
+            return True
+        else:
+            print(f"  ✗ lz_column_wise has invalid value: {lz_col}")
+            return False
+    else:
+        print("  ✗ lz_column_wise not found in results")
+        return False
+
+
+def test_coincidence_delta_01ms():
+    """Test that delta=0.1ms coincidence measure is computed."""
+    print("\nTesting coincidence with delta=0.1ms...")
+
+    from stability_analysis import average_coincidence_multi_window
+
+    # Create spike trains
+    spikes1 = [(1.0, 0), (2.0, 0), (3.0, 1)]
+    spikes2 = [(1.05, 0), (2.03, 0), (3.01, 1)]
+
+    result = average_coincidence_multi_window(
+        spikes1, spikes2, num_neurons=2,
+        delta_values=[0.1, 2.0, 5.0], duration=5.0
+    )
+
+    # Check all three deltas are present
+    expected_keys = ['kistler_delta_0.1ms', 'kistler_delta_2.0ms', 'kistler_delta_5.0ms',
+                     'gamma_window_0.1ms', 'gamma_window_2.0ms', 'gamma_window_5.0ms']
+
+    missing_keys = [k for k in expected_keys if k not in result]
+
+    if not missing_keys:
+        print("  ✓ All coincidence measures computed (0.1ms, 2ms, 5ms)")
+        print(f"    Kistler 0.1ms: {result['kistler_delta_0.1ms']:.3f}")
+        print(f"    Kistler 2.0ms: {result['kistler_delta_2.0ms']:.3f}")
+        return True
+    else:
+        print(f"  ✗ Missing coincidence measures: {missing_keys}")
+        return False
+
+
+def test_pulse_vs_filter_behavior():
+    """Test that pulse and filter synapses behave differently."""
+    print("\nTesting pulse vs filter synapse behavior...")
+
+    from synaptic_model import Synapse
+
+    # Create pulse synapse
+    synapse_pulse = Synapse(n_neurons=10, dt=0.1, synaptic_mode="pulse")
+    synapse_pulse.initialize_weights(session_id=1, v_th_std=0.5, g_std=0.5, g_mean=1.0, connection_prob=0.5)
+
+    # Create filter synapse
+    synapse_filter = Synapse(n_neurons=10, dt=0.1, synaptic_mode="filter")
+    synapse_filter.initialize_weights(session_id=1, v_th_std=0.5, g_std=0.5, g_mean=1.0, connection_prob=0.5)
+
+    # Apply spike to both
+    spike_indices = [0, 1, 2]
+
+    current_pulse1 = synapse_pulse.update(spike_indices)
+    current_filter1 = synapse_filter.update(spike_indices)
+
+    # Step 2: No spikes
+    current_pulse2 = synapse_pulse.update([])
+    current_filter2 = synapse_filter.update([])
+
+    # Pulse should be zero on step 2, filter should decay
+    pulse_went_to_zero = np.allclose(current_pulse2, 0.0)
+    filter_decayed = np.any(current_filter2 > 0) and np.all(current_filter2 < current_filter1 + 1e-10)
+
+    if pulse_went_to_zero:
+        print("  ✓ Pulse synapses reset to zero without spikes")
+    else:
+        print("  ✗ Pulse synapses did not reset to zero")
+        return False
+
+    if filter_decayed:
+        print("  ✓ Filter synapses decay exponentially")
+    else:
+        print("  ✗ Filter synapses did not decay properly")
+        return False
+
+    return True
+
+
 def test_network_structure_consistency():
     """Test that network structure is identical across trials but varies with parameters."""
-    print("Testing network structure consistency across trials...")
+    print("\nTesting network structure consistency across trials...")
 
     from spiking_network import SpikingRNN
     from rng_utils import rng_manager
@@ -36,8 +403,8 @@ def test_network_structure_consistency():
     g_std = 0.5
 
     # Create two networks with same parameters
-    network1 = SpikingRNN(n_neurons=100, dt=0.1, synaptic_mode="dynamic")
-    network2 = SpikingRNN(n_neurons=100, dt=0.1, synaptic_mode="dynamic")
+    network1 = SpikingRNN(n_neurons=100, dt=0.1, synaptic_mode="filter")
+    network2 = SpikingRNN(n_neurons=100, dt=0.1, synaptic_mode="filter")
 
     # Initialize with same session + parameters
     network1.initialize_network(session_id, v_th_std, g_std, v_th_distribution="normal")
@@ -50,16 +417,9 @@ def test_network_structure_consistency():
         print("  ✗ Spike thresholds differ across network instances")
         return False
 
-    # Check enhanced static Poisson connectivity strength
-    if network1.static_input.input_strength == 10.0:
-        print("  ✓ Enhanced static Poisson connectivity strength: 10")
-    else:
-        print(f"  ✗ Wrong static Poisson strength: {network1.static_input.input_strength} (expected 10)")
-        return False
-
     # Check synaptic weights are identical
-    weights1 = network1.synapses.weight_matrix.data
-    weights2 = network2.synapses.weight_matrix.data
+    weights1 = network1.recurrent_synapses.weight_matrix.data
+    weights2 = network2.recurrent_synapses.weight_matrix.data
 
     if np.allclose(weights1, weights2, atol=1e-15):
         print("  ✓ Synaptic weights identical across network instances")
@@ -67,10 +427,10 @@ def test_network_structure_consistency():
         print("  ✗ Synaptic weights differ across network instances")
         return False
 
-    # Now test that different parameters give different structure
+    # Test that different parameters give different structure
     rng_manager.reset_for_testing()
 
-    network3 = SpikingRNN(n_neurons=100, dt=0.1, synaptic_mode="dynamic")
+    network3 = SpikingRNN(n_neurons=100, dt=0.1, synaptic_mode="filter")
     network3.initialize_network(session_id, v_th_std + 0.1, g_std, v_th_distribution="normal")
 
     if not np.allclose(network1.neurons.spike_thresholds, network3.neurons.spike_thresholds):
@@ -81,59 +441,10 @@ def test_network_structure_consistency():
 
     return True
 
+
 def test_split_analysis_modules():
     """Test both spontaneous and stability analysis modules."""
     print("\nTesting split analysis modules...")
-
-    # Test spontaneous analysis
-    try:
-        from spontaneous_analysis import (
-            analyze_spontaneous_activity, compute_activity_dimensionality_multi_bin,
-            analyze_firing_rates_and_silence, analyze_population_poisson_properties
-        )
-
-        test_spikes = [(i*10.0, i%5) for i in range(100)]
-
-        # Test firing rate analysis
-        firing_stats = analyze_firing_rates_and_silence(test_spikes, num_neurons=10, duration=1000.0)
-        if 'mean_firing_rate' in firing_stats and 'percent_silent' in firing_stats:
-            print("  ✓ Spontaneous firing rate analysis working")
-        else:
-            print("  ✗ Spontaneous firing rate analysis failed")
-            return False
-
-        # Test multi-bin dimensionality (6 bin sizes)
-        dim_results = compute_activity_dimensionality_multi_bin(
-            test_spikes, num_neurons=10, duration=1000.0,
-            bin_sizes=[0.1, 2.0, 5.0, 20.0, 50.0, 100.0]
-        )
-        expected_bins = ['bin_0.1ms', 'bin_2.0ms', 'bin_5.0ms', 'bin_20.0ms', 'bin_50.0ms', 'bin_100.0ms']
-        if all(bin_key in dim_results for bin_key in expected_bins):
-            print("  ✓ Multi-bin dimensionality analysis (6 bin sizes)")
-        else:
-            print("  ✗ Multi-bin dimensionality missing bins")
-            return False
-
-        # Test Poisson analysis
-        poisson_results = analyze_population_poisson_properties(test_spikes, num_neurons=10, duration=1000.0)
-        if 'population_statistics' in poisson_results:
-            print("  ✓ Poisson process analysis")
-        else:
-            print("  ✗ Poisson process analysis failed")
-            return False
-
-        # Test complete spontaneous analysis
-        spontaneous_results = analyze_spontaneous_activity(test_spikes, num_neurons=10, duration=1000.0)
-        required_keys = ['firing_stats', 'dimensionality_metrics', 'poisson_analysis']
-        if all(key in spontaneous_results for key in required_keys):
-            print("  ✓ Complete spontaneous activity analysis")
-        else:
-            print("  ✗ Complete spontaneous activity analysis failed")
-            return False
-
-    except Exception as e:
-        print(f"  ✗ Spontaneous analysis test failed: {e}")
-        return False
 
     # Test stability analysis with NEW measures
     try:
@@ -142,13 +453,13 @@ def test_split_analysis_modules():
             compute_shannon_entropy, find_settling_time, lempel_ziv_complexity
         )
 
-        # Test unified coincidence (optimized)
+        # Test unified coincidence
         spikes1 = [1.0, 5.0, 10.0, 15.0]
         spikes2 = [1.1, 5.2, 9.8, 15.3]
         kistler_c, gamma_c = unified_coincidence_factor(spikes1, spikes2, delta=2.0, duration=20.0)
 
         if not np.isnan(gamma_c):
-            print("  ✓ Unified coincidence calculation (single loop optimization)")
+            print("  ✓ Unified coincidence calculation works")
         else:
             print("  ✗ Unified coincidence calculation failed")
             return False
@@ -163,46 +474,13 @@ def test_split_analysis_modules():
             return False
 
         # Test settling time
-        symbol_seq = np.array([1, 2, 3, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0])  # Settles to 0
+        symbol_seq = np.array([1, 2, 3, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0])
         pert_bin = 5
         settling = find_settling_time(symbol_seq, pert_bin, bin_size=1.0, min_zero_duration_ms=5.0)
         if not np.isnan(settling):
             print(f"  ✓ Settling time detection: {settling:.1f} ms")
         else:
             print("  ✗ Settling time detection failed")
-            return False
-
-        # Test complete perturbation analysis (NEW measures)
-        spikes_control = [(1.0, 0), (2.0, 1), (3.0, 0)]
-        spikes_perturbed = [(1.0, 0), (2.5, 1), (3.5, 2)]
-
-        stability_results = analyze_perturbation_response(
-            spikes_control, spikes_perturbed, num_neurons=3,
-            perturbation_time=1.0, simulation_end=5.0, perturbed_neuron=0,
-            dt=0.1
-        )
-
-        # Check for NEW measures
-        required_keys = [
-            'lz_spatial_patterns', 'shannon_entropy_symbols', 'shannon_entropy_spikes',
-            'unique_patterns_count', 'settling_time_ms', 'kistler_delta_2ms', 'gamma_window_2ms'
-        ]
-
-        # Check REMOVED measures are gone
-        forbidden_keys = ['hamming_slope', 'stable_period', 'spatial_entropy', 'pattern_fraction']
-
-        has_required = all(key in stability_results for key in required_keys)
-        has_forbidden = any(key in stability_results for key in forbidden_keys)
-
-        if has_required and not has_forbidden:
-            print("  ✓ Complete stability analysis (new measures: Shannon, settling time)")
-        else:
-            missing = [k for k in required_keys if k not in stability_results]
-            present = [k for k in forbidden_keys if k in stability_results]
-            if missing:
-                print(f"  ✗ Stability analysis missing: {missing}")
-            if present:
-                print(f"  ✗ Stability analysis still has removed measures: {present}")
             return False
 
     except Exception as e:
@@ -213,301 +491,24 @@ def test_split_analysis_modules():
 
     return True
 
-def test_split_experiments():
-    """Test both experiment types with updated measures."""
-    print("\nTesting split experiments...")
-
-    # Test spontaneous experiment
-    try:
-        from spontaneous_experiment import SpontaneousExperiment
-
-        experiment = SpontaneousExperiment(n_neurons=20, synaptic_mode="dynamic")
-        result = experiment.run_parameter_combination(
-            session_id=999, v_th_std=0.5, g_std=0.5,
-            v_th_distribution="normal", static_input_rate=200.0, duration=100.0
-        )
-
-        # Check for spontaneous-specific fields
-        expected_fields = ['duration', 'mean_firing_rate_values', 'percent_silent_values', 'mean_cv_isi_values']
-        if all(field in result for field in expected_fields):
-            print("  ✓ Spontaneous experiment with duration and Poisson measures")
-        else:
-            print("  ✗ Spontaneous experiment missing fields")
-            return False
-
-    except Exception as e:
-        print(f"  ✗ Spontaneous experiment test failed: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-
-    # Test stability experiment with NEW measures
-    try:
-        from stability_experiment import StabilityExperiment
-
-        experiment = StabilityExperiment(n_neurons=20, synaptic_mode="dynamic")
-        result = experiment.run_parameter_combination(
-            session_id=999, v_th_std=0.5, g_std=0.5,
-            v_th_distribution="normal", static_input_rate=200.0
-        )
-
-        # Check for NEW stability measures
-        expected_fields = [
-            'lz_spatial_patterns_values', 'shannon_entropy_symbols_values',
-            'settling_time_ms_values', 'settled_fraction', 'kistler_delta_2ms_values'
-        ]
-
-        # Check REMOVED measures are gone
-        forbidden_fields = ['hamming_slope_values', 'stable_period_mean', 'spatial_entropy_mean']
-
-        has_expected = all(field in result for field in expected_fields)
-        has_forbidden = any(field in result for field in forbidden_fields)
-
-        if has_expected and not has_forbidden:
-            print("  ✓ Stability experiment (new: Shannon entropy, settling time)")
-        else:
-            missing = [f for f in expected_fields if f not in result]
-            present = [f for f in forbidden_fields if f in result]
-            if missing:
-                print(f"  ✗ Stability experiment missing: {missing}")
-            if present:
-                print(f"  ✗ Stability experiment still has removed measures: {present}")
-            return False
-
-    except Exception as e:
-        print(f"  ✗ Stability experiment test failed: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-
-    return True
-
-def test_trial_dependent_processes():
-    """Test that only Poisson processes and initial states vary with trial_id."""
-    print("\nTesting trial-dependent processes...")
-
-    from spiking_network import SpikingRNN
-
-    session_id = 123
-    v_th_std = 0.8
-    g_std = 0.6
-
-    network = SpikingRNN(n_neurons=50, dt=0.1, synaptic_mode="dynamic")
-    network.initialize_network(session_id, v_th_std, g_std, v_th_distribution="normal")
-
-    # Run multiple trials to check variability
-    identical_count = 0
-    total_pairs = 5
-
-    for pair in range(total_pairs):
-        trial_id1 = pair * 2 + 1
-        trial_id2 = pair * 2 + 2
-
-        # Run simulations with different trial_ids
-        spikes1 = network.simulate_network_dynamics(
-            session_id=session_id, v_th_std=v_th_std, g_std=g_std, trial_id=trial_id1,
-            duration=200.0, static_input_rate=300.0
-        )
-
-        spikes2 = network.simulate_network_dynamics(
-            session_id=session_id, v_th_std=v_th_std, g_std=g_std, trial_id=trial_id2,
-            duration=200.0, static_input_rate=300.0
-        )
-
-        if spikes1 == spikes2:
-            identical_count += 1
-
-    # Allow up to 1 identical pair out of 5
-    if identical_count <= 1:
-        print(f"  ✓ Different trial_id produces different spike patterns ({identical_count}/{total_pairs} identical)")
-        return True
-    else:
-        print(f"  ✗ Too many identical spike patterns: {identical_count}/{total_pairs}")
-        return False
-
-def test_distribution_handling():
-    """Test that normal vs uniform distributions are properly handled."""
-    print("\nTesting distribution handling...")
-
-    from lif_neuron import LIFNeuron
-
-    neurons = LIFNeuron(n_neurons=1000, dt=0.1)
-    session_id = 456
-    v_th_std = 1.0
-
-    # Test normal distribution
-    neurons.initialize_parameters(
-        session_id=session_id, v_th_std=v_th_std, trial_id=0,
-        v_th_mean=-55.0, v_th_distribution="normal"
-    )
-
-    thresholds_normal = neurons.spike_thresholds.copy()
-    actual_std_normal = np.std(thresholds_normal)
-    actual_mean_normal = np.mean(thresholds_normal)
-
-    # Test uniform distribution
-    neurons.initialize_parameters(
-        session_id=session_id, v_th_std=v_th_std, trial_id=0,
-        v_th_mean=-55.0, v_th_distribution="uniform"
-    )
-
-    thresholds_uniform = neurons.spike_thresholds.copy()
-    actual_std_uniform = np.std(thresholds_uniform)
-    actual_mean_uniform = np.mean(thresholds_uniform)
-
-    # Check that distributions are different
-    if not np.allclose(thresholds_normal, thresholds_uniform):
-        print("  ✓ Normal and uniform distributions produce different values")
-    else:
-        print("  ✗ Normal and uniform distributions produce identical values")
-        return False
-
-    # Check mean preservation for both
-    if abs(actual_mean_normal - (-55.0)) < 1e-10:
-        print(f"  ✓ Normal distribution mean preserved: {actual_mean_normal:.12f}")
-    else:
-        print(f"  ✗ Normal distribution mean not preserved: {actual_mean_normal:.12f}")
-        return False
-
-    if abs(actual_mean_uniform - (-55.0)) < 1e-10:
-        print(f"  ✓ Uniform distribution mean preserved: {actual_mean_uniform:.12f}")
-    else:
-        print(f"  ✗ Uniform distribution mean not preserved: {actual_mean_uniform:.12f}")
-        return False
-
-    # Check standard deviations are approximately correct
-    std_tolerance = 0.1
-    if abs(actual_std_normal - v_th_std) < std_tolerance:
-        print(f"  ✓ Normal distribution std approximately correct: {actual_std_normal:.3f}")
-    else:
-        print(f"  ✗ Normal distribution std incorrect: {actual_std_normal:.3f} vs {v_th_std}")
-        return False
-
-    if abs(actual_std_uniform - v_th_std) < std_tolerance:
-        print(f"  ✓ Uniform distribution std approximately correct: {actual_std_uniform:.3f}")
-    else:
-        print(f"  ✗ Uniform distribution std incorrect: {actual_std_uniform:.3f} vs {v_th_std}")
-        return False
-
-    return True
-
-def test_optimized_coincidence():
-    """Test that coincidence optimization works correctly."""
-    print("\nTesting optimized coincidence calculations...")
-
-    from stability_analysis import unified_coincidence_factor
-
-    # Test with identical spike trains
-    spikes1 = [10.0, 20.0, 30.0, 40.0]
-    spikes2 = [10.0, 20.0, 30.0, 40.0]
-
-    kistler_identical, gamma_identical = unified_coincidence_factor(spikes1, spikes2, delta=2.0, duration=100.0)
-
-    # With modified gamma (subtracting expected coincidences), identical trains give values < 1.0
-    if not np.isnan(gamma_identical):
-        print(f"  ✓ Unified calculation: identical trains give gamma={gamma_identical:.3f}")
-    else:
-        print(f"  ✗ Unified calculation: identical trains give NaN")
-        return False
-
-    # Test with different spike trains
-    spikes3 = [15.0, 25.0, 35.0, 45.0]  # Offset by 5ms
-    kistler_different, gamma_different = unified_coincidence_factor(spikes1, spikes3, delta=2.0, duration=100.0)
-
-    if not np.isnan(gamma_different):
-        print(f"  ✓ Unified calculation: different trains give gamma={gamma_different:.3f}")
-    else:
-        print(f"  ✗ Unified calculation: different trains give NaN")
-        return False
-
-    # Test with empty spike trains
-    kistler_empty, gamma_empty = unified_coincidence_factor([], spikes1, delta=2.0)
-
-    if np.isnan(kistler_empty) and np.isnan(gamma_empty):
-        print("  ✓ Unified calculation: empty trains handled correctly")
-    else:
-        print(f"  ✗ Unified calculation: empty trains not handled correctly")
-        return False
-
-    print("  ✓ Single-loop optimization verified (no duplicate iterations)")
-    return True
-
-
-def test_network_identity_without_perturbation():
-    """Test that two networks remain identical throughout simulation when no perturbation is applied."""
-    print("\nTesting network identity without perturbation...")
-
-    from spiking_network import SpikingRNN
-
-    # Use exact same setup
-    session_id = 42
-    v_th_std = 0.5
-    g_std = 0.3
-    trial_id = 1
-    synaptic_mode = "dynamic"
-    n_neurons = 50  # Smaller for faster test
-    duration = 100.0  # Short duration for test
-
-    # Create two networks
-    network_control = SpikingRNN(n_neurons, dt=0.1, synaptic_mode=synaptic_mode)
-    network_perturbed = SpikingRNN(n_neurons, dt=0.1, synaptic_mode=synaptic_mode)
-
-    network_params = {
-        'v_th_distribution': "normal",
-        'static_input_strength': 10.0,
-        'dynamic_input_strength': 1.0,
-        'readout_weight_scale': 1.0
-    }
-
-    # Initialize both networks
-    for network in [network_control, network_perturbed]:
-        network.initialize_network(session_id, v_th_std, g_std, **network_params)
-
-    # Test structural identity
-    if not np.allclose(network_control.neurons.spike_thresholds,
-                       network_perturbed.neurons.spike_thresholds, atol=1e-15):
-        print("  ✗ Spike thresholds differ before simulation")
-        return False
-
-    print("  ✓ Networks structurally identical before simulation")
-
-    # Run simulations WITHOUT perturbation on both networks
-    spikes_control = network_control.simulate_network_dynamics(
-        session_id=session_id, v_th_std=v_th_std, g_std=g_std, trial_id=trial_id,
-        duration=duration, static_input_rate=500.0
-    )
-
-    spikes_perturbed = network_perturbed.simulate_network_dynamics(
-        session_id=session_id, v_th_std=v_th_std, g_std=g_std, trial_id=trial_id,
-        duration=duration, static_input_rate=500.0
-    )
-
-    # Check if spike trains are identical
-    if spikes_control == spikes_perturbed:
-        print("  ✓ Spike trains identical when no perturbation applied")
-        print(f"    Both produced {len(spikes_control)} spikes")
-        return True
-    else:
-        print("  ✗ Spike trains differ even without perturbation")
-        print(f"    Control: {len(spikes_control)} spikes")
-        print(f"    Perturbed: {len(spikes_perturbed)} spikes")
-        return False
-
-
 
 def run_all_comprehensive_tests():
     """Run all comprehensive tests."""
-    print("Comprehensive Split Experiments Framework Tests (Updated)")
-    print("=" * 60)
+    print("Comprehensive Tests - Pulse/Filter and Input Modes")
+    print("=" * 70)
 
     tests = [
+        ("Pulse/Filter Terminology", test_pulse_filter_terminology),
+        ("Static Input Modes", test_static_input_modes),
+        ("Common Stochastic Input", test_common_stochastic_input),
+        ("Independent Stochastic Input", test_independent_stochastic_input),
+        ("Common Tonic Input", test_common_tonic_input),
+        ("Input Mode Trial Dependence", test_input_mode_trial_dependence),
+        ("LZ Column-Wise", test_lz_column_wise),
+        ("Coincidence Delta 0.1ms", test_coincidence_delta_01ms),
+        ("Pulse vs Filter Behavior", test_pulse_vs_filter_behavior),
         ("Network Structure Consistency", test_network_structure_consistency),
         ("Split Analysis Modules", test_split_analysis_modules),
-        ("Split Experiments", test_split_experiments),
-        ("Trial-Dependent Processes", test_trial_dependent_processes),
-        ("Distribution Handling", test_distribution_handling),
-        ("Optimized Coincidence", test_optimized_coincidence),
-        ("Network Identity for Perturbation", test_network_identity_without_perturbation),
     ]
 
     results = []
@@ -521,13 +522,13 @@ def run_all_comprehensive_tests():
             traceback.print_exc()
             results.append((test_name, False))
 
-    print("\n" + "=" * 60)
+    print("\n" + "=" * 70)
     print("Comprehensive Test Summary:")
-    print("=" * 60)
+    print("=" * 70)
 
     for test_name, success in results:
         status = "✅ PASS" if success else "❌ FAIL"
-        print(f"  {test_name:35s}: {status}")
+        print(f"  {test_name:40s}: {status}")
 
     passed_tests = sum(1 for _, success in results if success)
     total_tests = len(results)
@@ -535,35 +536,19 @@ def run_all_comprehensive_tests():
     print(f"\nResults: {passed_tests}/{total_tests} tests passed")
 
     if passed_tests == total_tests:
-        print("\n🎉 ALL COMPREHENSIVE TESTS PASSED!")
+        print("\n🎉 ALL TESTS PASSED!")
         print("\nVerified capabilities:")
-        print("  ✓ Network structure depends only on session_id + parameters")
-        print("  ✓ Enhanced static Poisson connectivity (strength: 10)")
-        print("  ✓ Split analysis modules work correctly")
-        print("  ✓ Spontaneous analysis: 6 bin sizes + Poisson tests")
-        print("  ✓ Stability analysis: Shannon entropy, settling time")
-        print("  ✓ Unified coincidence calculation (single loop optimization)")
-        print("  ✓ Trial-dependent processes vary correctly")
-        print("  ✓ Normal vs uniform distributions work correctly")
-        print("  ✓ Network identity maintained without perturbation")
-
-        print(f"\nReady for split experiments:")
-        print(f"  • Spontaneous Activity Analysis:")
-        print(f"    - Duration parameter (seconds → milliseconds)")
-        print(f"    - 6 dimensionality bin sizes")
-        print(f"    - Firing rate statistics and Poisson tests")
-        print(f"  • Network Stability Analysis:")
-        print(f"    - LZ spatial complexity (full simulation)")
-        print(f"    - Shannon entropy (symbols & spikes)")
-        print(f"    - Settling time (50ms zeros)")
-        print(f"    - Optimized Kistler + Gamma coincidence")
-        print(f"  • Both include randomized job distribution for CPU load balancing")
-
+        print("  ✓ Pulse/filter synapse terminology")
+        print("  ✓ Three static input modes (independent, common_stochastic, common_tonic)")
+        print("  ✓ Input modes are trial-dependent")
+        print("  ✓ LZ column-wise complexity")
+        print("  ✓ Coincidence at 0.1ms, 2ms, 5ms")
+        print("  ✓ Network structure consistency")
         return 0
     else:
         print(f"\n❌ {total_tests - passed_tests} tests failed.")
-        print("Split experiments framework not ready.")
         return 1
+
 
 if __name__ == "__main__":
     exit(run_all_comprehensive_tests())

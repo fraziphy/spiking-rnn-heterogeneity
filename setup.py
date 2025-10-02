@@ -41,9 +41,10 @@ def read_requirements():
 
 setup(
     name="spiking-rnn-heterogeneity",
-    version="3.5.1",
+    version="4.0.0",  # CHANGED
 
-    description="Split experiments framework with Poisson process validation: spontaneous activity + network stability analysis for heterogeneous spiking networks",
+    description="Framework with corrected synaptic filtering: pulse/filter modes and three static input modes",  # CHANGED
+
     long_description=read_readme(),
     long_description_content_type="text/markdown",
 
@@ -180,6 +181,13 @@ setup(
     keywords=[
         # Core split experiments concepts
         "spiking neural networks",
+        "pulse synapses",  # NEW
+        "filter synapses",  # NEW
+        "static input modes",  # NEW
+        "independent input",  # NEW
+        "common stochastic input",  # NEW
+        "common tonic input",  # NEW
+        "corrected synaptic filtering",  # NEW
         "spontaneous activity analysis",
         "network stability analysis",
         "heterogeneity",

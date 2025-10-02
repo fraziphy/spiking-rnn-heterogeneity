@@ -1,5 +1,5 @@
 #!/bin/bash
-# run_stability_experiment.sh - Network stability analysis with updated measures
+# run_stability_experiment.sh - Network stability analysis with pulse/filter and static input modes
 
 # Default parameters
 N_PROCESSES=50
@@ -9,14 +9,15 @@ N_G=20
 N_NEURONS=1000
 OUTPUT_DIR="results"
 V_TH_STD_MIN=0.01
-V_TH_STD_MAX=1.0
+V_TH_STD_MAX=4.0
 G_STD_MIN=0.01
-G_STD_MAX=1.0
-INPUT_RATE_MIN=0.1
+G_STD_MAX=4.0
+INPUT_RATE_MIN=1.0
 INPUT_RATE_MAX=50.0
 N_INPUT_RATES=15
-SYNAPTIC_MODE="dynamic"
-V_TH_DISTRIBUTIONS="normal"
+SYNAPTIC_MODE="filter"
+STATIC_INPUT_MODE="independent"
+V_TH_DISTRIBUTION="normal"
 AVERAGE_SESSIONS=true
 
 log_message() {
@@ -89,8 +90,12 @@ while [[ $# -gt 0 ]]; do
             SYNAPTIC_MODE="$2"
             shift 2
             ;;
-        --v_th_distributions)
-            V_TH_DISTRIBUTIONS="$2"
+        --static_input_mode)
+            STATIC_INPUT_MODE="$2"
+            shift 2
+            ;;
+        --v_th_distribution)
+            V_TH_DISTRIBUTION="$2"
             shift 2
             ;;
         --no_average)
@@ -102,11 +107,11 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "FEATURES:"
             echo "  • LZ spatial pattern complexity (full simulation)"
+            echo "  • LZ column-wise (activity-sorted)"
             echo "  • Shannon entropy (symbols & spike differences)"
             echo "  • Pattern diversity (unique patterns)"
             echo "  • Settling time (return to baseline - 50ms zeros)"
-            echo "  • Unified coincidence calculation (Kistler + Gamma)"
-            echo "  • Enhanced Poisson connectivity strength (10)"
+            echo "  • Unified coincidence calculation (Kistler + Gamma at 0.1ms, 2ms, 5ms)"
             echo "  • Randomized job distribution for CPU load balancing"
             echo ""
             echo "Usage: $0 [OPTIONS]"
@@ -125,21 +130,27 @@ while [[ $# -gt 0 ]]; do
             echo "  --input_rate_min RATE       Min input rate Hz (default: $INPUT_RATE_MIN)"
             echo "  --input_rate_max RATE       Max input rate Hz (default: $INPUT_RATE_MAX)"
             echo "  --n_input_rates N_RATES     Number of input rates (default: $N_INPUT_RATES)"
-            echo "  --synaptic_mode MODE        'immediate' or 'dynamic' (default: $SYNAPTIC_MODE)"
-            echo "  --v_th_distributions DISTS  'normal', 'uniform', or 'normal uniform' (default: '$V_TH_DISTRIBUTIONS')"
+            echo "  --synaptic_mode MODE        'pulse' or 'filter' (default: $SYNAPTIC_MODE)"
+            echo "  --static_input_mode MODE    'independent', 'common_stochastic', or 'common_tonic' (default: $STATIC_INPUT_MODE)"
+            echo "  --v_th_distribution DIST    'normal' or 'uniform' (default: $V_TH_DISTRIBUTION)"
             echo "  --no_average                Skip automatic session averaging"
             echo "  -h, --help                   Show this help"
             echo ""
             echo "Examples:"
-            echo "  # Test immediate vs dynamic synapses:"
-            echo "  $0 --synaptic_mode immediate --session_ids '1 2 3'"
-            echo "  $0 --synaptic_mode dynamic --session_ids '1 2 3'"
+            echo "  # Test pulse vs filter synapses:"
+            echo "  $0 --synaptic_mode pulse --session_ids '1 2 3'"
+            echo "  $0 --synaptic_mode filter --session_ids '1 2 3'"
+            echo ""
+            echo "  # Test different static input modes:"
+            echo "  $0 --static_input_mode independent"
+            echo "  $0 --static_input_mode common_stochastic"
+            echo "  $0 --static_input_mode common_tonic"
             echo ""
             echo "  # Quick test with single session:"
             echo "  $0 --session_ids '1' --n_v_th 3 --n_g 3 --no_average"
             echo ""
-            echo "  # Full stability study:"
-            echo "  $0 --session_ids '1 2 3 4 5' --n_v_th 20 --n_g 20 --input_rate_max 1000"
+            echo "  # Full stability study with uniform distribution:"
+            echo "  $0 --session_ids '1 2 3 4 5' --n_v_th 20 --n_g 20 --v_th_distribution uniform"
             echo ""
             exit 0
             ;;
@@ -155,35 +166,34 @@ done
 IFS=' ' read -r -a SESSION_ID_ARRAY <<< "$SESSION_IDS"
 N_SESSIONS=${#SESSION_ID_ARRAY[@]}
 
-# Convert distributions to array
-IFS=' ' read -r -a DIST_ARRAY <<< "$V_TH_DISTRIBUTIONS"
-N_DISTRIBUTIONS=${#DIST_ARRAY[@]}
-
 # Calculate total combinations
-TOTAL_COMBINATIONS=$((N_V_TH * N_G * N_DISTRIBUTIONS * N_INPUT_RATES))
+TOTAL_COMBINATIONS=$((N_V_TH * N_G * N_INPUT_RATES))
 
 log_section "NETWORK STABILITY EXPERIMENT CONFIGURATION"
 log_message "MPI processes: $N_PROCESSES"
 log_message "Sessions to run: ${SESSION_IDS} (${N_SESSIONS} sessions)"
-log_message "Parameter grid: ${N_V_TH} × ${N_G} × ${N_DISTRIBUTIONS} × ${N_INPUT_RATES} = ${TOTAL_COMBINATIONS} combinations"
+log_message "Parameter grid: ${N_V_TH} × ${N_G} × ${N_INPUT_RATES} = ${TOTAL_COMBINATIONS} combinations"
 log_message "Network size: $N_NEURONS neurons"
 log_message ""
 log_message "STABILITY ANALYSIS FEATURES (UPDATED):"
 log_message "  v_th_std range: ${V_TH_STD_MIN}-${V_TH_STD_MAX}"
 log_message "  g_std range: ${G_STD_MIN}-${G_STD_MAX}"
-log_message "  Threshold distributions: ${V_TH_DISTRIBUTIONS}"
-log_message "  Static Poisson connectivity: 10 (enhanced)"
+log_message "  Threshold distribution: ${V_TH_DISTRIBUTION}"
 log_message "  Trials per combination: 100"
 log_message ""
 log_message "ANALYSIS MEASURES:"
 log_message "  • LZ spatial pattern complexity (full simulation)"
+log_message "  • LZ column-wise (activity-sorted)"
 log_message "  • Shannon entropy (symbols & spike differences)"
 log_message "  • Pattern diversity (unique patterns)"
 log_message "  • Settling time (return to baseline - 50ms zeros)"
-log_message "  • Unified Kistler + Gamma coincidence (2ms, 5ms)"
+log_message "  • Unified Kistler + Gamma coincidence (0.1ms, 2ms, 5ms)"
 log_message ""
 log_message "SYNAPTIC MODE:"
 log_message "  Mode: ${SYNAPTIC_MODE}"
+log_message ""
+log_message "STATIC INPUT MODE:"
+log_message "  Mode: ${STATIC_INPUT_MODE}"
 log_message ""
 log_message "EXECUTION STRATEGY:"
 log_message "  Single session runs with RANDOMIZED job distribution"
@@ -274,8 +284,21 @@ else
 fi
 
 # Synaptic mode validation
-if [[ "$SYNAPTIC_MODE" != "immediate" && "$SYNAPTIC_MODE" != "dynamic" ]]; then
-    log_message "ERROR: Invalid synaptic mode '$SYNAPTIC_MODE'"
+if [[ "$SYNAPTIC_MODE" != "pulse" && "$SYNAPTIC_MODE" != "filter" ]]; then
+    log_message "ERROR: Invalid synaptic mode '$SYNAPTIC_MODE'. Use 'pulse' or 'filter'"
+    exit 1
+fi
+
+# Static input mode validation
+if [[ "$STATIC_INPUT_MODE" != "independent" && "$STATIC_INPUT_MODE" != "common_stochastic" && "$STATIC_INPUT_MODE" != "common_tonic" ]]; then
+    log_message "ERROR: Invalid static input mode '$STATIC_INPUT_MODE'"
+    log_message "Use 'independent', 'common_stochastic', or 'common_tonic'"
+    exit 1
+fi
+
+# Distribution validation
+if [[ "$V_TH_DISTRIBUTION" != "normal" && "$V_TH_DISTRIBUTION" != "uniform" ]]; then
+    log_message "ERROR: Invalid threshold distribution '$V_TH_DISTRIBUTION'. Use 'normal' or 'uniform'"
     exit 1
 fi
 
@@ -304,7 +327,8 @@ for SESSION_ID in "${SESSION_ID_ARRAY[@]}"; do
         --input_rate_max ${INPUT_RATE_MAX} \
         --n_input_rates ${N_INPUT_RATES} \
         --synaptic_mode ${SYNAPTIC_MODE} \
-        --v_th_distributions ${V_TH_DISTRIBUTIONS}
+        --static_input_mode ${STATIC_INPUT_MODE} \
+        --v_th_distribution ${V_TH_DISTRIBUTION}
 
     SESSION_EXIT_CODE=$?
     SESSION_END_TIME=$(date +%s)
@@ -362,7 +386,7 @@ EOF
     # Prepare result files list
     RESULT_FILES=()
     for SESSION_ID in "${COMPLETED_SESSIONS[@]}"; do
-        RESULT_FILE="${OUTPUT_DIR}/data/stability_session_${SESSION_ID}_${SYNAPTIC_MODE}.pkl"
+        RESULT_FILE="${OUTPUT_DIR}/data/stability_session_${SESSION_ID}_${SYNAPTIC_MODE}_${STATIC_INPUT_MODE}_${V_TH_DISTRIBUTION}.pkl"
         if [ -f "$RESULT_FILE" ]; then
             RESULT_FILES+=("$RESULT_FILE")
         fi
@@ -374,7 +398,7 @@ EOF
         echo "$AVERAGING_SCRIPT" > "$TEMP_SCRIPT"
 
         # Run averaging
-        AVERAGED_FILE="${OUTPUT_DIR}/data/stability_averaged_${SYNAPTIC_MODE}_sessions_$(IFS=_; echo "${COMPLETED_SESSIONS[*]}").pkl"
+        AVERAGED_FILE="$(pwd)/${OUTPUT_DIR}/data/stability_averaged_${SYNAPTIC_MODE}_${STATIC_INPUT_MODE}_${V_TH_DISTRIBUTION}_sessions_$(IFS=_; echo "${COMPLETED_SESSIONS[*]}").pkl"
         python3 "$TEMP_SCRIPT" --result_files "${RESULT_FILES[@]}" --output_file "$AVERAGED_FILE"
         AVERAGING_EXIT_CODE=$?
 
@@ -405,26 +429,29 @@ if [ ${#COMPLETED_SESSIONS[@]} -eq $N_SESSIONS ]; then
     log_message "✓ ALL STABILITY SESSIONS COMPLETED SUCCESSFULLY"
     log_message "Total duration: ${TOTAL_DURATION}s ($(($TOTAL_DURATION / 60)) minutes)"
     log_message "Results saved in: ${OUTPUT_DIR}/data/"
-    log_message "Individual files: stability_session_*_${SYNAPTIC_MODE}.pkl"
+    log_message "Individual files: stability_session_*_${SYNAPTIC_MODE}_${STATIC_INPUT_MODE}_${V_TH_DISTRIBUTION}.pkl"
 
     if [ "$AVERAGE_SESSIONS" = true ] && [ ${#COMPLETED_SESSIONS[@]} -gt 1 ]; then
-        log_message "Averaged file: stability_averaged_${SYNAPTIC_MODE}_*.pkl"
+        log_message "Averaged file: stability_averaged_${SYNAPTIC_MODE}_${STATIC_INPUT_MODE}_${V_TH_DISTRIBUTION}_*.pkl"
     fi
 
-    # Suggest comparison experiment
-    if [ "$SYNAPTIC_MODE" = "immediate" ]; then
-        log_message ""
-        log_message "To compare with dynamic synapses, run:"
-        log_message "$0 --synaptic_mode dynamic --session_ids '${SESSION_IDS}'"
-    elif [ "$SYNAPTIC_MODE" = "dynamic" ]; then
-        log_message ""
-        log_message "To compare with immediate synapses, run:"
-        log_message "$0 --synaptic_mode immediate --session_ids '${SESSION_IDS}'"
+    # Suggest comparison experiments
+    log_message ""
+    log_message "To compare with different configurations:"
+    if [ "$SYNAPTIC_MODE" = "pulse" ]; then
+        log_message "  Filter synapses: $0 --synaptic_mode filter --static_input_mode ${STATIC_INPUT_MODE} --session_ids '${SESSION_IDS}'"
+    else
+        log_message "  Pulse synapses: $0 --synaptic_mode pulse --static_input_mode ${STATIC_INPUT_MODE} --session_ids '${SESSION_IDS}'"
+    fi
+
+    if [ "$STATIC_INPUT_MODE" = "independent" ]; then
+        log_message "  Common stochastic: $0 --synaptic_mode ${SYNAPTIC_MODE} --static_input_mode common_stochastic --session_ids '${SESSION_IDS}'"
+        log_message "  Common tonic: $0 --synaptic_mode ${SYNAPTIC_MODE} --static_input_mode common_tonic --session_ids '${SESSION_IDS}'"
     fi
 
     log_message ""
     log_message "To run spontaneous activity analysis:"
-    log_message "./runners/run_spontaneous_experiment.sh --duration 5 --session_ids '${SESSION_IDS}'"
+    log_message "./runners/run_spontaneous_experiment.sh --duration 5 --synaptic_mode ${SYNAPTIC_MODE} --static_input_mode ${STATIC_INPUT_MODE} --session_ids '${SESSION_IDS}'"
 
     EXIT_CODE=0
 elif [ ${#COMPLETED_SESSIONS[@]} -gt 0 ]; then

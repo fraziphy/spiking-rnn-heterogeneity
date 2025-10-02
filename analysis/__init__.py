@@ -4,7 +4,7 @@ Analysis modules for spiking RNN experiments.
 
 This package contains split analysis functionality:
 - Spontaneous activity: firing rates, dimensionality, Poisson tests
-- Stability: LZ complexity, Shannon entropy, settling time, coincidence measures
+- Stability: LZ complexity (spatial + column-wise), Shannon entropy, settling time, coincidence measures
 """
 
 # Spontaneous activity analysis
@@ -23,7 +23,6 @@ from .spontaneous_analysis import (
 
 # Stability analysis (updated with new measures)
 from .stability_analysis import (
-    spikes_to_binary,
     lempel_ziv_complexity,
     compute_shannon_entropy,
     find_settling_time,

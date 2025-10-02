@@ -1,4 +1,4 @@
-# runners/mpi_spontaneous_runner.py - MPI runner for spontaneous activity analysis
+# runners/mpi_spontaneous_runner.py - MPI runner with pulse/filter and static_input_mode
 """
 MPI-parallelized spontaneous activity experiment runner with extended dimensionality analysis.
 """
@@ -172,15 +172,16 @@ def execute_combination_with_recovery(experiment: SpontaneousExperiment, rank: i
         'static_input_rate': static_input_rate,
         'duration': duration,
         'synaptic_mode': experiment.synaptic_mode,
+        'static_input_mode': experiment.static_input_mode,
         'rank': rank,
         'combination_index': combination_index,
         'mean_firing_rate_mean': np.nan,
         'percent_silent_mean': np.nan,
         'effective_dimensionality_bin_5.0ms_mean': np.nan,
         'total_spikes_mean': np.nan,
-        'mean_cv_isi_mean': np.nan,           # NEW
-        'mean_fano_factor_mean': np.nan,      # NEW
-        'poisson_isi_fraction_mean': np.nan,  # NEW
+        'mean_cv_isi_mean': np.nan,
+        'mean_fano_factor_mean': np.nan,
+        'poisson_isi_fraction_mean': np.nan,
         'computation_time': 0.0,
         'attempt_count': max_attempts,
         'successful_completion': False,
@@ -193,8 +194,9 @@ def run_mpi_spontaneous_experiment(session_id: int = 1,
                                  v_th_std_min: float = 0.0, v_th_std_max: float = 4.0,
                                  g_std_min: float = 0.0, g_std_max: float = 4.0,
                                  input_rate_min: float = 50.0, input_rate_max: float = 1000.0,
-                                 n_input_rates: int = 5, synaptic_mode: str = "dynamic",
-                                 v_th_distributions: List[str] = ["normal"],
+                                 n_input_rates: int = 5, synaptic_mode: str = "filter",
+                                 static_input_mode: str = "independent",
+                                 v_th_distribution: str = "normal",
                                  duration: float = 5000.0):
     """Run spontaneous activity experiment for single session."""
     comm = MPI.COMM_WORLD
@@ -214,15 +216,15 @@ def run_mpi_spontaneous_experiment(session_id: int = 1,
         print(f"Configuration:")
         print(f"  MPI processes: {size}")
         print(f"  Session ID: {session_id}")
-        print(f"  Parameter grid: {n_v_th} × {n_g} × {len(v_th_distributions)} × {n_input_rates}")
+        print(f"  Parameter grid: {n_v_th} × {n_g} × {n_input_rates}")
         print(f"  Network size: {n_neurons} neurons")
         print(f"  Simulation duration: {duration:.0f} ms ({duration/1000:.1f} s)")
         print(f"  v_th_std range: {v_th_std_min}-{v_th_std_max}")
         print(f"  g_std range: {g_std_min}-{g_std_max}")
         print(f"  Input rate range: {input_rate_min}-{input_rate_max} Hz")
         print(f"  Synaptic mode: {synaptic_mode}")
-        print(f"  Static Poisson connectivity: 25 (enhanced)")
-        print(f"  Threshold distributions: {v_th_distributions}")
+        print(f"  Static input mode: {static_input_mode}")
+        print(f"  Threshold distribution: {v_th_distribution}")
         print(f"  Trials per combination: 10")
 
         print(f"\nSpontaneous Activity Analysis Features:")
@@ -255,11 +257,10 @@ def run_mpi_spontaneous_experiment(session_id: int = 1,
     param_combinations = []
     combo_id = 0
     for input_rate in static_input_rates:
-        for v_th_dist in v_th_distributions:
-            for v_th_std in v_th_stds:
-                for g_std in g_stds:
-                    param_combinations.append((combo_id, v_th_std, g_std, v_th_dist, input_rate))
-                    combo_id += 1
+        for v_th_std in v_th_stds:
+            for g_std in g_stds:
+                param_combinations.append((combo_id, v_th_std, g_std, v_th_distribution, input_rate))
+                combo_id += 1
 
     total_jobs = len(param_combinations)
 
@@ -287,7 +288,8 @@ def run_mpi_spontaneous_experiment(session_id: int = 1,
         print(f"[Rank {rank}] Rate range: {my_combinations[0][4]:.0f}-{my_combinations[-1][4]:.0f}Hz")
 
     # Initialize spontaneous experiment
-    experiment = SpontaneousExperiment(n_neurons=n_neurons, synaptic_mode=synaptic_mode)
+    experiment = SpontaneousExperiment(n_neurons=n_neurons, synaptic_mode=synaptic_mode,
+                                      static_input_mode=static_input_mode)
 
     # Execute assigned combinations
     local_results = []
@@ -346,6 +348,8 @@ def run_mpi_spontaneous_experiment(session_id: int = 1,
         print("=" * 80)
         print(f"Session ID: {session_id}")
         print(f"Synaptic mode: {synaptic_mode}")
+        print(f"Static input mode: {static_input_mode}")
+        print(f"Threshold distribution: {v_th_distribution}")
         print(f"Duration: {duration:.0f} ms")
         print(f"Total combinations: {len(final_results)}")
         print(f"Successful: {len(successful_results)} ({100*len(successful_results)/len(final_results):.1f}%)")
@@ -368,8 +372,10 @@ def run_mpi_spontaneous_experiment(session_id: int = 1,
             if dim_values:
                 print(f"Dimensionality (5ms): {np.min(dim_values):.1f} - {np.max(dim_values):.1f}")
 
-        # Save spontaneous activity results
-        output_file = os.path.join(output_dir, f"spontaneous_session_{session_id}_{synaptic_mode}.pkl")
+        # Save spontaneous activity results with updated filename
+        duration_sec = duration / 1000.0
+        output_file = os.path.join(output_dir,
+                                   f"spontaneous_session_{session_id}_{synaptic_mode}_{static_input_mode}_{v_th_distribution}_{duration_sec:.1f}s.pkl")
         save_results(final_results, output_file, use_data_subdir=False)
 
         print(f"\nSpontaneous activity results saved: {output_file}")
@@ -405,12 +411,15 @@ if __name__ == "__main__":
                        help="Maximum static input rate (Hz)")
     parser.add_argument("--n_input_rates", type=int, default=5,
                        help="Number of input rate values")
-    parser.add_argument("--synaptic_mode", type=str, default="dynamic",
-                       choices=["immediate", "dynamic"],
-                       help="Synaptic mode: immediate or dynamic")
-    parser.add_argument("--v_th_distributions", type=str, nargs='+',
-                       default=["normal"], choices=["normal", "uniform"],
-                       help="Threshold distributions to test")
+    parser.add_argument("--synaptic_mode", type=str, default="filter",
+                       choices=["pulse", "filter"],
+                       help="Synaptic mode: pulse or filter")
+    parser.add_argument("--static_input_mode", type=str, default="independent",
+                       choices=["independent", "common_stochastic", "common_tonic"],
+                       help="Static input mode: independent, common_stochastic, or common_tonic")
+    parser.add_argument("--v_th_distribution", type=str, default="normal",
+                       choices=["normal", "uniform"],
+                       help="Threshold distribution: normal or uniform")
     parser.add_argument("--duration", type=float, default=5.0,
                        help="Simulation duration in seconds (will be converted to ms)")
 
@@ -420,6 +429,7 @@ if __name__ == "__main__":
         session_id=args.session_id,
         n_v_th=args.n_v_th,
         n_g=args.n_g,
+        n_neurons=args.n_neurons,
         output_dir=args.output_dir,
         v_th_std_min=args.v_th_std_min,
         v_th_std_max=args.v_th_std_max,
@@ -429,6 +439,7 @@ if __name__ == "__main__":
         input_rate_max=args.input_rate_max,
         n_input_rates=args.n_input_rates,
         synaptic_mode=args.synaptic_mode,
-        v_th_distributions=args.v_th_distributions,
+        static_input_mode=args.static_input_mode,
+        v_th_distribution=args.v_th_distribution,
         duration=args.duration
     )

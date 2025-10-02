@@ -1,4 +1,4 @@
-# runners/mpi_stability_runner.py - MPI runner for network stability analysis
+# runners/mpi_stability_runner.py - MPI runner with pulse/filter and static_input_mode
 """
 MPI-parallelized network stability experiment runner with updated measures.
 """
@@ -142,12 +142,14 @@ def execute_combination_with_recovery(experiment: StabilityExperiment, rank: int
             # Log updated stability results
             print(f"[Rank {rank}] Success:")
             print(f"    LZ (spatial): {result['lz_spatial_patterns_mean']:.2f}")
+            print(f"    LZ (column-wise): {result['lz_column_wise_mean']:.2f}")
             print(f"    Shannon (symbols): {result['shannon_entropy_symbols_mean']:.3f}")
             print(f"    Shannon (spikes): {result['shannon_entropy_spikes_mean']:.3f}")
             print(f"    Unique patterns: {result['unique_patterns_count_mean']:.0f}")
             print(f"    Settling time: {result['settling_time_ms_mean']:.1f} ms")
             print(f"    Settled fraction: {result['settled_fraction']:.2f}")
-            print(f"    Kistler 2ms: {result['kistler_delta_2ms_mean']:.3f}")
+            print(f"    Kistler 0.1ms: {result['kistler_delta_0.1ms_mean']:.3f}")
+            print(f"    Kistler 2.0ms: {result['kistler_delta_2.0ms_mean']:.3f}")
 
             return result
 
@@ -170,16 +172,20 @@ def execute_combination_with_recovery(experiment: StabilityExperiment, rank: int
         'v_th_distribution': v_th_distribution,
         'static_input_rate': static_input_rate,
         'synaptic_mode': experiment.synaptic_mode,
+        'static_input_mode': experiment.static_input_mode,
         'rank': rank,
         'combination_index': combination_index,
         'lz_spatial_patterns_mean': np.nan,
+        'lz_column_wise_mean': np.nan,
         'shannon_entropy_symbols_mean': np.nan,
         'shannon_entropy_spikes_mean': np.nan,
         'unique_patterns_count_mean': np.nan,
-        'settling_time_mean': np.nan,
+        'settling_time_ms_mean': np.nan,
         'settled_fraction': 0.0,
-        'kistler_delta_2ms_mean': np.nan,
-        'gamma_window_2ms_mean': np.nan,
+        'kistler_delta_0.1ms_mean': np.nan,
+        'kistler_delta_2.0ms_mean': np.nan,
+        'gamma_window_0.1ms_mean': np.nan,
+        'gamma_window_2.0ms_mean': np.nan,
         'computation_time': 0.0,
         'attempt_count': max_attempts,
         'successful_completion': False,
@@ -192,8 +198,9 @@ def run_mpi_stability_experiment(session_id: int = 1,
                               v_th_std_min: float = 0.0, v_th_std_max: float = 4.0,
                               g_std_min: float = 0.0, g_std_max: float = 4.0,
                               input_rate_min: float = 50.0, input_rate_max: float = 1000.0,
-                              n_input_rates: int = 5, synaptic_mode: str = "dynamic",
-                              v_th_distributions: List[str] = ["normal"]):
+                              n_input_rates: int = 5, synaptic_mode: str = "filter",
+                              static_input_mode: str = "independent",
+                              v_th_distribution: str = "normal"):
     """Run network stability experiment for single session."""
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
@@ -206,22 +213,23 @@ def run_mpi_stability_experiment(session_id: int = 1,
         print(f"Configuration:")
         print(f"  MPI processes: {size}")
         print(f"  Session ID: {session_id}")
-        print(f"  Parameter grid: {n_v_th} × {n_g} × {len(v_th_distributions)} × {n_input_rates}")
+        print(f"  Parameter grid: {n_v_th} × {n_g} × {n_input_rates}")
         print(f"  Network size: {n_neurons} neurons")
         print(f"  v_th_std range: {v_th_std_min}-{v_th_std_max}")
         print(f"  g_std range: {g_std_min}-{g_std_max}")
         print(f"  Input rate range: {input_rate_min}-{input_rate_max} Hz")
         print(f"  Synaptic mode: {synaptic_mode}")
-        print(f"  Static Poisson connectivity: 10 (enhanced)")
-        print(f"  Threshold distributions: {v_th_distributions}")
+        print(f"  Static input mode: {static_input_mode}")
+        print(f"  Threshold distribution: {v_th_distribution}")
         print(f"  Trials per combination: 100")
 
         print(f"\nStability Analysis Features (Updated):")
         print(f"  • LZ spatial patterns complexity (full simulation)")
+        print(f"  • LZ column-wise (activity-sorted)")
         print(f"  • Shannon entropy (symbols & spike differences)")
         print(f"  • Pattern diversity (unique patterns)")
         print(f"  • Settling time (return to baseline)")
-        print(f"  • Unified Kistler + Gamma coincidence (2ms, 5ms)")
+        print(f"  • Unified Kistler + Gamma coincidence (0.1ms, 2ms, 5ms)")
 
         # Setup output directory
         if not os.path.isabs(output_dir):
@@ -247,11 +255,10 @@ def run_mpi_stability_experiment(session_id: int = 1,
     param_combinations = []
     combo_id = 0
     for input_rate in static_input_rates:
-        for v_th_dist in v_th_distributions:
-            for v_th_std in v_th_stds:
-                for g_std in g_stds:
-                    param_combinations.append((combo_id, v_th_std, g_std, v_th_dist, input_rate))
-                    combo_id += 1
+        for v_th_std in v_th_stds:
+            for g_std in g_stds:
+                param_combinations.append((combo_id, v_th_std, g_std, v_th_distribution, input_rate))
+                combo_id += 1
 
     total_jobs = len(param_combinations)
 
@@ -266,7 +273,7 @@ def run_mpi_stability_experiment(session_id: int = 1,
 
         # Estimate computation time
         trials_per_combo = 100
-        expected_time_per_combo = 90 if synaptic_mode == "dynamic" else 45
+        expected_time_per_combo = 90 if synaptic_mode == "filter" else 45
         total_expected_time = (total_jobs * expected_time_per_combo * trials_per_combo) / (size * 3600)
         print(f"\nEstimated total time: {total_expected_time:.1f} hours")
 
@@ -279,7 +286,8 @@ def run_mpi_stability_experiment(session_id: int = 1,
         print(f"[Rank {rank}] Rate range: {my_combinations[0][4]:.0f}-{my_combinations[-1][4]:.0f}Hz")
 
     # Initialize stability experiment
-    experiment = StabilityExperiment(n_neurons=n_neurons, synaptic_mode=synaptic_mode)
+    experiment = StabilityExperiment(n_neurons=n_neurons, synaptic_mode=synaptic_mode,
+                                    static_input_mode=static_input_mode)
 
     # Execute assigned combinations
     local_results = []
@@ -337,6 +345,8 @@ def run_mpi_stability_experiment(session_id: int = 1,
         print("=" * 80)
         print(f"Session ID: {session_id}")
         print(f"Synaptic mode: {synaptic_mode}")
+        print(f"Static input mode: {static_input_mode}")
+        print(f"Threshold distribution: {v_th_distribution}")
         print(f"Total combinations: {len(final_results)}")
         print(f"Successful: {len(successful_results)} ({100*len(successful_results)/len(final_results):.1f}%)")
         print(f"Failed: {len(failed_results)} ({100*len(failed_results)/len(final_results):.1f}%)")
@@ -348,13 +358,16 @@ def run_mpi_stability_experiment(session_id: int = 1,
 
             # Updated measure ranges
             lz_values = [r['lz_spatial_patterns_mean'] for r in successful_results if not np.isnan(r.get('lz_spatial_patterns_mean', np.nan))]
+            lz_col_values = [r['lz_column_wise_mean'] for r in successful_results if not np.isnan(r.get('lz_column_wise_mean', np.nan))]
             shannon_sym_values = [r['shannon_entropy_symbols_mean'] for r in successful_results if not np.isnan(r.get('shannon_entropy_symbols_mean', np.nan))]
-            settling_values = [r.get('settling_time_mean', np.nan) for r in successful_results]
+            settling_values = [r.get('settling_time_ms_mean', np.nan) for r in successful_results]
             valid_settling = [s for s in settling_values if not np.isnan(s)]
-            kistler_values = [r['kistler_delta_2ms_mean'] for r in successful_results if not np.isnan(r.get('kistler_delta_2ms_mean', np.nan))]
+            kistler_values = [r['kistler_delta_2.0ms_mean'] for r in successful_results if not np.isnan(r.get('kistler_delta_2.0ms_mean', np.nan))]
 
             if lz_values:
                 print(f"LZ complexity (spatial): {np.min(lz_values):.1f} - {np.max(lz_values):.1f}")
+            if lz_col_values:
+                print(f"LZ complexity (column-wise): {np.min(lz_col_values):.1f} - {np.max(lz_col_values):.1f}")
             if shannon_sym_values:
                 print(f"Shannon entropy (symbols): {np.min(shannon_sym_values):.3f} - {np.max(shannon_sym_values):.3f}")
             if valid_settling:
@@ -364,8 +377,9 @@ def run_mpi_stability_experiment(session_id: int = 1,
             if kistler_values:
                 print(f"Kistler coincidence (2ms): {np.min(kistler_values):.3f} - {np.max(kistler_values):.3f}")
 
-        # Save stability results
-        output_file = os.path.join(output_dir, f"stability_session_{session_id}_{synaptic_mode}.pkl")
+        # Save stability results with updated filename
+        output_file = os.path.join(output_dir,
+                                   f"stability_session_{session_id}_{synaptic_mode}_{static_input_mode}_{v_th_distribution}.pkl")
         save_results(final_results, output_file, use_data_subdir=False)
 
         print(f"\nStability results saved: {output_file}")
@@ -401,12 +415,15 @@ if __name__ == "__main__":
                        help="Maximum static input rate (Hz)")
     parser.add_argument("--n_input_rates", type=int, default=5,
                        help="Number of input rate values")
-    parser.add_argument("--synaptic_mode", type=str, default="dynamic",
-                       choices=["immediate", "dynamic"],
-                       help="Synaptic mode: immediate or dynamic")
-    parser.add_argument("--v_th_distributions", type=str, nargs='+',
-                       default=["normal"], choices=["normal", "uniform"],
-                       help="Threshold distributions to test")
+    parser.add_argument("--synaptic_mode", type=str, default="filter",
+                       choices=["pulse", "filter"],
+                       help="Synaptic mode: pulse or filter")
+    parser.add_argument("--static_input_mode", type=str, default="independent",
+                       choices=["independent", "common_stochastic", "common_tonic"],
+                       help="Static input mode: independent, common_stochastic, or common_tonic")
+    parser.add_argument("--v_th_distribution", type=str, default="normal",
+                       choices=["normal", "uniform"],
+                       help="Threshold distribution: normal or uniform")
 
     args = parser.parse_args()
 
@@ -424,5 +441,6 @@ if __name__ == "__main__":
         input_rate_max=args.input_rate_max,
         n_input_rates=args.n_input_rates,
         synaptic_mode=args.synaptic_mode,
-        v_th_distributions=args.v_th_distributions
+        static_input_mode=args.static_input_mode,
+        v_th_distribution=args.v_th_distribution
     )

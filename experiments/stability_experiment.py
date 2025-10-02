@@ -1,4 +1,4 @@
-# experiments/stability_experiment.py - Network stability analysis with updated measures
+# experiments/stability_experiment.py - Updated with pulse/filter, static_input_mode, and improved file naming
 """
 Network stability experiment with full-simulation LZ analysis and settling time.
 """
@@ -10,6 +10,22 @@ import time
 import pickle
 import random
 from typing import Dict, List, Tuple, Any
+
+import warnings
+
+def compute_safe_mean(array):
+    """Compute mean suppressing empty slice warnings."""
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore', category=RuntimeWarning,
+                              message='Mean of empty slice')
+        return float(np.nanmean(array))
+
+def compute_safe_std(array):
+    """Compute std suppressing degrees of freedom warnings."""
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore', category=RuntimeWarning,
+                              message='Degrees of freedom')
+        return float(np.nanstd(array))
 
 # Import with flexible handling
 try:
@@ -35,10 +51,12 @@ except ImportError:
 class StabilityExperiment:
     """Network stability experiment with perturbation analysis."""
 
-    def __init__(self, n_neurons: int = 1000, dt: float = 0.1, synaptic_mode: str = "dynamic"):
+    def __init__(self, n_neurons: int = 1000, dt: float = 0.1,
+                 synaptic_mode: str = "filter", static_input_mode: str = "independent"):
         self.n_neurons = n_neurons
         self.dt = dt
         self.synaptic_mode = synaptic_mode
+        self.static_input_mode = static_input_mode
 
         # Timing parameters
         self.pre_perturbation_time = 50.0
@@ -59,8 +77,12 @@ class StabilityExperiment:
         """Run single perturbation with random structure per parameter combination."""
 
         # Create identical networks with random structure
-        network_control = SpikingRNN(self.n_neurons, dt=self.dt, synaptic_mode=self.synaptic_mode)
-        network_perturbed = SpikingRNN(self.n_neurons, dt=self.dt, synaptic_mode=self.synaptic_mode)
+        network_control = SpikingRNN(self.n_neurons, dt=self.dt,
+                                     synaptic_mode=self.synaptic_mode,
+                                     static_input_mode=self.static_input_mode)
+        network_perturbed = SpikingRNN(self.n_neurons, dt=self.dt,
+                                       synaptic_mode=self.synaptic_mode,
+                                       static_input_mode=self.static_input_mode)
 
         # Network parameters
         network_params = {
@@ -162,6 +184,7 @@ class StabilityExperiment:
             'v_th_distribution': v_th_distribution,
             'static_input_rate': static_input_rate,
             'synaptic_mode': self.synaptic_mode,
+            'static_input_mode': self.static_input_mode,
 
             # Raw arrays (for session averaging)
             **arrays,
@@ -181,11 +204,12 @@ class StabilityExperiment:
         return results
 
     def _extract_trial_arrays(self, trial_results: List[Dict]) -> Dict[str, np.ndarray]:
-        """Extract arrays from trial results (updated measures)."""
+        """Extract arrays from trial results (updated measures including lz_column_wise)."""
         arrays = {}
 
-        # LZ complexity
+        # LZ complexity measures
         arrays['lz_spatial_patterns_values'] = np.array([r['lz_spatial_patterns'] for r in trial_results])
+        arrays['lz_column_wise_values'] = np.array([r['lz_column_wise'] for r in trial_results])  # NEW
 
         # Shannon entropies
         arrays['shannon_entropy_symbols_values'] = np.array([r['shannon_entropy_symbols'] for r in trial_results])
@@ -199,11 +223,13 @@ class StabilityExperiment:
         # Settling time
         arrays['settling_time_ms_values'] = np.array([r['settling_time_ms'] for r in trial_results])
 
-        # Coincidence measures (unchanged)
-        arrays['kistler_delta_2ms_values'] = np.array([r['kistler_delta_2ms'] for r in trial_results])
-        arrays['kistler_delta_5ms_values'] = np.array([r['kistler_delta_5ms'] for r in trial_results])
-        arrays['gamma_window_2ms_values'] = np.array([r['gamma_window_2ms'] for r in trial_results])
-        arrays['gamma_window_5ms_values'] = np.array([r['gamma_window_5ms'] for r in trial_results])
+        # Coincidence measures (now includes 0.1ms)
+        arrays['kistler_delta_0.1ms_values'] = np.array([r['kistler_delta_0.1ms'] for r in trial_results])
+        arrays['kistler_delta_2.0ms_values'] = np.array([r['kistler_delta_2.0ms'] for r in trial_results])
+        arrays['kistler_delta_5.0ms_values'] = np.array([r['kistler_delta_5.0ms'] for r in trial_results])
+        arrays['gamma_window_0.1ms_values'] = np.array([r['gamma_window_0.1ms'] for r in trial_results])
+        arrays['gamma_window_2.0ms_values'] = np.array([r['gamma_window_2.0ms'] for r in trial_results])
+        arrays['gamma_window_5.0ms_values'] = np.array([r['gamma_window_5.0ms'] for r in trial_results])
 
         return arrays
 
@@ -211,16 +237,23 @@ class StabilityExperiment:
         """Compute mean and std for all arrays."""
         stats = {}
 
+        # Suppress warnings for empty slices (expected when all values are NaN)
+        import warnings
+
         for key, array in arrays.items():
             if key.endswith('_values'):
                 base_name = key[:-7]  # Remove '_values' suffix
 
-                # Use nanmean and nanstd to handle NaN values properly
-                # This is especially important for settling_time_ms which may have NaN
-                stats[f'{base_name}_mean'] = float(np.nanmean(array))
-                stats[f'{base_name}_std'] = float(np.nanstd(array))
+                with warnings.catch_warnings():
+                    warnings.filterwarnings('ignore', category=RuntimeWarning,
+                                        message='Mean of empty slice')
+                    warnings.filterwarnings('ignore', category=RuntimeWarning,
+                                        message='Degrees of freedom')
+                    stats[f'{base_name}_mean'] = float(np.nanmean(array))
+                    stats[f'{base_name}_std'] = float(np.nanstd(array))
 
         return stats
+
 
     def _compute_additional_statistics(self, trial_results: List[Dict]) -> Dict[str, Any]:
         """Compute additional statistics for stability."""
@@ -244,11 +277,11 @@ class StabilityExperiment:
         return additional
 
     def run_full_experiment(self, session_id: int, v_th_stds: np.ndarray,
-                          g_stds: np.ndarray, v_th_distributions: List[str],
+                          g_stds: np.ndarray, v_th_distribution: str = "normal",
                           static_input_rates: np.ndarray = None) -> List[Dict[str, Any]]:
         """Run full stability experiment for single session with randomized job distribution."""
         if static_input_rates is None:
-            if self.synaptic_mode == "dynamic":
+            if self.synaptic_mode == "filter":
                 static_input_rates = np.array([50.0, 100.0, 200.0, 500.0, 1000.0])
             else:
                 static_input_rates = np.array([50.0, 100.0, 200.0, 500.0])
@@ -257,18 +290,17 @@ class StabilityExperiment:
         all_combinations = []
         combo_idx = 0
         for input_rate in static_input_rates:
-            for v_th_dist in v_th_distributions:
-                for v_th_std in v_th_stds:
-                    for g_std in g_stds:
-                        all_combinations.append({
-                            'combo_idx': combo_idx,
-                            'session_id': session_id,
-                            'v_th_std': v_th_std,
-                            'g_std': g_std,
-                            'v_th_distribution': v_th_dist,
-                            'static_input_rate': input_rate
-                        })
-                        combo_idx += 1
+            for v_th_std in v_th_stds:
+                for g_std in g_stds:
+                    all_combinations.append({
+                        'combo_idx': combo_idx,
+                        'session_id': session_id,
+                        'v_th_std': v_th_std,
+                        'g_std': g_std,
+                        'v_th_distribution': v_th_distribution,
+                        'static_input_rate': input_rate
+                    })
+                    combo_idx += 1
 
         # RANDOMIZE job order for better CPU load balancing
         random.shuffle(all_combinations)
@@ -279,9 +311,10 @@ class StabilityExperiment:
         print(f"  Session ID: {session_id}")
         print(f"  v_th_stds: {len(v_th_stds)} (range: {np.min(v_th_stds):.3f}-{np.max(v_th_stds):.3f})")
         print(f"  g_stds: {len(g_stds)} (range: {np.min(g_stds):.3f}-{np.max(g_stds):.3f})")
-        print(f"  v_th_distributions: {v_th_distributions}")
+        print(f"  v_th_distribution: {v_th_distribution}")
         print(f"  Static rates: {static_input_rates}")
         print(f"  Synaptic mode: {self.synaptic_mode}")
+        print(f"  Static input mode: {self.static_input_mode}")
         print(f"  Job order: RANDOMIZED for load balancing")
 
         results = []
@@ -303,11 +336,12 @@ class StabilityExperiment:
 
             # Progress reporting for updated measures
             print(f"  LZ (spatial): {result['lz_spatial_patterns_mean']:.2f}±{result['lz_spatial_patterns_std']:.2f}")
+            print(f"  LZ (column-wise): {result['lz_column_wise_mean']:.2f}±{result['lz_column_wise_std']:.2f}")
             print(f"  Shannon (symbols): {result['shannon_entropy_symbols_mean']:.3f}±{result['shannon_entropy_symbols_std']:.3f}")
             print(f"  Unique patterns: {result['unique_patterns_count_mean']:.1f}±{result['unique_patterns_count_std']:.1f}")
             print(f"  Settling time: {result['settling_time_ms_mean']:.1f}±{result['settling_time_ms_std']:.1f} ms")
             print(f"  Settled fraction: {result['settled_fraction']:.2f}")
-            print(f"  Kistler (2ms): {result['kistler_delta_2ms_mean']:.3f}±{result['kistler_delta_2ms_std']:.3f}")
+            print(f"  Kistler (0.1ms): {result['kistler_delta_0.1ms_mean']:.3f}±{result['kistler_delta_0.1ms_std']:.3f}")
             print(f"  Time: {result['computation_time']:.1f}s")
 
         # Sort results back by original combination index for consistency
@@ -326,33 +360,27 @@ def create_parameter_grid(n_v_th_points: int = 10, n_g_points: int = 10,
     """Create parameter grids."""
     v_th_stds = np.linspace(v_th_std_range[0], v_th_std_range[1], n_v_th_points)
     g_stds = np.linspace(g_std_range[0], g_std_range[1], n_g_points)
-    static_input_rates = np.geomspace(input_rate_range[0], input_rate_range[1], n_input_rates)
+    static_input_rates = np.linspace(input_rate_range[0], input_rate_range[1], n_input_rates)
 
     return v_th_stds, g_stds, static_input_rates
 
 
 def save_results(results: List[Dict[str, Any]], filename: str, use_data_subdir: bool = True):
-    """Save experimental results."""
     if not os.path.isabs(filename):
         if use_data_subdir:
             results_dir = os.path.join(os.getcwd(), "results", "data")
+            full_path = os.path.join(results_dir, filename)
         else:
-            results_dir = os.path.join(os.getcwd(), "results")
-        os.makedirs(results_dir, exist_ok=True)
-        full_path = os.path.join(results_dir, filename)
+            # Filename already includes path - just make absolute
+            full_path = os.path.join(os.getcwd(), filename)
     else:
-        directory = os.path.dirname(filename)
-        os.makedirs(directory, exist_ok=True)
         full_path = filename
+
+    directory = os.path.dirname(full_path)
+    os.makedirs(directory, exist_ok=True)
 
     with open(full_path, 'wb') as f:
         pickle.dump(results, f)
-
-    file_size = os.path.getsize(full_path) / (1024 * 1024)
-    print(f"Stability results saved successfully!")
-    print(f"  File: {full_path}")
-    print(f"  Size: {file_size:.2f} MB")
-    print(f"  Combinations: {len(results)}")
 
 def load_results(filename: str) -> List[Dict[str, Any]]:
     """Load experimental results."""
@@ -401,20 +429,21 @@ def average_across_sessions(results_files: List[str]) -> List[Dict[str, Any]]:
             'v_th_distribution': first_result['v_th_distribution'],
             'static_input_rate': first_result['static_input_rate'],
             'synaptic_mode': first_result['synaptic_mode'],
+            'static_input_mode': first_result['static_input_mode'],
             'original_combination_index': first_result.get('original_combination_index', combo_idx),
 
             # Session-averaged statistics
-            **{key.replace('_values', '_mean'): float(np.mean(array))
-               for key, array in concatenated_arrays.items()},
-            **{key.replace('_values', '_std'): float(np.std(array))
-               for key, array in concatenated_arrays.items()},
+            **{key.replace('_values', '_mean'): compute_safe_mean(array)
+            for key, array in concatenated_arrays.items()},
+            **{key.replace('_values', '_std'): compute_safe_std(array)
+            for key, array in concatenated_arrays.items()},
 
             # Settling statistics
             'settled_fraction': np.mean([r['settled_fraction'] for r in combo_results]),
             'settled_count': np.sum([r['settled_count'] for r in combo_results]),
-            'settling_time_ms_mean': np.mean([r['settling_time_ms_mean'] for r in combo_results]),
-            'settling_time_ms_std': np.std([r['settling_time_ms_mean'] for r in combo_results]),  # Std of means across sessions
-            'settling_time_median': np.mean([r.get('settling_time_median', np.nan) for r in combo_results
+            'settling_time_ms_mean': np.nanmean([r['settling_time_ms_mean'] for r in combo_results]),
+            'settling_time_ms_std': np.nanstd([r['settling_time_ms_mean'] for r in combo_results]),  # Std of means across sessions
+            'settling_time_median': np.nanmean([r.get('settling_time_median', np.nan) for r in combo_results
                                             if not np.isnan(r.get('settling_time_median', np.nan))])
                                    if any(not np.isnan(r.get('settling_time_median', np.nan)) for r in combo_results)
                                    else np.nan,

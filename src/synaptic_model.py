@@ -1,6 +1,8 @@
-# src/synaptic_model.py - Updated with connectivity strength 25 for static Poisson
+# src/synaptic_model.py - Corrected: Inputs generate events, synapses apply filtering
 """
-Synaptic model with immediate vs dynamic modes and enhanced static Poisson connectivity.
+Synaptic model with pulse vs filter modes.
+Input classes generate spike events or tonic values WITHOUT filtering.
+Synapse class applies the filtering based on mode.
 """
 
 import numpy as np
@@ -8,16 +10,18 @@ from typing import List, Tuple, Optional, Dict, Any
 from scipy import sparse
 from rng_utils import get_rng
 
-class ExponentialSynapses:
-    """Synapses with immediate vs dynamic modes, mean centering, and impact normalization."""
+class Synapse:
+    """Synapses with pulse vs filter modes. Can be used for recurrent or input connections."""
 
-    def __init__(self, n_neurons: int, dt: float = 0.1, synaptic_mode: str = "dynamic"):
+    def __init__(self, n_neurons: int, dt: float = 0.1, synaptic_mode: str = "filter"):
         """Initialize synaptic model."""
         self.n_neurons = n_neurons
         self.dt = dt
         self.tau_syn = 5.0  # Synaptic time constant (ms)
 
-        # Synaptic mode: "immediate" or "dynamic"
+        # Synaptic mode: "pulse" or "filter"
+        if synaptic_mode not in ["pulse", "filter"]:
+            raise ValueError(f"synaptic_mode must be 'pulse' or 'filter', got '{synaptic_mode}'")
         self.synaptic_mode = synaptic_mode
 
         # Parameters and state
@@ -53,8 +57,8 @@ class ExponentialSynapses:
                 weights = weights - np.mean(weights) + g_mean  # Force exact mean
 
             # Apply impact normalization for fair comparison
-            if self.synaptic_mode == "immediate":
-                # Scale up immediate synapses to match total dynamic impact
+            if self.synaptic_mode == "pulse":
+                # Scale up pulse synapses to match total filter impact
                 normalization_factor = self.tau_syn / self.dt
                 weights = weights * normalization_factor
 
@@ -64,17 +68,6 @@ class ExponentialSynapses:
                 (weights, (rows, cols)),
                 shape=(self.n_neurons, self.n_neurons)
             )
-
-            # Verify mean preservation (for debugging)
-            if n_connections > 1:
-                if self.synaptic_mode == "immediate":
-                    effective_weights = weights / normalization_factor
-                    actual_mean = np.mean(effective_weights)
-                else:
-                    actual_mean = np.mean(weights)
-
-                if abs(actual_mean - g_mean) > 1e-8:
-                    print(f"Warning: Weight mean not preserved: {actual_mean:.10f} vs {g_mean}")
         else:
             # No connections
             self.weight_matrix = sparse.csr_matrix((self.n_neurons, self.n_neurons))
@@ -85,8 +78,8 @@ class ExponentialSynapses:
     def update(self, spike_indices: List[int]) -> np.ndarray:
         """Update synaptic currents with mode-dependent dynamics."""
 
-        if self.synaptic_mode == "dynamic":
-            # Dynamic synapses with exponential decay
+        if self.synaptic_mode == "filter":
+            # Filter synapses with exponential decay
             self.synaptic_current *= np.exp(-self.dt / self.tau_syn)
 
             # Add contribution from new spikes
@@ -94,16 +87,39 @@ class ExponentialSynapses:
                 spike_contribution = self.weight_matrix[:, spike_indices].sum(axis=1).A1
                 self.synaptic_current += spike_contribution
 
-        elif self.synaptic_mode == "immediate":
-            # Immediate synapses (like Set 2)
+        elif self.synaptic_mode == "pulse":
+            # Pulse synapses
             self.synaptic_current.fill(0.0)  # Reset to zero each timestep
 
             # Add immediate contribution from current spikes
             if len(spike_indices) > 0:
                 spike_contribution = self.weight_matrix[:, spike_indices].sum(axis=1).A1
                 self.synaptic_current = spike_contribution
-        else:
-            raise ValueError(f"Unknown synaptic mode: {self.synaptic_mode}")
+
+        return self.synaptic_current.copy()
+
+    def apply_to_input(self, input_events: np.ndarray) -> np.ndarray:
+        """
+        Apply synaptic filtering to input events.
+
+        Args:
+            input_events: Array of input values (spike events or tonic input)
+
+        Returns:
+            Filtered synaptic current
+        """
+        # Initialize if needed (for input synapses that don't call initialize_weights)
+        if self.synaptic_current is None:
+            self.synaptic_current = np.zeros(self.n_neurons)
+
+        if self.synaptic_mode == "filter":
+            # Filter: exponential decay + add new input
+            self.synaptic_current *= np.exp(-self.dt / self.tau_syn)
+            self.synaptic_current += input_events
+
+        elif self.synaptic_mode == "pulse":
+            # Pulse: replace with new input (no accumulation)
+            self.synaptic_current = input_events.copy()
 
         return self.synaptic_current.copy()
 
@@ -119,7 +135,7 @@ class ExponentialSynapses:
             return {'error': 'No connections'}
 
         # Compute effective weights (accounting for normalization)
-        if self.synaptic_mode == "immediate":
+        if self.synaptic_mode == "pulse":
             effective_weights = weight_data / (self.tau_syn / self.dt)
         else:
             effective_weights = weight_data
@@ -136,53 +152,77 @@ class ExponentialSynapses:
             'target_std': float(self.g_std) if self.g_std else 0.0,
             'target_mean': 0.0,
             'synaptic_mode': self.synaptic_mode,
-            'normalization_factor': float(self.tau_syn / self.dt) if self.synaptic_mode == "immediate" else 1.0
+            'normalization_factor': float(self.tau_syn / self.dt) if self.synaptic_mode == "pulse" else 1.0
         }
 
-class StaticPoissonInput:
-    """Static Poisson process input with enhanced connectivity strength."""
 
-    def __init__(self, n_neurons: int, dt: float = 0.1):
+class StaticPoissonInput:
+    """
+    Static Poisson process input with three modes.
+    Generates spike events or tonic values WITHOUT synaptic filtering.
+    """
+
+    def __init__(self, n_neurons: int, dt: float = 0.1, static_input_mode: str = "independent"):
         self.n_neurons = n_neurons
         self.dt = dt
-        self.tau_syn = 5.0
         self.input_strength = None
-        self.input_current = None
 
-    def initialize_parameters(self, input_strength: float = 1.0):  # Keep as parameter but default will be overridden
-        """Initialize with enhanced connectivity strength."""
+        # Three modes: independent, common_stochastic, common_tonic
+        if static_input_mode not in ['independent', 'common_stochastic', 'common_tonic']:
+            raise ValueError(f"static_input_mode must be 'independent', 'common_stochastic', or 'common_tonic', got '{static_input_mode}'")
+        self.static_input_mode = static_input_mode
+
+    def initialize_parameters(self, input_strength: float = 1.0):
+        """Initialize input strength."""
         self.input_strength = input_strength
-        self.input_current = np.zeros(self.n_neurons)
 
-    def update(self, session_id: int, v_th_std: float, g_std: float, trial_id: int,
-            rate: float = 10.0, time_step: int = 0) -> np.ndarray:
-        """Update with trial-dependent Poisson process."""
-        self.input_current *= np.exp(-self.dt / self.tau_syn)
+    def generate_events(self, session_id: int, v_th_std: float, g_std: float, trial_id: int,
+                       rate: float = 10.0, time_step: int = 0) -> np.ndarray:
+        """
+        Generate input events (spikes or tonic values) WITHOUT synaptic filtering.
 
-        # Generate independent Poisson spikes for each neuron
+        Returns:
+            Array of input events (to be filtered by synapse)
+        """
+        events = np.zeros(self.n_neurons)
+
         if rate > 0:
-            rng = get_rng(session_id, v_th_std, g_std, trial_id, 'static_poisson', time_step, rate)
             spike_prob = rate * (self.dt / 1000.0)
-            spike_mask = rng.random(self.n_neurons) < spike_prob
-            self.input_current[spike_mask] += self.input_strength
 
-        return self.input_current.copy()
+            if self.static_input_mode == 'independent':
+                # Independent stochastic: Each neuron gets independent Poisson spikes
+                rng = get_rng(session_id, v_th_std, g_std, trial_id, 'static_poisson', time_step, rate)
+                spike_mask = rng.random(self.n_neurons) < spike_prob
+                events[spike_mask] = self.input_strength
 
+            elif self.static_input_mode == 'common_stochastic':
+                # Common stochastic: All neurons receive identical Poisson spikes
+                rng = get_rng(session_id, v_th_std, g_std, trial_id, 'static_poisson', time_step, rate)
+                single_spike = rng.random() < spike_prob
+                if single_spike:
+                    events[:] = self.input_strength  # All neurons get same spike
+
+            elif self.static_input_mode == 'common_tonic':
+                # Common tonic: Deterministic fractional input (expected value, zero variance)
+                events[:] = self.input_strength * spike_prob  # All neurons get constant fractional input
+
+        return events
 
 
 class DynamicPoissonInput:
-    """Dynamic Poisson input with parameter-dependent connectivity."""
+    """
+    Dynamic Poisson input with parameter-dependent connectivity.
+    Generates spike events WITHOUT synaptic filtering.
+    """
 
     def __init__(self, n_neurons: int, n_channels: int = 20, dt: float = 0.1):
         self.n_neurons = n_neurons
         self.n_channels = n_channels
         self.dt = dt
-        self.tau_syn = 5.0
 
         # Structure that varies with parameters
         self.connectivity_matrix = None
         self.input_strength = None
-        self.input_current = None
 
     def initialize_connectivity(self, session_id: int, v_th_std: float, g_std: float,
                               connection_prob: float = 0.3,
@@ -196,13 +236,16 @@ class DynamicPoissonInput:
 
         # Set input strength
         self.input_strength = input_strength
-        self.input_current = np.zeros(self.n_neurons)
 
-    def update(self, session_id: int, v_th_std: float, g_std: float, trial_id: int,
-            rates: np.ndarray, time_step: int = 0) -> np.ndarray:
-        """Update with trial-dependent spike generation."""
-        # Exponential decay
-        self.input_current *= np.exp(-self.dt / self.tau_syn)
+    def generate_events(self, session_id: int, v_th_std: float, g_std: float, trial_id: int,
+                       rates: np.ndarray, time_step: int = 0) -> np.ndarray:
+        """
+        Generate input events WITHOUT synaptic filtering.
+
+        Returns:
+            Array of input events (to be filtered by synapse)
+        """
+        events = np.zeros(self.n_neurons)
 
         # Generate spikes for each channel (trial-dependent)
         if len(rates) > 0:
@@ -215,9 +258,9 @@ class DynamicPoissonInput:
                 input_contribution = np.sum(
                     self.connectivity_matrix[:, spiking_channels], axis=1
                 ) * self.input_strength
-                self.input_current += input_contribution
+                events += input_contribution
 
-        return self.input_current.copy()
+        return events
 
     def get_connectivity_info(self) -> Dict[str, Any]:
         """Get connectivity information."""
@@ -232,6 +275,7 @@ class DynamicPoissonInput:
             }
         else:
             return {}
+
 
 class ReadoutLayer:
     """Readout layer with parameter-dependent weights."""
