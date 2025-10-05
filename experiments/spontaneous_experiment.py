@@ -73,7 +73,6 @@ class SpontaneousExperiment:
         network_params = {
             'v_th_distribution': v_th_distribution,
             'static_input_strength': 10.0,  # Enhanced connectivity strength
-            'dynamic_input_strength': 1.0,
             'readout_weight_scale': 1.0
         }
 

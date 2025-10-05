@@ -1,35 +1,37 @@
-# src/spiking_network.py - Updated with pulse/filter and static_input_mode
+# src/spiking_network.py - Clean version with HD input support, no unused DynamicPoissonInput
 """
-Spiking RNN network with random structure, pulse/filter synaptic modes, and three static input modes.
+Spiking RNN network with HD dynamic input support for encoding experiments.
 """
 
 import numpy as np
 from typing import List, Tuple, Dict, Any, Optional
 from lif_neuron import LIFNeuron
-from synaptic_model import Synapse, StaticPoissonInput, DynamicPoissonInput, ReadoutLayer
+from synaptic_model import Synapse, StaticPoissonInput, HDDynamicInput, ReadoutLayer
 from rng_utils import get_rng
 
 class SpikingRNN:
-    """Spiking RNN with random structure and pulse/filter synaptic modes."""
+    """Spiking RNN with HD input support for encoding experiments."""
 
-    def __init__(self, n_neurons: int = 1000, n_input_channels: int = 20,
-                 n_readout_neurons: int = 10, dt: float = 0.1,
-                 synaptic_mode: str = "filter", static_input_mode: str = "independent"):
-        """Initialize spiking RNN with synaptic mode and static input mode selection."""
+    def __init__(self, n_neurons: int = 1000, n_readout_neurons: int = 10, dt: float = 0.1,
+                 synaptic_mode: str = "filter", static_input_mode: str = "independent",
+                 hd_input_mode: str = "independent", n_hd_channels: int = 10):
+        """Initialize spiking RNN with HD input support."""
         self.n_neurons = n_neurons
-        self.n_input_channels = n_input_channels
         self.n_readout_neurons = n_readout_neurons
         self.dt = dt
         self.synaptic_mode = synaptic_mode
         self.static_input_mode = static_input_mode
+        self.hd_input_mode = hd_input_mode
+        self.n_hd_channels = n_hd_channels
 
         # Initialize components
         self.neurons = LIFNeuron(n_neurons, dt)
         self.recurrent_synapses = Synapse(n_neurons, dt, synaptic_mode)
         self.static_input_synapses = Synapse(n_neurons, dt, synaptic_mode)
-        self.dynamic_input_synapses = Synapse(n_neurons, dt, synaptic_mode)
+        self.hd_input_synapses = Synapse(n_neurons, dt, synaptic_mode)
+
         self.static_input = StaticPoissonInput(n_neurons, dt, static_input_mode)
-        self.dynamic_input = DynamicPoissonInput(n_neurons, n_input_channels, dt)
+        self.hd_input = HDDynamicInput(n_neurons, n_hd_channels, dt, hd_input_mode)
         self.readout = ReadoutLayer(n_neurons, n_readout_neurons, dt)
 
         # Simulation state
@@ -38,33 +40,36 @@ class SpikingRNN:
         self.readout_history = []
 
     def initialize_network(self, session_id: int, v_th_std: float, g_std: float,
-                          v_th_distribution: str = "normal", **kwargs):
+                          v_th_distribution: str = "normal",
+                          hd_dim: int = 0, embed_dim: int = 0,
+                          **kwargs):
         """
-        Initialize network with random structure for each parameter combination.
+        Initialize network with optional HD input support.
 
         Args:
-            session_id: Session ID for reproducibility across sessions
+            session_id: Session ID for reproducibility
             v_th_std: Direct standard deviation for spike thresholds
             g_std: Direct standard deviation for synaptic weights
             v_th_distribution: "normal" or "uniform" threshold distribution
+            hd_dim: HD intrinsic dimensionality (0 means no HD input)
+            embed_dim: HD embedding dimensionality (0 means no HD input)
             **kwargs: Additional parameters
         """
         # Get parameters with defaults
-        static_input_strength = kwargs.get('static_input_strength', 1.0)
-        dynamic_input_strength = kwargs.get('dynamic_input_strength', 1.0)
-        dynamic_connection_prob = kwargs.get('dynamic_connection_prob', 0.3)
         readout_weight_scale = kwargs.get('readout_weight_scale', 1.0)
+        hd_connection_prob = kwargs.get('hd_connection_prob', 0.3)
+        hd_input_strength = kwargs.get('hd_input_strength', 1.0)
 
-        # Initialize neuron parameters (structure depends on session + parameters)
+        # Initialize neuron parameters
         self.neurons.initialize_parameters(
             session_id=session_id,
             v_th_std=v_th_std,
-            trial_id=0,  # Structure doesn't depend on trial
+            trial_id=0,
             v_th_mean=-55.0,
             v_th_distribution=v_th_distribution
         )
 
-        # Initialize synaptic weights (structure depends on session + parameters)
+        # Initialize synaptic weights
         self.recurrent_synapses.initialize_weights(
             session_id=session_id,
             v_th_std=v_th_std,
@@ -76,16 +81,17 @@ class SpikingRNN:
         # Initialize static Poisson input
         self.static_input.initialize_parameters(kwargs.get('static_input_strength', 10.0))
 
-        # Initialize dynamic Poisson input (structure depends on session + parameters)
-        self.dynamic_input.initialize_connectivity(
-            session_id=session_id,
-            v_th_std=v_th_std,
-            g_std=g_std,
-            connection_prob=dynamic_connection_prob,
-            input_strength=dynamic_input_strength
-        )
+        # Initialize HD input connectivity (if HD experiment)
+        if hd_dim > 0 and embed_dim > 0:
+            self.hd_input.initialize_connectivity(
+                session_id=session_id,
+                hd_dim=hd_dim,
+                embed_dim=embed_dim,
+                connection_prob=hd_connection_prob,
+                input_strength=hd_input_strength
+            )
 
-        # Initialize readout layer (structure depends on session + parameters)
+        # Initialize readout layer
         self.readout.initialize_weights(
             session_id=session_id,
             v_th_std=v_th_std,
@@ -94,7 +100,7 @@ class SpikingRNN:
         )
 
     def reset_simulation(self, session_id: int, v_th_std: float, g_std: float, trial_id: int):
-        """Reset simulation state for new trial (trial-dependent)."""
+        """Reset simulation state for new trial."""
         self.current_time = 0.0
         self.spike_times = []
         self.readout_history = []
@@ -104,13 +110,14 @@ class SpikingRNN:
 
     def step(self, session_id: int, v_th_std: float, g_std: float, trial_id: int,
             static_input_rate: float = 0.0,
-            dynamic_input_rates: Optional[np.ndarray] = None,
+            hd_input_rates: Optional[np.ndarray] = None,
+            hd_dim: int = 0, embed_dim: int = 0,
             time_step: int = 0) -> Tuple[List[int], np.ndarray]:
-        """Execute one simulation time step."""
+        """Execute one simulation time step with optional HD input."""
         # Initialize total input current
         total_input = np.zeros(self.n_neurons)
 
-        # 1. Static Poisson input: generate events, then apply synaptic filtering
+        # 1. Static Poisson input
         if static_input_rate > 0:
             static_events = self.static_input.generate_events(
                 session_id, v_th_std, g_std, trial_id, static_input_rate, time_step
@@ -118,15 +125,16 @@ class SpikingRNN:
             static_current = self.static_input_synapses.apply_to_input(static_events)
             total_input += static_current
 
-        # 2. Dynamic Poisson input: generate events, then apply synaptic filtering
-        if dynamic_input_rates is not None and len(dynamic_input_rates) > 0:
-            dynamic_events = self.dynamic_input.generate_events(
-                session_id, v_th_std, g_std, trial_id, dynamic_input_rates, time_step
+        # 2. HD input (for encoding experiments)
+        if hd_input_rates is not None and len(hd_input_rates) > 0:
+            hd_events = self.hd_input.generate_events(
+                session_id, v_th_std, g_std, trial_id, hd_dim, embed_dim,
+                hd_input_rates, time_step
             )
-            dynamic_current = self.dynamic_input_synapses.apply_to_input(dynamic_events)
-            total_input += dynamic_current
+            hd_current = self.hd_input_synapses.apply_to_input(hd_events)
+            total_input += hd_current
 
-        # 3. Recurrent synaptic input (based on random structure for this parameter combo)
+        # 3. Recurrent synaptic input
         spiked_last_step = np.abs(self.neurons.last_spike_time - (self.current_time - self.dt)) < self.dt/2
         current_spikes = np.where(spiked_last_step)[0].tolist()
 
@@ -151,11 +159,9 @@ class SpikingRNN:
 
         return spike_indices, readout_activity
 
-
     def inject_perturbation(self, neuron_id: int):
         """Inject auxiliary spike for perturbation analysis."""
         self.neurons.inject_auxiliary_spike(neuron_id, self.current_time)
-        # Record the perturbation spike
         self.spike_times.append((self.current_time, neuron_id))
 
     def simulate_network_dynamics(self, session_id: int, v_th_std: float, g_std: float, trial_id: int,
@@ -163,10 +169,8 @@ class SpikingRNN:
                                  perturbation_time: float = None,
                                  perturbation_neuron: int = None) -> List[Tuple[float, int]]:
         """Run simulation for network stability study."""
-        # Reset simulation with trial-dependent initialization
         self.reset_simulation(session_id, v_th_std, g_std, trial_id)
 
-        # Main simulation loop
         n_steps = int(duration / self.dt)
 
         for step in range(n_steps):
@@ -179,101 +183,76 @@ class SpikingRNN:
             # Execute time step (only static input for network stability)
             self.step(session_id, v_th_std, g_std, trial_id,
                      static_input_rate=static_input_rate,
-                     dynamic_input_rates=None, time_step=step)
+                     time_step=step)
 
         return self.spike_times.copy()
 
     def simulate_encoding_task(self, session_id: int, v_th_std: float, g_std: float, trial_id: int,
-                              duration: float, input_patterns: np.ndarray,
-                              static_input_rate: float = 0.0) -> Tuple[List[Tuple[float, int]], List[Tuple[float, np.ndarray]]]:
-        """Run simulation for encoding capacity study with dynamic inputs."""
-        # Reset simulation
+                              duration: float, hd_input_patterns: np.ndarray,
+                              hd_dim: int, embed_dim: int,
+                              static_input_rate: float = 0.0,
+                              transient_time: float = 50.0) -> Tuple[List[Tuple[float, int]], List[Tuple[float, np.ndarray]]]:
+        """
+        Run simulation for encoding capacity study with HD inputs.
+
+        Args:
+            session_id: Session ID
+            v_th_std: Threshold std
+            g_std: Weight std
+            trial_id: Trial ID
+            duration: Total simulation duration (ms)
+            hd_input_patterns: HD input rates, shape (n_timesteps, n_hd_channels)
+            hd_dim: HD intrinsic dimensionality
+            embed_dim: HD embedding dimensionality
+            static_input_rate: Background static input rate
+            transient_time: Transient period before HD input (ms)
+
+        Returns:
+            spike_times: List of (time, neuron_id) tuples
+            readout_history: List of (time, readout_activity) tuples
+        """
         self.reset_simulation(session_id, v_th_std, g_std, trial_id)
 
-        # Main simulation loop
         n_steps = int(duration / self.dt)
+        transient_steps = int(transient_time / self.dt)
 
         for step in range(n_steps):
-            # Get dynamic input rates for this time step
-            if step < len(input_patterns):
-                dynamic_rates = input_patterns[step]
+            # Determine if we're in transient or encoding period
+            if step < transient_steps:
+                # Transient period: only static background, no HD input
+                self.step(session_id, v_th_std, g_std, trial_id,
+                         static_input_rate=static_input_rate,
+                         time_step=step)
             else:
-                dynamic_rates = np.zeros(self.n_input_channels)
+                # Encoding period: static background + HD input
+                encoding_step = step - transient_steps
 
-            # Execute time step
-            self.step(session_id, v_th_std, g_std, trial_id,
-                     static_input_rate=static_input_rate,
-                     dynamic_input_rates=dynamic_rates, time_step=step)
+                if encoding_step < len(hd_input_patterns):
+                    hd_rates = hd_input_patterns[encoding_step]
+                else:
+                    hd_rates = np.zeros(self.n_hd_channels)
+
+                self.step(session_id, v_th_std, g_std, trial_id,
+                         static_input_rate=static_input_rate,
+                         hd_input_rates=hd_rates,
+                         hd_dim=hd_dim,
+                         embed_dim=embed_dim,
+                         time_step=step)
 
         return self.spike_times.copy(), self.readout_history.copy()
 
-    def simulate_task_performance(self, session_id: int, v_th_std: float, g_std: float, trial_id: int,
-                                 duration: float, input_patterns: np.ndarray,
-                                 target_outputs: np.ndarray,
-                                 static_input_rate: float = 0.0) -> Dict[str, Any]:
-        """Run simulation for task performance evaluation."""
-        # Run encoding simulation
-        spike_times, readout_history = self.simulate_encoding_task(
-            session_id, v_th_std, g_std, trial_id, duration, input_patterns, static_input_rate
-        )
-
-        # Extract readout activities
-        readout_times = [t for t, _ in readout_history]
-        readout_activities = np.array([activity for _, activity in readout_history])
-
-        # Compute performance metrics
-        if len(readout_activities) > 0 and len(target_outputs) > 0:
-            min_length = min(len(readout_activities), len(target_outputs))
-            readout_aligned = readout_activities[:min_length]
-            target_aligned = target_outputs[:min_length]
-
-            # Mean squared error
-            mse = np.mean((readout_aligned - target_aligned) ** 2)
-
-            # Correlation
-            if min_length > 1:
-                correlations = []
-                for i in range(self.n_readout_neurons):
-                    if np.std(readout_aligned[:, i]) > 0 and np.std(target_aligned[:, i]) > 0:
-                        corr = np.corrcoef(readout_aligned[:, i], target_aligned[:, i])[0, 1]
-                        if not np.isnan(corr):
-                            correlations.append(corr)
-
-                mean_correlation = np.mean(correlations) if correlations else 0.0
-            else:
-                mean_correlation = 0.0
-
-            performance = {
-                'mse': mse,
-                'mean_correlation': mean_correlation,
-                'n_spikes': len(spike_times),
-                'readout_activities': readout_aligned,
-                'target_outputs': target_aligned,
-                'spike_times': spike_times
-            }
-        else:
-            performance = {
-                'mse': float('inf'),
-                'mean_correlation': 0.0,
-                'n_spikes': len(spike_times),
-                'readout_activities': readout_activities,
-                'target_outputs': target_outputs,
-                'spike_times': spike_times
-            }
-
-        return performance
-
     def get_network_info(self) -> Dict[str, Any]:
-        """Get network information including synaptic mode and static input mode details."""
+        """Get network information including HD input details."""
         info = {
             'n_neurons': self.n_neurons,
             'spike_thresholds': self.neurons.spike_thresholds if self.neurons.spike_thresholds is not None else [],
-            'n_input_channels': self.n_input_channels,
             'n_readout_neurons': self.n_readout_neurons,
+            'n_hd_channels': self.n_hd_channels,
             'dt': self.dt,
             'synaptic_mode': self.synaptic_mode,
             'static_input_mode': self.static_input_mode,
-            'weight_matrix_nnz': self.synapses.weight_matrix.nnz if self.synapses.weight_matrix is not None else 0,
+            'hd_input_mode': self.hd_input_mode,
+            'weight_matrix_nnz': self.recurrent_synapses.weight_matrix.nnz if self.recurrent_synapses.weight_matrix is not None else 0,
             'readout_weights_shape': self.readout.readout_weights.shape if self.readout.readout_weights is not None else None
         }
 
@@ -282,11 +261,11 @@ class SpikingRNN:
         info.update({f'threshold_{k}': v for k, v in threshold_stats.items()})
 
         # Add weight statistics
-        weight_stats = self.synapses.get_weight_statistics()
+        weight_stats = self.recurrent_synapses.get_weight_statistics()
         info.update({f'weight_{k}': v for k, v in weight_stats.items()})
 
-        # Add input connectivity info
-        dynamic_info = self.dynamic_input.get_connectivity_info()
-        info.update({f'dynamic_input_{k}': v for k, v in dynamic_info.items()})
+        # Add HD input connectivity info
+        hd_info = self.hd_input.get_connectivity_info()
+        info.update({f'hd_input_{k}': v for k, v in hd_info.items()})
 
         return info

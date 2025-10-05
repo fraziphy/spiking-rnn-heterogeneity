@@ -5,6 +5,7 @@ Analysis modules for spiking RNN experiments.
 This package contains split analysis functionality:
 - Spontaneous activity: firing rates, dimensionality, Poisson tests
 - Stability: LZ complexity (spatial + column-wise), Shannon entropy, settling time, coincidence measures
+- Encoding: decoding analysis, encoding capacity metrics
 """
 
 # Spontaneous activity analysis
@@ -21,7 +22,7 @@ from .spontaneous_analysis import (
     analyze_spontaneous_activity
 )
 
-# Stability analysis (updated with new measures)
+# Stability analysis
 from .stability_analysis import (
     lempel_ziv_complexity,
     compute_shannon_entropy,
@@ -29,6 +30,13 @@ from .stability_analysis import (
     unified_coincidence_factor,
     average_coincidence_multi_window,
     analyze_perturbation_response
+)
+
+# Encoding analysis
+from .encoding_analysis import (
+    decode_hd_input,
+    analyze_encoding_capacity,
+    compare_across_hd_dims
 )
 
 __all__ = [
@@ -44,11 +52,16 @@ __all__ = [
     'analyze_population_poisson_properties',
     'analyze_spontaneous_activity',
 
-    # Stability analysis (updated)
+    # Stability analysis
     'lempel_ziv_complexity',
     'compute_shannon_entropy',
     'find_settling_time',
     'unified_coincidence_factor',
     'average_coincidence_multi_window',
-    'analyze_perturbation_response'
+    'analyze_perturbation_response',
+
+    # Encoding analysis
+    'decode_hd_input',
+    'analyze_encoding_capacity',
+    'compare_across_hd_dims'
 ]

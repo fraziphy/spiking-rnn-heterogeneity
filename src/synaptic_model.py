@@ -119,7 +119,9 @@ class Synapse:
 
         elif self.synaptic_mode == "pulse":
             # Pulse: replace with new input (no accumulation)
-            self.synaptic_current = input_events.copy()
+            # For pulse mode, input needs same normalization as recurrent
+            normalization_factor = self.tau_syn / self.dt
+            self.synaptic_current = input_events * normalization_factor
 
         return self.synaptic_current.copy()
 
@@ -209,72 +211,153 @@ class StaticPoissonInput:
         return events
 
 
-class DynamicPoissonInput:
+class HDDynamicInput:
     """
-    Dynamic Poisson input with parameter-dependent connectivity.
-    Generates spike events WITHOUT synaptic filtering.
+    High-dimensional dynamic input for encoding experiments.
+    Each of k channels connects to random 30% of RNN neurons.
+    Supports three modes: independent, common_stochastic, common_tonic.
     """
 
-    def __init__(self, n_neurons: int, n_channels: int = 20, dt: float = 0.1):
+    def __init__(self, n_neurons: int, n_channels: int = 10, dt: float = 0.1,
+                 hd_input_mode: str = "independent"):
+        """
+        Initialize HD dynamic input.
+
+        Args:
+            n_neurons: Number of RNN neurons
+            n_channels: Number of HD input channels (embedding dimensionality k)
+            dt: Time step (ms)
+            hd_input_mode: "independent", "common_stochastic", or "common_tonic"
+        """
         self.n_neurons = n_neurons
         self.n_channels = n_channels
         self.dt = dt
 
-        # Structure that varies with parameters
-        self.connectivity_matrix = None
+        if hd_input_mode not in ['independent', 'common_stochastic', 'common_tonic']:
+            raise ValueError(f"hd_input_mode must be 'independent', 'common_stochastic', or 'common_tonic', got '{hd_input_mode}'")
+        self.hd_input_mode = hd_input_mode
+
+        # Connectivity matrix: which neurons receive which channels
+        self.connectivity_matrix = None  # shape (n_neurons, n_channels), boolean
         self.input_strength = None
 
-    def initialize_connectivity(self, session_id: int, v_th_std: float, g_std: float,
-                              connection_prob: float = 0.3,
-                              input_strength: float = 1.0):
-        """Initialize input connectivity based on parameters."""
-        # Get parameter-dependent connectivity
-        rng = get_rng(session_id, v_th_std, g_std, 0, 'dynamic_input_connectivity')
+    def initialize_connectivity(self, session_id: int, hd_dim: int, embed_dim: int,
+                               connection_prob: float = 0.3,
+                               input_strength: float = 1.0):
+        """
+        Initialize connectivity: each channel connects to random 30% of neurons.
+        Fixed per session/hd_dim/embed_dim combination.
 
-        # Generate connectivity matrix
+        Args:
+            session_id: Session ID
+            hd_dim: Intrinsic dimensionality (affects seed)
+            embed_dim: Embedding dimensionality (affects seed)
+            connection_prob: Connection probability per channel (default 0.3)
+            input_strength: Input strength multiplier
+        """
+        # Get RNG for connectivity (fixed per session/hd_dim/embed_dim)
+        rng = get_rng(session_id, 0.0, 0.0, 0, 'hd_input_connectivity',
+                     hd_dim=hd_dim, embed_dim=embed_dim)
+
+        # Generate connectivity matrix: each column is a channel
         self.connectivity_matrix = rng.random((self.n_neurons, self.n_channels)) < connection_prob
 
-        # Set input strength
         self.input_strength = input_strength
 
-    def generate_events(self, session_id: int, v_th_std: float, g_std: float, trial_id: int,
+    def generate_events(self, session_id: int, v_th_std: float, g_std: float,
+                       trial_id: int, hd_dim: int, embed_dim: int,
                        rates: np.ndarray, time_step: int = 0) -> np.ndarray:
         """
-        Generate input events WITHOUT synaptic filtering.
+        Generate input events from HD rates for current timestep.
+
+        Args:
+            session_id: Session ID
+            v_th_std: Threshold std
+            g_std: Weight std
+            trial_id: Trial ID
+            hd_dim: Intrinsic dimensionality
+            embed_dim: Embedding dimensionality
+            rates: HD input rates for this timestep, shape (n_channels,)
+            time_step: Current time step index
 
         Returns:
-            Array of input events (to be filtered by synapse)
+            events: Input events for each neuron, shape (n_neurons,)
         """
         events = np.zeros(self.n_neurons)
 
-        # Generate spikes for each channel (trial-dependent)
-        if len(rates) > 0:
-            rng = get_rng(session_id, v_th_std, g_std, trial_id, 'dynamic_poisson_spikes', time_step)
-            spike_probs = rates * (self.dt / 1000.0)
-            channel_spikes = rng.random(self.n_channels) < spike_probs
+        if self.connectivity_matrix is None:
+            raise ValueError("Must call initialize_connectivity() first")
 
-            if np.any(channel_spikes):
-                spiking_channels = np.where(channel_spikes)[0]
-                input_contribution = np.sum(
-                    self.connectivity_matrix[:, spiking_channels], axis=1
-                ) * self.input_strength
-                events += input_contribution
+        # Convert rates to spike probabilities
+        spike_probs = rates * (self.dt / 1000.0)  # rates in Hz, dt in ms
+
+        for channel_idx in range(self.n_channels):
+            if spike_probs[channel_idx] <= 0:
+                continue
+
+            # Find neurons receiving this channel
+            receiving_neurons = np.where(self.connectivity_matrix[:, channel_idx])[0]
+
+            if len(receiving_neurons) == 0:
+                continue
+
+            if self.hd_input_mode == 'independent':
+                # Each neuron gets independent Poisson sample
+                rng_offset = get_rng(session_id, v_th_std, g_std, trial_id,
+                                    f'hd_poisson_ch_{channel_idx}', time_step=time_step,
+                                    hd_dim=hd_dim, embed_dim=embed_dim)
+
+                spike_mask = rng_offset.random(len(receiving_neurons)) < spike_probs[channel_idx]
+                events[receiving_neurons[spike_mask]] += self.input_strength
+
+            elif self.hd_input_mode == 'common_stochastic':
+                # All neurons receiving this channel get identical Poisson sample
+                # But different across channels
+                rng = get_rng(session_id, v_th_std, g_std, trial_id,
+                             f'hd_poisson_common_ch_{channel_idx}', time_step=time_step,
+                             hd_dim=hd_dim, embed_dim=embed_dim)
+
+                single_spike = rng.random() < spike_probs[channel_idx]
+                if single_spike:
+                    events[receiving_neurons] += self.input_strength
+
+            elif self.hd_input_mode == 'common_tonic':
+                # All neurons get deterministic expected value (no Poisson)
+                events[receiving_neurons] += self.input_strength * spike_probs[channel_idx]
 
         return events
 
-    def get_connectivity_info(self) -> Dict[str, Any]:
-        """Get connectivity information."""
-        if self.connectivity_matrix is not None:
-            n_connections_per_channel = np.sum(self.connectivity_matrix, axis=0)
-            return {
-                'n_channels': self.n_channels,
-                'connections_per_channel_mean': float(np.mean(n_connections_per_channel)),
-                'connections_per_channel_std': float(np.std(n_connections_per_channel)),
-                'total_connections': int(np.sum(self.connectivity_matrix)),
-                'connection_density': float(np.mean(self.connectivity_matrix))
-            }
-        else:
-            return {}
+    def get_connectivity_info(self) -> dict:
+        """Get connectivity statistics."""
+        if self.connectivity_matrix is None:
+            return {'error': 'Connectivity not initialized'}
+
+        # Neurons per channel
+        neurons_per_channel = np.sum(self.connectivity_matrix, axis=0)
+
+        # Channels per neuron
+        channels_per_neuron = np.sum(self.connectivity_matrix, axis=1)
+
+        # Overlap between channels (pairwise)
+        n_overlaps = []
+        for i in range(self.n_channels):
+            for j in range(i+1, self.n_channels):
+                overlap = np.sum(self.connectivity_matrix[:, i] & self.connectivity_matrix[:, j])
+                n_overlaps.append(overlap)
+
+        return {
+            'n_channels': self.n_channels,
+            'n_neurons': self.n_neurons,
+            'hd_input_mode': self.hd_input_mode,
+            'neurons_per_channel_mean': float(np.mean(neurons_per_channel)),
+            'neurons_per_channel_std': float(np.std(neurons_per_channel)),
+            'channels_per_neuron_mean': float(np.mean(channels_per_neuron)),
+            'channels_per_neuron_std': float(np.std(channels_per_neuron)),
+            'pairwise_overlap_mean': float(np.mean(n_overlaps)) if n_overlaps else 0.0,
+            'pairwise_overlap_std': float(np.std(n_overlaps)) if n_overlaps else 0.0,
+            'total_connections': int(np.sum(self.connectivity_matrix)),
+            'connection_density': float(np.mean(self.connectivity_matrix))
+        }
 
 
 class ReadoutLayer:

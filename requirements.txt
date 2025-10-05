@@ -1,4 +1,4 @@
-# Core dependencies for Spiking RNN Heterogeneity Framework v4.0.0
+# Core dependencies for Spiking RNN Heterogeneity Framework v5.0.0
 # NEW: Corrected synaptic filtering, pulse/filter modes, three static input modes
 
 # Numerical computing

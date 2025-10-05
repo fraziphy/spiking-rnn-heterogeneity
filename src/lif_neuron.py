@@ -16,7 +16,7 @@ class LIFNeuron:
         self.dt = dt
 
         # Biological parameters
-        self.tau_m = 20.0  # Membrane time constant (ms)
+        self.tau_m = 10.0  # Membrane time constant (ms)
         self.v_rest = -70.0  # Resting potential (mV)
         self.v_reset = -75.0  # Reset potential (mV)
         self.tau_ref = 2.0  # Refractory period (ms)

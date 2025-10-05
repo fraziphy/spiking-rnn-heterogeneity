@@ -1,105 +1,85 @@
-# Spiking RNN Heterogeneity Framework v4.0.0
+# Spiking RNN Heterogeneity Framework v5.0.0
 
-A comprehensive framework for studying **spontaneous activity** and **network stability** in heterogeneous spiking recurrent neural networks with **pulse/filter synapses**, **three static input modes**, and **corrected synaptic filtering architecture**.
+A comprehensive framework for studying **spontaneous activity**, **network stability**, and **HD input encoding capacity** in heterogeneous spiking recurrent neural networks.
 
-## Major Updates in v4.0.0
+## Major Updates in v5.0.0
 
-### 🔧 Architecture Fix: Corrected Synaptic Filtering
-**Problem Fixed**: Input classes were applying exponential filtering, then synapses applied it again (double filtering!)
+### 🧠 NEW: HD Input Encoding Experiments
 
-**New Architecture**:
-- **Input classes generate events only** (no filtering)
-- **Synapse class applies filtering** (pulse or filter mode)
-- **Single, consistent filtering path** for all inputs
+Complete system for studying how networks encode high-dimensional inputs:
 
-```python
-# Before (WRONG):
-Poisson → [exp decay in input] → [exp decay in synapse] → neuron  # Double filtering!
+**HD Input Generation**:
+- d-dimensional signals embedded in k-dimensional space
+- Generated from chaotic rate RNN dynamics via PCA
+- Controlled intrinsic dimensionality (d) vs embedding dimensionality (k)
+- Signal caching: ~1000× storage savings
 
-# After (CORRECT):
-Poisson → Synapse [exp decay once] → neuron  # Single filtering
-```
+**Linear Decoder with Full Analysis**:
+- Ridge regression with exponential kernel filtering
+- Leave-one-out cross-validation (20 folds)
+- Per-fold metrics: RMSE, R², Pearson correlation
+- Weight dimensionality: SVD, singular values, participation ratio, effective dim (95%)
+- Decoded dimensionality: PCA per trial analyzing if decoder discovers true d
+- Spike jitter: Reliability analysis for weight-jitter correlations
 
-### 🔄 New Terminology: Pulse vs Filter Synapses
-- **OLD**: "immediate" synapses → **NEW**: "pulse" synapses
-- **OLD**: "dynamic" synapses → **NEW**: "filter" synapses
+**Three HD Input Modes**:
+- `independent`: Each neuron gets independent Poisson from HD rates
+- `common_stochastic`: Neurons share Poisson per channel, differs across channels
+- `common_tonic`: Deterministic expected values (zero variance)
 
-Clearer, more descriptive terminology for synaptic dynamics.
+### 🔧 Code Refactoring: Eliminated Repetition
 
-### 🎯 Three Static Input Modes
+**New Shared Utilities**:
+- `runners/mpi_utils.py`: Work distribution, health monitoring, recovery (used by all MPI runners)
+- `runners/experiment_utils.sh`: Shell functions for logging, validation, averaging (used by all scripts)
+- ~600 lines of duplicate code eliminated across runners
 
-Control how background Poisson input is delivered to neurons:
+**New Modules**:
+- `src/hd_input_generator.py`: Rate RNN simulation and PCA embedding
+- `src/hd_signal_manager.py`: HD signal caching and loading
+- `analysis/encoding_analysis.py`: Complete decoding pipeline
+- `experiments/encoding_experiment.py`: Encoding experiment coordination
 
-1. **`independent`** (default): Each neuron receives independent Poisson spikes
-   - Different random spike trains per neuron
-   - Maximum variability across population
+### 📊 From v4.0.0: Corrected Synaptic Architecture
 
-2. **`common_stochastic`**: All neurons receive identical Poisson spike trains
-   - Same stochastic process broadcast to all neurons
-   - Trial-dependent (varies with RNG seed)
-   - Tests network response to common fluctuations
-
-3. **`common_tonic`**: Deterministic constant input (zero variance)
-   - Expected value: `input_strength × spike_probability`
-   - No stochasticity, pure DC drive
-   - **Pulse synapses**: Constant input each timestep
-   - **Filter synapses**: Builds up to steady-state via temporal integration
-
-### 📊 New Stability Measures
-
-**LZ Column-Wise Complexity**:
-- Sorts neurons by post-perturbation activity
-- Flattens matrix column-by-column (reads neuron-by-neuron temporally)
-- Captures temporal structure in activity-sorted neurons
-
-**Coincidence at 0.1ms Resolution**:
-- Now measures: `delta = [0.1ms, 2ms, 5ms]`
-- Ultra-fine temporal precision for spike synchrony
-- Kistler and Gamma coincidence at all three windows
-
-## Key Architecture Features
-
-### Corrected Synapse Model
-- **`Synapse` class** (renamed from `ExponentialSynapses`): Handles ALL synaptic filtering
-- **Three synapse instances per network**:
-  - `recurrent_synapses`: Neuron → neuron connections
-  - `static_input_synapses`: Static Poisson → neurons
-  - `dynamic_input_synapses`: Dynamic Poisson → neurons
-
-### Split Experiments Design
-- **Spontaneous Activity Analysis**: Firing rates, dimensionality (6 bin sizes), Poisson validation
-- **Network Stability Analysis**: Full-simulation analysis, Shannon entropy, settling time, LZ complexity
-- **Input mode control**: Switch between independent, common_stochastic, common_tonic
-- **Synaptic mode control**: Switch between pulse and filter dynamics
-
-### Mean-Centered Heterogeneity
-- **Direct heterogeneity values**: `v_th_std` and `g_std` (0.01-1.0 range)
-- **Exact mean preservation**: -55mV spike thresholds, 0 synaptic weights
-- **Distribution flexibility**: Normal and uniform threshold distributions
+- **Fixed double filtering bug**: Input classes now generate events only; synapses apply filtering
+- **Pulse vs filter synapses**: Clear terminology for synaptic dynamics
+- **Three static input modes**: independent, common_stochastic, common_tonic
+- **New stability measures**: LZ column-wise, coincidence at 0.1ms
 
 ## Project Structure
 
 ```
 spiking_rnn_heterogeneity/
 ├── src/                           # Core neural network modules
-│   ├── rng_utils.py               # Parameter-dependent RNG
+│   ├── rng_utils.py               # Parameter-dependent RNG (extended for HD)
 │   ├── lif_neuron.py              # Mean-centered LIF neurons
-│   ├── synaptic_model.py          # Synapse class + input generators (UPDATED v4.0.0)
-│   └── spiking_network.py         # Complete RNN (UPDATED v4.0.0)
-├── analysis/                      # Split analysis modules  
+│   ├── synaptic_model.py          # Synapse + input generators + HDDynamicInput
+│   ├── spiking_network.py         # Complete RNN (encoding support)
+│   ├── hd_input_generator.py      # NEW v5.0: HD signal generation
+│   └── hd_signal_manager.py       # NEW v5.0: Signal caching
+├── analysis/                      # Analysis modules  
 │   ├── spontaneous_analysis.py    # Firing + dimensionality + Poisson
-│   └── stability_analysis.py      # Shannon + LZ + settling + coincidence (UPDATED v4.0.0)
-├── experiments/                   # Split experiment coordination
-│   ├── spontaneous_experiment.py  # Duration + Poisson + input modes (UPDATED v4.0.0)
-│   └── stability_experiment.py    # Full-simulation stability + input modes (UPDATED v4.0.0)
+│   ├── stability_analysis.py      # Shannon + LZ + settling + coincidence
+│   └── encoding_analysis.py       # NEW v5.0: Decoding + dimensionality
+├── experiments/                   # Experiment coordination
+│   ├── spontaneous_experiment.py  # Spontaneous activity
+│   ├── stability_experiment.py    # Network stability
+│   └── encoding_experiment.py     # NEW v5.0: HD encoding capacity
 ├── runners/                       # Execution scripts
-│   ├── mpi_spontaneous_runner.py  # MPI runner (UPDATED v4.0.0)
-│   ├── mpi_stability_runner.py    # MPI runner (UPDATED v4.0.0)
-│   ├── run_spontaneous_experiment.sh    # Shell script (UPDATED v4.0.0)
-│   └── run_stability_experiment.sh      # Shell script (UPDATED v4.0.0)
+│   ├── mpi_utils.py               # NEW v5.0: Shared MPI utilities
+│   ├── experiment_utils.sh        # NEW v5.0: Shared shell functions
+│   ├── mpi_spontaneous_runner.py  # Refactored with shared utils
+│   ├── mpi_stability_runner.py    # Refactored with shared utils
+│   ├── mpi_encoding_runner.py     # NEW v5.0: Encoding MPI runner
+│   ├── run_spontaneous_experiment.sh
+│   ├── run_stability_experiment.sh
+│   └── run_encoding_experiment.sh # NEW v5.0: Encoding shell script
 ├── tests/                         # Testing framework
-│   ├── test_installation.py       # Installation tests (UPDATED v4.0.0)
-│   └── test_comprehensive_structure.py  # Structure tests (UPDATED v4.0.0)
+│   ├── test_installation.py
+│   ├── test_comprehensive_structure.py
+│   └── test_encoding_implementation.py  # NEW v5.0
+├── hd_signals/                    # NEW v5.0: Cached HD signals
 └── results/data/                  # Experiment outputs
 ```
 
@@ -108,97 +88,136 @@ spiking_rnn_heterogeneity/
 ### 1. Setup Environment
 
 ```bash
-# Install dependencies
-pip install numpy scipy mpi4py psutil matplotlib
+# Install dependencies (added scikit-learn for encoding)
+pip install numpy scipy mpi4py psutil matplotlib scikit-learn
 
 # Install MPI (Ubuntu/Debian)
 sudo apt-get install openmpi-bin openmpi-dev
 
-# Test installation with new features
+# Test installation
 python tests/test_installation.py
-python tests/test_comprehensive_structure.py
+python tests/test_encoding_implementation.py
 ```
 
-### 2. Run Experiments with New Features
-
-**Spontaneous Activity with Different Input Modes:**
+### Run Sequential Pipeline (Recommended)
 ```bash
-# Independent input (default)
-./runners/run_spontaneous_experiment.sh \
-    --duration 5 \
-    --synaptic_mode filter \
-    --static_input_mode independent \
-    --v_th_distribution normal \
-    --session_ids "1 2 3"
+# Make pipeline executable
+chmod +x pipeline.sh
 
-# Common stochastic input
-./runners/run_spontaneous_experiment.sh \
-    --duration 5 \
-    --synaptic_mode filter \
-    --static_input_mode common_stochastic \
-    --v_th_distribution normal \
-    --session_ids "1 2 3"
+# Run complete pipeline in background with logging
+nohup ./pipeline.sh > pipeline.log 2>&1 &
+disown
 
-# Common tonic input
-./runners/run_spontaneous_experiment.sh \
-    --duration 5 \
-    --synaptic_mode filter \
-    --static_input_mode common_tonic \
-    --v_th_distribution normal \
-    --session_ids "1 2 3"
-```
+# Monitor progress
+tail -f pipeline.log
 
-**Test Pulse vs Filter Synapses:**
+# Check if still running
+ps aux | grep pipeline
+
+# Return later to check results
+ls -la results/data/
+tail -n 50 pipeline.log
+
+
+### 2. Run Encoding Experiments (NEW)
+
 ```bash
-# Pulse synapses with tonic input
-./runners/run_stability_experiment.sh \
-    --synaptic_mode pulse \
-    --static_input_mode common_tonic \
-    --v_th_distribution normal \
-    --session_ids "1 2"
+# Quick test
+./runners/run_encoding_experiment.sh \
+    --session_ids '1' \
+    --n_v_th 3 --n_g 3 --n_hd 3 \
+    --hd_dim_min 1 --hd_dim_max 5 \
+    --embed_dim 10
 
-# Filter synapses with tonic input
-./runners/run_stability_experiment.sh \
+# Full study
+./runners/run_encoding_experiment.sh \
+    --session_ids '1 2 3 4 5' \
+    --n_v_th 10 --n_g 10 --n_hd 5 \
+    --hd_dim_min 1 --hd_dim_max 10
+
+# Compare HD input modes
+./runners/run_encoding_experiment.sh --hd_input_mode independent
+./runners/run_encoding_experiment.sh --hd_input_mode common_stochastic
+./runners/run_encoding_experiment.sh --hd_input_mode common_tonic
+```
+
+### 3. Run Spontaneous Activity
+
+```bash
+./runners/run_spontaneous_experiment.sh \
+    --duration 5 --session_ids "1 2 3" \
     --synaptic_mode filter \
-    --static_input_mode common_tonic \
-    --v_th_distribution normal \
-    --session_ids "1 2"
+    --static_input_mode independent
 ```
 
-### 3. New Command-Line Parameters
+### 4. Run Stability Analysis
 
-**Both experiments now accept:**
-- `--synaptic_mode`: `pulse` or `filter` (default: `filter`)
-- `--static_input_mode`: `independent`, `common_stochastic`, or `common_tonic` (default: `independent`)
-- `--v_th_distribution`: `normal` or `uniform` (default: `normal`)
-
-**Note**: Files now include ALL parameters in the name:
-```
-spontaneous_session_1_filter_independent_normal_5.0s.pkl
-stability_session_1_pulse_common_tonic_uniform.pkl
+```bash
+./runners/run_stability_experiment.sh \
+    --session_ids "1 2 3" \
+    --synaptic_mode filter \
+    --static_input_mode common_tonic
 ```
 
 ## Scientific Innovation
 
+### HD Input Encoding (v5.0.0)
+
+**The Challenge**: How does network heterogeneity affect encoding capacity for high-dimensional inputs?
+
+**HD Input Protocol**:
+```python
+# Generate d-dimensional signal in k-dimensional space
+1. Run chaotic rate RNN (g=1.2, 1000 neurons, 350ms)
+2. PCA to extract k=10 principal components
+3. Random rotation in k-space
+4. Select d random components (intrinsic dimensionality)
+5. Embed back into k-space via random orthogonal basis
+6. Result: k channels spanning d-dimensional subspace
+```
+
+**Key Design**:
+- All k channels active (equal drive across HD values)
+- Intrinsic dimensionality d hidden from decoder
+- Per-trial Gaussian noise added to base signal
+- Fair comparison: decoder complexity doesn't scale with d
+
+**Decoding Analysis**:
+```python
+# Per cross-validation fold:
+1. Train linear decoder on training trials
+2. Analyze weight matrix W (n_neurons × k):
+   - SVD: singular values, explained variance
+   - Effective dimensionality: components for 95% variance
+   - Participation ratio: (Σλ)² / Σλ²
+3. Decode test trials
+4. PCA on decoded output (per trial):
+   - Does decoded signal span d-dimensional space?
+5. Compute spike jitter for training trials:
+   - Which neurons are reliable?
+   - Correlate with decoder weights
+```
+
+**Scientific Questions**:
+- Does encoding capacity decrease with higher d?
+- Do heterogeneous networks encode better?
+- Does decoder discover true dimensionality d?
+- Are reliable neurons (low jitter) more important for decoding?
+
 ### Corrected Synaptic Filtering (v4.0.0)
 
-**The Problem**:
-Previous versions had input classes (`StaticPoissonInput`, `DynamicPoissonInput`) applying exponential synaptic filtering internally, then the network's synapses applied filtering again. This resulted in:
-- Double filtering of input currents
-- Inconsistent dynamics between input and recurrent pathways
-- Confusion about pulse vs filter behavior
+**The Problem**: Input classes applied filtering, then synapses applied it again (double filtering).
 
 **The Solution**:
 ```python
-# Input classes now generate events only
+# Input classes generate events only
 class StaticPoissonInput:
     def generate_events(...) -> np.ndarray:
-        # Returns raw spike events or tonic values
-        # NO filtering applied here
-        
+        return raw_events  # NO filtering
+
 # Synapse class applies filtering
 class Synapse:
-    def apply_to_input(self, events: np.ndarray) -> np.ndarray:
+    def apply_to_input(self, events: np.ndarray):
         if self.synaptic_mode == "filter":
             self.current *= exp(-dt/tau)  # Decay
             self.current += events         # Add new
@@ -206,166 +225,112 @@ class Synapse:
             self.current = events          # Replace
 ```
 
-**Impact**:
-- ✅ Single, consistent filtering path
-- ✅ True pulse synapses (no temporal integration)
-- ✅ True filter synapses (exponential accumulation)
-- ✅ Correct comparison between pulse and filter modes
+**Impact**: Single, consistent filtering path; correct pulse vs filter comparison.
 
 ### Static Input Modes (v4.0.0)
 
-**Three modes to probe network computation:**
+**Three modes to probe network computation**:
 
-**1. Independent Stochastic**
-```python
-# Each neuron: independent Poisson process
-for neuron in range(n_neurons):
-    if random() < spike_prob:
-        events[neuron] = input_strength
-```
-- **Use case**: Natural variability, asynchronous input
-- **Network sees**: Independent fluctuations per neuron
+1. **independent**: Each neuron gets independent Poisson spikes (max variability)
+2. **common_stochastic**: All neurons get identical Poisson spikes (synchronous drive)
+3. **common_tonic**: Deterministic expected value (zero variance)
 
-**2. Common Stochastic**
-```python
-# All neurons: same Poisson process
-single_spike = random() < spike_prob
-if single_spike:
-    events[:] = input_strength  # Broadcast to all
-```
-- **Use case**: Common drive, synchronous fluctuations
-- **Network sees**: Coordinated input events
-- **Trial-dependent**: Different pattern each trial
-
-**3. Common Tonic**
-```python
-# All neurons: deterministic expected value
-events[:] = input_strength * spike_prob
-```
-- **Use case**: Zero-variance drive, pure DC input
-- **Network sees**: Constant, predictable input
-- **With filter synapses**: Builds to steady-state (~50× input due to integration)
-- **With pulse synapses**: Stays constant each timestep
-
-### Pulse vs Filter with Tonic Input
-
-**Critical insight**: Tonic input reveals synapse dynamics clearly.
-
-**Pulse Synapses + Tonic**:
-```
-Input: 1.0 × 0.05 = 0.05 every timestep
-Synapse: current = 0.05 (no accumulation)
-Result: Constant DC of 0.05
-```
-
-**Filter Synapses + Tonic**:
-```
-Input: 1.0 × 0.05 = 0.05 every timestep
-Synapse: current *= exp(-dt/tau); current += 0.05
-Result: Builds to steady-state ≈ 2.5 (50× higher!)
-```
-
-This **50× difference** comes from temporal integration in filter synapses. The steady-state is:
-```
-steady_state = input / (1 - exp(-dt/tau))
-             = 0.05 / (1 - exp(-0.1/5.0))
-             ≈ 2.5
-```
-
-### New Stability Measures (v4.0.0)
-
-**LZ Column-Wise**:
-```python
-# Sort neurons by activity level
-activity = spike_diff_matrix.sum(axis=1)
-sorted_indices = np.argsort(activity)
-matrix_sorted = spike_diff_matrix[sorted_indices, :]
-
-# Flatten column-by-column (read each neuron's temporal pattern)
-lz_column_wise = lempel_ziv_complexity(matrix_sorted.flatten(order='F'))
-```
-- Captures temporal structure when neurons ordered by activity
-- Different from spatial LZ (row-by-row reading)
-
-**Coincidence at 0.1ms**:
-```python
-# Now computed at three timescales
-delta_values = [0.1, 2.0, 5.0]  # milliseconds
-
-# Ultra-fine temporal resolution
-kistler_0.1ms, gamma_0.1ms  # Sub-millisecond synchrony
-kistler_2.0ms, gamma_2.0ms  # Standard precision
-kistler_5.0ms, gamma_5.0ms  # Coarse precision
-```
+**Pulse vs Filter with Tonic Input**:
+- Pulse: `current = 0.05` (constant)
+- Filter: `current → 2.5` (50× due to integration)
 
 ## Data Analysis
 
-### Loading Results with New Features
+### Encoding Results (v5.0.0)
 
 ```python
 import pickle
 
-# Load results - note new filename format!
+filename = 'results/data/encoding_session_1_filter_independent_independent_normal_k10.pkl'
+with open(filename, 'rb') as f:
+    results = pickle.load(f)
+
+for result in results:
+    hd_dim = result['hd_dim']
+    embed_dim = result['embed_dim']
+    
+    # Performance metrics
+    test_rmse = result['decoding']['test_rmse_mean']
+    test_r2 = result['decoding']['test_r2_mean']
+    test_corr = result['decoding']['test_correlation_mean']
+    
+    # Weight dimensionality (per fold)
+    weight_svd = result['decoding']['weight_svd_analysis']
+    weight_dims = [f['effective_dim_95'] for f in weight_svd]
+    weight_pr = [f['participation_ratio'] for f in weight_svd]
+    
+    # Decoded dimensionality (per fold, averaged over trials)
+    decoded_pca = result['decoding']['decoded_pca_analysis']
+    decoded_dims = [f['effective_dim_95'] for f in decoded_pca]
+    
+    # Spike jitter (per fold)
+    jitter_folds = result['decoding']['spike_jitter_per_fold']
+    
+    print(f"HD={hd_dim}, k={embed_dim}")
+    print(f"  RMSE: {test_rmse:.4f}, R²: {test_r2:.4f}")
+    print(f"  Weight dim: {np.mean(weight_dims):.1f}")
+    print(f"  Decoded dim: {np.mean(decoded_dims):.1f}")
+```
+
+### Stability Results (v4.0.0)
+
+```python
 filename = 'results/data/stability_session_1_filter_common_tonic_normal.pkl'
 with open(filename, 'rb') as f:
     results = pickle.load(f)
 
 for result in results:
-    # Parameters now include input mode
-    synaptic_mode = result['synaptic_mode']  # 'pulse' or 'filter'
-    static_input_mode = result['static_input_mode']  # 'independent', 'common_stochastic', 'common_tonic'
-    v_th_distribution = result['v_th_distribution']  # 'normal' or 'uniform'
-    
-    # New stability measures
-    lz_column_wise = result['lz_column_wise_mean']
-    kistler_01ms = result['kistler_delta_0.1ms_mean']
-    
-    # Existing measures
     lz_spatial = result['lz_spatial_patterns_mean']
-    shannon_symbols = result['shannon_entropy_symbols_mean']
+    lz_column = result['lz_column_wise_mean']
+    kistler_01ms = result['kistler_delta_0.1ms_mean']
     settling_time = result['settling_time_ms_mean']
-    
-    print(f"Mode: {synaptic_mode}, Input: {static_input_mode}")
-    print(f"LZ spatial: {lz_spatial:.1f}, LZ column: {lz_column_wise:.1f}")
-    print(f"Kistler 0.1ms: {kistler_01ms:.3f}, Settling: {settling_time:.1f}ms")
 ```
 
 ## System Requirements
 
 - **Python**: 3.8+
 - **CPU**: Multi-core (32+ cores recommended)
-- **Memory**: 16GB+ (spontaneous), 32GB+ (stability)
-- **Storage**: 5GB+ per experiment
+- **Memory**: 16GB+ (spontaneous), 32GB+ (stability), 64GB+ (encoding)
+- **Storage**: 5GB+ per experiment, 10MB for HD signal cache
 
 ## Version History
 
-- **v4.0.0**: **ARCHITECTURE REVOLUTION** - Corrected synaptic filtering, pulse/filter terminology, three static input modes
-  - Fixed double filtering bug (inputs + synapses both filtered)
-  - Renamed: `ExponentialSynapses` → `Synapse`
-  - New terminology: pulse/filter instead of immediate/dynamic
+- **v5.0.0**: **ENCODING CAPACITY SYSTEM** - HD input encoding experiments with comprehensive decoding analysis
+  - NEW: HD input generation (d-dimensional signals in k-dimensional space)
+  - NEW: Linear decoder with SVD/PCA dimensionality analysis
+  - NEW: Spike jitter computation and weight-jitter correlations
+  - NEW: HD signal caching system (~1000× storage savings)
+  - Code refactoring: Shared utilities (mpi_utils.py, experiment_utils.sh)
+  - ~600 lines of duplicate code eliminated
+  - Added: hd_input_generator.py, hd_signal_manager.py, encoding_analysis.py
+  - Added: encoding_experiment.py, mpi_encoding_runner.py, run_encoding_experiment.sh
+
+- **v4.0.0**: **ARCHITECTURE REVOLUTION** - Corrected synaptic filtering, pulse/filter terminology
+  - Fixed double filtering bug
   - Three static input modes: independent, common_stochastic, common_tonic
-  - New measures: lz_column_wise, coincidence at 0.1ms
-  - Updated ALL files: src, analysis, experiments, runners, tests
+  - New stability measures: lz_column_wise, coincidence at 0.1ms
 
 - **v3.5.1**: Critical bug fixes - Shannon entropy, settling time
 - **v3.5.0**: Full-simulation stability, Shannon entropy, settling time
-- **v3.4.0**: Synaptic timing fix, weight variance scaling
-- **v3.3.0**: Logarithmic input rates, pipeline automation
-- **v3.2.0**: Poisson validation, RNG bug fixes
 - **v3.0.0**: Split architecture (spontaneous + stability)
 
 ## Citation
 
 ```bibtex
-@software{spiking_rnn_heterogeneity_v400,
-  title = {Spiking RNN Heterogeneity Framework v4.0.0},
+@software{spiking_rnn_heterogeneity_v500,
+  title = {Spiking RNN Heterogeneity Framework v5.0.0},
   author = {Your Name},
   year = {2025},
-  version = {4.0.0},
+  version = {5.0.0},
   url = {https://github.com/yourusername/spiking-rnn-heterogeneity}
 }
 ```
 
 ---
 
-**Key Innovation v4.0.0**: Fixed synaptic filtering architecture, introduced pulse/filter terminology and three static input modes (independent, common_stochastic, common_tonic) for comprehensive network analysis.
+**Key Innovation v5.0.0**: Complete HD input encoding system with linear decoder, dimensionality analysis (SVD/PCA), spike jitter, and weight-jitter correlations. Addresses how network heterogeneity affects encoding capacity for high-dimensional inputs.

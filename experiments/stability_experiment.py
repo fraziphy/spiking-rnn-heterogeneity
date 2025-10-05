@@ -88,7 +88,6 @@ class StabilityExperiment:
         network_params = {
             'v_th_distribution': v_th_distribution,
             'static_input_strength': 10.0,
-            'dynamic_input_strength': 1.0,
             'readout_weight_scale': 1.0
         }
 
