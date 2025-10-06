@@ -12,7 +12,7 @@ from mpi4py import MPI
 from typing import Dict, Any
 
 # Import shared MPI utilities (sibling module in runners/)
-from .mpi_utils import (
+from mpi_utils import (
     distribute_work,
     monitor_system_health,
     recovery_break,
@@ -27,14 +27,15 @@ try:
     from experiments.experiment_utils import save_results
     from analysis.statistics_utils import get_extreme_combinations
 except ImportError:
-    current_dir = os.path.dirname(__file__)
+    current_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(current_dir)
-    sys.path.insert(0, os.path.join(project_root, 'experiments'))
-    sys.path.insert(0, os.path.join(project_root, 'analysis'))
-    from encoding_experiment import EncodingExperiment
-    from base_experiment import BaseExperiment
-    from experiment_utils import save_results
-    from statistics_utils import get_extreme_combinations
+    sys.path.insert(0, project_root)
+
+    # MUST use experiments. and analysis. prefixes here too
+    from experiments.encoding_experiment import EncodingExperiment
+    from experiments.base_experiment import BaseExperiment
+    from experiments.experiment_utils import save_results
+    from analysis.statistics_utils import get_extreme_combinations
 
 
 def execute_combination_with_recovery(experiment: EncodingExperiment, rank: int,

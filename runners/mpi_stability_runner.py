@@ -12,7 +12,7 @@ from mpi4py import MPI
 from typing import Dict, Any
 
 # Import shared MPI utilities
-from .mpi_utils import (
+from mpi_utils import (
     distribute_work,
     monitor_system_health,
     recovery_break,
@@ -26,12 +26,13 @@ try:
     from experiments.base_experiment import BaseExperiment
     from experiments.experiment_utils import save_results
 except ImportError:
-    current_dir = os.path.dirname(__file__)
+    current_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(current_dir)
-    sys.path.insert(0, os.path.join(project_root, 'experiments'))
-    from stability_experiment import StabilityExperiment
-    from base_experiment import BaseExperiment
-    from experiment_utils import save_results
+    sys.path.insert(0, project_root)  # Add project root, not subdirectories
+
+    from experiments.stability_experiment import StabilityExperiment
+    from experiments.base_experiment import BaseExperiment
+    from experiments.experiment_utils import save_results
 
 
 def execute_combination_with_recovery(experiment: StabilityExperiment, rank: int,

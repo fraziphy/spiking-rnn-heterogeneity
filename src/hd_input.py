@@ -200,14 +200,14 @@ class HDInputGenerator:
 
         # Generate new signal
         if rate_rnn_params is None:
-            rate_rnn_params = {'n_neurons': 1000, 'T': 500.0, 'g': 1.2}
+            rate_rnn_params = {'n_neurons': 1000, 'T': 500.0, 'g': 2.0}
 
         # Run rate RNN
         rates, _ = run_rate_rnn(
             n_neurons=rate_rnn_params.get('n_neurons', 1000),
             T=rate_rnn_params.get('T', 500.0),
             dt=self.dt,
-            g=rate_rnn_params.get('g', 1.2),
+            g=rate_rnn_params.get('g', 2.0),
             session_id=session_id,
             hd_dim=hd_dim,
             embed_dim=self.embed_dim

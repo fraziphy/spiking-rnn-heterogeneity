@@ -176,7 +176,7 @@ class EncodingExperiment(BaseExperiment):
         self.hd_generator.initialize_base_input(
             session_id=session_id,
             hd_dim=hd_dim,
-            rate_rnn_params={'n_neurons': 1000, 'T': 500.0, 'g': 1.2}
+            rate_rnn_params={'n_neurons': 1000, 'T': 500.0, 'g': 2.0}
         )
 
         # Determine if we should save neuron-level data
