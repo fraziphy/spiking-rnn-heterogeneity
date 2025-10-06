@@ -1,36 +1,37 @@
-# runners/mpi_spontaneous_runner.py - MPI runner (refactored with shared utilities)
+# runners/mpi_spontaneous_runner.py
 """
-MPI-parallelized spontaneous activity experiment runner with extended dimensionality analysis.
+MPI-parallelized spontaneous activity experiment runner.
 """
 
 import numpy as np
 import os
 import sys
 import time
-import pickle
 import argparse
 from mpi4py import MPI
-from typing import List, Dict, Any, Tuple
+from typing import Dict, Any
 
 # Import shared MPI utilities
-from mpi_utils import (
+from .mpi_utils import (
     distribute_work,
-    distribute_work_for_rank,
     monitor_system_health,
     recovery_break,
     print_work_distribution,
     estimate_computation_time
 )
 
-# Import modules with path handling
+# Import experiment modules
 try:
-    from experiments.spontaneous_experiment import SpontaneousExperiment, create_parameter_grid, save_results
+    from experiments.spontaneous_experiment import SpontaneousExperiment
+    from experiments.base_experiment import BaseExperiment
+    from experiments.experiment_utils import save_results
 except ImportError:
     current_dir = os.path.dirname(__file__)
     project_root = os.path.dirname(current_dir)
-    experiments_dir = os.path.join(project_root, 'experiments')
-    sys.path.insert(0, experiments_dir)
-    from spontaneous_experiment import SpontaneousExperiment, create_parameter_grid, save_results
+    sys.path.insert(0, os.path.join(project_root, 'experiments'))
+    from spontaneous_experiment import SpontaneousExperiment
+    from base_experiment import BaseExperiment
+    from experiment_utils import save_results
 
 
 def execute_combination_with_recovery(experiment: SpontaneousExperiment, rank: int,
@@ -70,11 +71,9 @@ def execute_combination_with_recovery(experiment: SpontaneousExperiment, rank: i
                 'successful_completion': True
             })
 
-            # Log spontaneous activity results
             print(f"[Rank {rank}] Success:")
             print(f"    Mean firing rate: {result['mean_firing_rate_mean']:.2f} Hz")
             print(f"    Silent neurons: {result['percent_silent_mean']:.1f}%")
-            print(f"    Dimensionality (5ms): {result['effective_dimensionality_bin_5.0ms_mean']:.1f}")
 
             return result
 
@@ -82,8 +81,6 @@ def execute_combination_with_recovery(experiment: SpontaneousExperiment, rank: i
             print(f"[Rank {rank}] Error (attempt {attempt}): {str(e)}")
             if "memory" in str(e).lower():
                 recovery_break(rank, 600, "memory_error")
-            elif "dimensionality" in str(e).lower() or "firing" in str(e).lower():
-                recovery_break(rank, 300, "analysis_error")
             else:
                 recovery_break(rank, 300, "general_error")
             continue
@@ -102,7 +99,6 @@ def execute_combination_with_recovery(experiment: SpontaneousExperiment, rank: i
         'rank': rank,
         'combination_index': combination_index,
         'mean_firing_rate_mean': np.nan,
-        'percent_silent_mean': np.nan,
         'computation_time': 0.0,
         'attempt_count': max_attempts,
         'successful_completion': False,
@@ -125,12 +121,6 @@ def run_mpi_spontaneous_experiment(session_id: int = 1,
     rank = comm.Get_rank()
     size = comm.Get_size()
 
-    # Convert duration from seconds to ms if needed
-    if duration < 100:
-        duration_ms = duration * 1000.0
-        print(f"[Rank {rank}] Converting duration from {duration}s to {duration_ms}ms")
-        duration = duration_ms
-
     if rank == 0:
         print("=" * 80)
         print("SPONTANEOUS ACTIVITY EXPERIMENT - SINGLE SESSION")
@@ -139,21 +129,18 @@ def run_mpi_spontaneous_experiment(session_id: int = 1,
         print(f"  MPI processes: {size}")
         print(f"  Session ID: {session_id}")
         print(f"  Parameter grid: {n_v_th} × {n_g} × {n_input_rates}")
-        print(f"  Network size: {n_neurons} neurons")
-        print(f"  Simulation duration: {duration:.0f} ms ({duration/1000:.1f} s)")
+        print(f"  Duration: {duration:.0f} ms")
 
-        # Setup output directory
         if not os.path.isabs(output_dir):
             output_dir = os.path.join(os.path.abspath(output_dir), "data")
         os.makedirs(output_dir, exist_ok=True)
         print(f"  Output directory: {output_dir}")
 
-    # Broadcast output directory to all ranks
     output_dir = comm.bcast(output_dir if rank == 0 else None, root=0)
     comm.Barrier()
 
-    # Create parameter grids
-    v_th_stds, g_stds, static_input_rates = create_parameter_grid(
+    # Create parameter grids using base class method
+    v_th_stds, g_stds, static_input_rates = BaseExperiment.create_parameter_grid(
         n_v_th_points=n_v_th,
         n_g_points=n_g,
         v_th_std_range=(v_th_std_min, v_th_std_max),
@@ -162,54 +149,42 @@ def run_mpi_spontaneous_experiment(session_id: int = 1,
         n_input_rates=n_input_rates
     )
 
-    # Generate all parameter combinations
-    import random
-    param_combinations = []
-    combo_idx = 0
-    for input_rate in static_input_rates:
-        for v_th_std in v_th_stds:
-            for g_std in g_stds:
-                param_combinations.append({
-                    'combo_idx': combo_idx,
-                    'session_id': session_id,
-                    'v_th_std': v_th_std,
-                    'g_std': g_std,
-                    'v_th_distribution': v_th_distribution,
-                    'static_input_rate': input_rate,
-                    'duration': duration
-                })
-                combo_idx += 1
+    # Initialize experiment
+    experiment = SpontaneousExperiment(
+        n_neurons=n_neurons,
+        synaptic_mode=synaptic_mode,
+        static_input_mode=static_input_mode
+    )
 
-    # RANDOMIZE job order
-    random.shuffle(param_combinations)
+    # Generate parameter combinations
+    all_combinations = experiment.create_parameter_combinations(
+        session_id=session_id,
+        v_th_stds=v_th_stds,
+        g_stds=g_stds,
+        static_input_rates=static_input_rates,
+        v_th_distribution=v_th_distribution,
+        duration=duration
+    )
 
-    total_combinations = len(param_combinations)
+    total_combinations = len(all_combinations)
 
     if rank == 0:
         print_work_distribution(total_combinations, size)
         expected_time = estimate_computation_time(total_combinations, size, duration/1000.0 * 0.5, 10)
         print(f"\nEstimated total time: {expected_time:.1f} hours")
 
-    # Distribute work among ranks
     start_idx, end_idx = distribute_work(total_combinations, comm)
-    my_combinations = param_combinations[start_idx:end_idx]
+    my_combinations = all_combinations[start_idx:end_idx]
 
     print(f"[Rank {rank}] Processing {len(my_combinations)} combinations")
 
-    # Initialize spontaneous experiment
-    experiment = SpontaneousExperiment(n_neurons=n_neurons, synaptic_mode=synaptic_mode,
-                                      static_input_mode=static_input_mode)
-
-    # Execute assigned combinations
     local_results = []
     rank_start_time = time.time()
 
     for i, combo in enumerate(my_combinations):
         progress = (i + 1) / len(my_combinations) * 100
-        elapsed_hours = (time.time() - rank_start_time) / 3600
-
         print(f"[Rank {rank}] [{i+1}/{len(my_combinations)} - {progress:.1f}%]:")
-        print(f"    v_th_std={combo['v_th_std']:.3f}, g_std={combo['g_std']:.3f}")
+        print(f"    v_th={combo['v_th_std']:.3f}, g={combo['g_std']:.3f}, rate={combo['static_input_rate']:.0f}")
 
         result = execute_combination_with_recovery(
             experiment=experiment,
@@ -220,48 +195,33 @@ def run_mpi_spontaneous_experiment(session_id: int = 1,
             v_th_distribution=combo['v_th_distribution'],
             static_input_rate=combo['static_input_rate'],
             combination_index=start_idx + i,
-            duration=combo['duration']
+            duration=combo.get('duration', duration)
         )
 
         result['original_combination_index'] = combo['combo_idx']
         local_results.append(result)
 
-    # Final local report
     rank_total_time = time.time() - rank_start_time
     successful_local = [r for r in local_results if r.get('successful_completion', False)]
-
     print(f"[Rank {rank}] COMPLETED: {len(successful_local)}/{len(local_results)} successful ({rank_total_time/3600:.2f}h)")
 
-    # Gather results at root
     all_results = comm.gather(local_results, root=0)
 
-    # Process and save results (root rank only)
     if rank == 0:
-        print(f"\nProcessing spontaneous activity results from all {size} ranks...")
-
-        # Combine results from all ranks
         final_results = []
         for proc_results in all_results:
             final_results.extend(proc_results)
-
-        # Sort by combination index
         final_results.sort(key=lambda x: x['original_combination_index'])
 
-        # Save results
         duration_sec = duration / 1000.0
         output_file = os.path.join(output_dir,
                                    f"spontaneous_session_{session_id}_{synaptic_mode}_{static_input_mode}_{v_th_distribution}_{duration_sec:.1f}s.pkl")
         save_results(final_results, output_file, use_data_subdir=False)
-
-        print(f"\nSpontaneous activity results saved: {output_file}")
-        print("Spontaneous activity single session experiment completed!")
+        print(f"\nSpontaneous results saved: {output_file}")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Run MPI spontaneous activity experiment"
-    )
-
+    parser = argparse.ArgumentParser(description="Run MPI spontaneous activity experiment")
     parser.add_argument("--session_id", type=int, default=1)
     parser.add_argument("--n_v_th", type=int, default=10)
     parser.add_argument("--n_g", type=int, default=10)
@@ -282,21 +242,8 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    run_mpi_spontaneous_experiment(
-        session_id=args.session_id,
-        n_v_th=args.n_v_th,
-        n_g=args.n_g,
-        n_neurons=args.n_neurons,
-        output_dir=args.output_dir,
-        v_th_std_min=args.v_th_std_min,
-        v_th_std_max=args.v_th_std_max,
-        g_std_min=args.g_std_min,
-        g_std_max=args.g_std_max,
-        input_rate_min=args.input_rate_min,
-        input_rate_max=args.input_rate_max,
-        n_input_rates=args.n_input_rates,
-        synaptic_mode=args.synaptic_mode,
-        static_input_mode=args.static_input_mode,
-        v_th_distribution=args.v_th_distribution,
-        duration=args.duration
-    )
+    # Convert duration to ms if given in seconds
+    if args.duration < 100:
+        args.duration = args.duration * 1000.0
+
+    run_mpi_spontaneous_experiment(**vars(args))

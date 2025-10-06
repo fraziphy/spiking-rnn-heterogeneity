@@ -1,19 +1,28 @@
 # analysis/__init__.py
 """
 Analysis modules for spiking RNN experiments.
-
-This package contains split analysis functionality:
-- Spontaneous activity: firing rates, dimensionality, Poisson tests
-- Stability: LZ complexity (spatial + column-wise), Shannon entropy, settling time, coincidence measures
-- Encoding: decoding analysis, encoding capacity metrics
 """
+
+# Common utilities (used by multiple analysis modules)
+from .common_utils import (
+    spikes_to_binary,
+    spikes_to_matrix,
+    compute_participation_ratio,
+    compute_effective_dimensionality,
+    compute_dimensionality_from_covariance
+)
+
+# Statistics utilities
+from .statistics_utils import (
+    get_extreme_combinations,
+    is_extreme_combo,
+    compute_hierarchical_stats
+)
 
 # Spontaneous activity analysis
 from .spontaneous_analysis import (
-    spikes_to_binary,
-    compute_activity_dimensionality,
-    compute_activity_dimensionality_multi_bin,
     analyze_firing_rates_and_silence,
+    compute_activity_dimensionality_multi_bin,
     extract_neuron_spike_trains,
     compute_isi_statistics,
     test_exponential_isi_distribution,
@@ -33,18 +42,24 @@ from .stability_analysis import (
 )
 
 # Encoding analysis
-from .encoding_analysis import (
-    decode_hd_input,
-    analyze_encoding_capacity,
-    compare_across_hd_dims
-)
+from .encoding_analysis import decode_hd_input
 
 __all__ = [
-    # Spontaneous analysis
+    # Common utilities
     'spikes_to_binary',
-    'compute_activity_dimensionality',
-    'compute_activity_dimensionality_multi_bin',
+    'spikes_to_matrix',
+    'compute_participation_ratio',
+    'compute_effective_dimensionality',
+    'compute_dimensionality_from_covariance',
+
+    # Statistics utilities
+    'get_extreme_combinations',
+    'is_extreme_combo',
+    'compute_hierarchical_stats',
+
+    # Spontaneous analysis
     'analyze_firing_rates_and_silence',
+    'compute_activity_dimensionality_multi_bin',
     'extract_neuron_spike_trains',
     'compute_isi_statistics',
     'test_exponential_isi_distribution',
@@ -61,7 +76,5 @@ __all__ = [
     'analyze_perturbation_response',
 
     # Encoding analysis
-    'decode_hd_input',
-    'analyze_encoding_capacity',
-    'compare_across_hd_dims'
+    'decode_hd_input'
 ]

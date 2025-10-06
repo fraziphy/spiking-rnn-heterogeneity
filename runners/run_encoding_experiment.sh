@@ -1,5 +1,5 @@
 #!/bin/bash
-# run_encoding_experiment.sh - HD input encoding experiment (refactored)
+# run_encoding_experiment.sh - HD input encoding experiment
 
 # Source shared utilities
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -59,7 +59,6 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             echo "Encoding Experiment - HD Input Decoding Analysis"
             echo "Usage: $0 [OPTIONS]"
-            echo "Options: -n, --nproc, -s, --session_ids, --n_v_th, --n_g, --n_hd, etc."
             exit 0
             ;;
         *) log_message "ERROR: Unknown option '$1'"; exit 1 ;;
@@ -84,9 +83,12 @@ REQUIRED_FILES=(
     "runners/mpi_encoding_runner.py"
     "runners/mpi_utils.py"
     "experiments/encoding_experiment.py"
+    "experiments/base_experiment.py"
+    "experiments/experiment_utils.py"
     "analysis/encoding_analysis.py"
-    "src/hd_input_generator.py"
-    "src/hd_signal_manager.py"
+    "analysis/common_utils.py"
+    "analysis/statistics_utils.py"
+    "src/hd_input.py"
 )
 verify_required_files REQUIRED_FILES || exit 1
 

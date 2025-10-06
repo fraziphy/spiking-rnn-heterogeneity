@@ -1,4 +1,4 @@
-# runners/mpi_encoding_runner.py - MPI runner (refactored with shared utilities)
+# runners/mpi_encoding_runner.py - Refactored with unified imports
 """
 MPI-parallelized encoding experiment runner with HD input decoding analysis.
 """
@@ -11,29 +11,30 @@ import argparse
 from mpi4py import MPI
 from typing import Dict, Any
 
-# Import shared MPI utilities
-from mpi_utils import (
+# Import shared MPI utilities (sibling module in runners/)
+from .mpi_utils import (
     distribute_work,
-    distribute_work_for_rank,
     monitor_system_health,
     recovery_break,
     print_work_distribution,
     estimate_computation_time
 )
 
-# Import modules with path handling
+# Import experiment class and utilities (cross-package)
 try:
-    from experiments.encoding_experiment import EncodingExperiment, create_parameter_grid, save_results
-    from src.hd_signal_manager import HDSignalManager
+    from experiments.encoding_experiment import EncodingExperiment
+    from experiments.base_experiment import BaseExperiment
+    from experiments.experiment_utils import save_results
+    from analysis.statistics_utils import get_extreme_combinations
 except ImportError:
     current_dir = os.path.dirname(__file__)
     project_root = os.path.dirname(current_dir)
-    experiments_dir = os.path.join(project_root, 'experiments')
-    src_dir = os.path.join(project_root, 'src')
-    sys.path.insert(0, experiments_dir)
-    sys.path.insert(0, src_dir)
-    from encoding_experiment import EncodingExperiment, create_parameter_grid, save_results
-    from hd_signal_manager import HDSignalManager
+    sys.path.insert(0, os.path.join(project_root, 'experiments'))
+    sys.path.insert(0, os.path.join(project_root, 'analysis'))
+    from encoding_experiment import EncodingExperiment
+    from base_experiment import BaseExperiment
+    from experiment_utils import save_results
+    from statistics_utils import get_extreme_combinations
 
 
 def execute_combination_with_recovery(experiment: EncodingExperiment, rank: int,
@@ -41,7 +42,7 @@ def execute_combination_with_recovery(experiment: EncodingExperiment, rank: int,
                                     hd_dim: int, v_th_distribution: str,
                                     static_input_rate: float,
                                     combination_index: int,
-                                    signal_manager: HDSignalManager) -> Dict[str, Any]:
+                                    extreme_combos: list) -> Dict[str, Any]:
     """Execute single parameter combination with recovery and monitoring."""
     max_attempts = 5
 
@@ -65,7 +66,7 @@ def execute_combination_with_recovery(experiment: EncodingExperiment, rank: int,
                 hd_dim=hd_dim,
                 v_th_distribution=v_th_distribution,
                 static_input_rate=static_input_rate,
-                signal_manager=signal_manager
+                extreme_combos=extreme_combos
             )
 
             result.update({
@@ -153,50 +154,51 @@ def run_mpi_encoding_experiment(session_id: int = 1,
     signal_cache_dir = comm.bcast(signal_cache_dir if rank == 0 else None, root=0)
     comm.Barrier()
 
-    # Create parameter grids
-    v_th_stds, g_stds, hd_dims, static_input_rates = create_parameter_grid(
+    # Create parameter grids using base class method
+    v_th_stds, g_stds, hd_dims, static_input_rates = BaseExperiment.create_parameter_grid(
         n_v_th_points=n_v_th,
         n_g_points=n_g,
-        n_hd_points=n_hd,
         v_th_std_range=(v_th_std_min, v_th_std_max),
         g_std_range=(g_std_min, g_std_max),
-        hd_dim_range=(hd_dim_min, hd_dim_max),
         input_rate_range=(input_rate_min, input_rate_max),
-        n_input_rates=n_input_rates
+        n_input_rates=n_input_rates,
+        n_hd_points=n_hd,
+        hd_dim_range=(hd_dim_min, hd_dim_max)
+    )
+
+    # Get extreme combinations
+    extreme_combos = get_extreme_combinations(v_th_stds, g_stds)
+
+    # Initialize experiment
+    experiment = EncodingExperiment(
+        n_neurons=n_neurons,
+        synaptic_mode=synaptic_mode,
+        static_input_mode=static_input_mode,
+        hd_input_mode=hd_input_mode,
+        embed_dim=embed_dim,
+        signal_cache_dir=signal_cache_dir
     )
 
     # Pre-generate HD signals (rank 0 only)
     if rank == 0:
         print(f"\nPre-generating HD signals...")
-        signal_manager = HDSignalManager(signal_cache_dir)
         for hd_dim in hd_dims:
-            signal_manager.get_or_generate_signal(session_id, int(hd_dim), embed_dim)
+            experiment.hd_generator.initialize_base_input(session_id, int(hd_dim))
         print("HD signal pre-generation complete.\n")
 
     comm.Barrier()
-    signal_manager = HDSignalManager(signal_cache_dir)
 
-    # Generate parameter combinations
-    import random
-    param_combinations = []
-    combo_idx = 0
-    for input_rate in static_input_rates:
-        for hd_dim in hd_dims:
-            for v_th_std in v_th_stds:
-                for g_std in g_stds:
-                    param_combinations.append({
-                        'combo_idx': combo_idx,
-                        'session_id': session_id,
-                        'v_th_std': v_th_std,
-                        'g_std': g_std,
-                        'hd_dim': int(hd_dim),
-                        'v_th_distribution': v_th_distribution,
-                        'static_input_rate': input_rate
-                    })
-                    combo_idx += 1
+    # Generate parameter combinations using base class method
+    all_combinations = experiment.create_parameter_combinations(
+        session_id=session_id,
+        v_th_stds=v_th_stds,
+        g_stds=g_stds,
+        static_input_rates=static_input_rates,
+        v_th_distribution=v_th_distribution,
+        hd_dims=hd_dims
+    )
 
-    random.shuffle(param_combinations)
-    total_combinations = len(param_combinations)
+    total_combinations = len(all_combinations)
 
     if rank == 0:
         print_work_distribution(total_combinations, size)
@@ -204,17 +206,9 @@ def run_mpi_encoding_experiment(session_id: int = 1,
         print(f"\nEstimated total time: {expected_time:.1f} hours")
 
     start_idx, end_idx = distribute_work(total_combinations, comm)
-    my_combinations = param_combinations[start_idx:end_idx]
+    my_combinations = all_combinations[start_idx:end_idx]
 
     print(f"[Rank {rank}] Processing {len(my_combinations)} combinations")
-
-    experiment = EncodingExperiment(
-        n_neurons=n_neurons,
-        synaptic_mode=synaptic_mode,
-        static_input_mode=static_input_mode,
-        hd_input_mode=hd_input_mode,
-        embed_dim=embed_dim
-    )
 
     local_results = []
     rank_start_time = time.time()
@@ -234,7 +228,7 @@ def run_mpi_encoding_experiment(session_id: int = 1,
             v_th_distribution=combo['v_th_distribution'],
             static_input_rate=combo['static_input_rate'],
             combination_index=start_idx + i,
-            signal_manager=signal_manager
+            extreme_combos=extreme_combos
         )
 
         result['original_combination_index'] = combo['combo_idx']

@@ -1,6 +1,6 @@
-# runners/mpi_stability_runner.py - MPI runner (refactored with shared utilities)
+# runners/mpi_stability_runner.py
 """
-MPI-parallelized network stability experiment runner with updated measures.
+MPI-parallelized network stability experiment runner.
 """
 
 import numpy as np
@@ -12,24 +12,26 @@ from mpi4py import MPI
 from typing import Dict, Any
 
 # Import shared MPI utilities
-from mpi_utils import (
+from .mpi_utils import (
     distribute_work,
-    distribute_work_for_rank,
     monitor_system_health,
     recovery_break,
     print_work_distribution,
     estimate_computation_time
 )
 
-# Import modules with path handling
+# Import experiment modules
 try:
-    from experiments.stability_experiment import StabilityExperiment, create_parameter_grid, save_results
+    from experiments.stability_experiment import StabilityExperiment
+    from experiments.base_experiment import BaseExperiment
+    from experiments.experiment_utils import save_results
 except ImportError:
     current_dir = os.path.dirname(__file__)
     project_root = os.path.dirname(current_dir)
-    experiments_dir = os.path.join(project_root, 'experiments')
-    sys.path.insert(0, experiments_dir)
-    from stability_experiment import StabilityExperiment, create_parameter_grid, save_results
+    sys.path.insert(0, os.path.join(project_root, 'experiments'))
+    from stability_experiment import StabilityExperiment
+    from base_experiment import BaseExperiment
+    from experiment_utils import save_results
 
 
 def execute_combination_with_recovery(experiment: StabilityExperiment, rank: int,
@@ -70,9 +72,8 @@ def execute_combination_with_recovery(experiment: StabilityExperiment, rank: int
 
             print(f"[Rank {rank}] Success:")
             print(f"    LZ (spatial): {result['lz_spatial_patterns_mean']:.2f}")
-            print(f"    LZ (column-wise): {result['lz_column_wise_mean']:.2f}")
-            print(f"    Settling time: {result['settling_time_ms_mean']:.1f} ms")
-            print(f"    Settled fraction: {result['settled_fraction']:.2f}")
+            print(f"    LZ (column): {result['lz_column_wise_mean']:.2f}")
+            print(f"    Settling: {result['settling_time_ms_mean']:.1f} ms")
 
             return result
 
@@ -80,8 +81,6 @@ def execute_combination_with_recovery(experiment: StabilityExperiment, rank: int
             print(f"[Rank {rank}] Error (attempt {attempt}): {str(e)}")
             if "memory" in str(e).lower():
                 recovery_break(rank, 600, "memory_error")
-            elif "coincidence" in str(e).lower() or "lz" in str(e).lower():
-                recovery_break(rank, 300, "analysis_error")
             else:
                 recovery_break(rank, 300, "general_error")
             continue
@@ -99,9 +98,6 @@ def execute_combination_with_recovery(experiment: StabilityExperiment, rank: int
         'rank': rank,
         'combination_index': combination_index,
         'lz_spatial_patterns_mean': np.nan,
-        'lz_column_wise_mean': np.nan,
-        'settling_time_ms_mean': np.nan,
-        'settled_fraction': 0.0,
         'computation_time': 0.0,
         'attempt_count': max_attempts,
         'successful_completion': False,
@@ -131,7 +127,6 @@ def run_mpi_stability_experiment(session_id: int = 1,
         print(f"  MPI processes: {size}")
         print(f"  Session ID: {session_id}")
         print(f"  Parameter grid: {n_v_th} × {n_g} × {n_input_rates}")
-        print(f"  Network size: {n_neurons} neurons")
 
         if not os.path.isabs(output_dir):
             output_dir = os.path.join(os.path.abspath(output_dir), "data")
@@ -141,8 +136,8 @@ def run_mpi_stability_experiment(session_id: int = 1,
     output_dir = comm.bcast(output_dir if rank == 0 else None, root=0)
     comm.Barrier()
 
-    # Create parameter grids
-    v_th_stds, g_stds, static_input_rates = create_parameter_grid(
+    # Create parameter grids using base class method
+    v_th_stds, g_stds, static_input_rates = BaseExperiment.create_parameter_grid(
         n_v_th_points=n_v_th,
         n_g_points=n_g,
         v_th_std_range=(v_th_std_min, v_th_std_max),
@@ -151,25 +146,23 @@ def run_mpi_stability_experiment(session_id: int = 1,
         n_input_rates=n_input_rates
     )
 
-    # Generate all parameter combinations
-    import random
-    param_combinations = []
-    combo_idx = 0
-    for input_rate in static_input_rates:
-        for v_th_std in v_th_stds:
-            for g_std in g_stds:
-                param_combinations.append({
-                    'combo_idx': combo_idx,
-                    'session_id': session_id,
-                    'v_th_std': v_th_std,
-                    'g_std': g_std,
-                    'v_th_distribution': v_th_distribution,
-                    'static_input_rate': input_rate
-                })
-                combo_idx += 1
+    # Initialize experiment
+    experiment = StabilityExperiment(
+        n_neurons=n_neurons,
+        synaptic_mode=synaptic_mode,
+        static_input_mode=static_input_mode
+    )
 
-    random.shuffle(param_combinations)
-    total_combinations = len(param_combinations)
+    # Generate parameter combinations
+    all_combinations = experiment.create_parameter_combinations(
+        session_id=session_id,
+        v_th_stds=v_th_stds,
+        g_stds=g_stds,
+        static_input_rates=static_input_rates,
+        v_th_distribution=v_th_distribution
+    )
+
+    total_combinations = len(all_combinations)
 
     if rank == 0:
         print_work_distribution(total_combinations, size)
@@ -177,12 +170,9 @@ def run_mpi_stability_experiment(session_id: int = 1,
         print(f"\nEstimated total time: {expected_time:.1f} hours")
 
     start_idx, end_idx = distribute_work(total_combinations, comm)
-    my_combinations = param_combinations[start_idx:end_idx]
+    my_combinations = all_combinations[start_idx:end_idx]
 
     print(f"[Rank {rank}] Processing {len(my_combinations)} combinations")
-
-    experiment = StabilityExperiment(n_neurons=n_neurons, synaptic_mode=synaptic_mode,
-                                    static_input_mode=static_input_mode)
 
     local_results = []
     rank_start_time = time.time()
@@ -190,7 +180,7 @@ def run_mpi_stability_experiment(session_id: int = 1,
     for i, combo in enumerate(my_combinations):
         progress = (i + 1) / len(my_combinations) * 100
         print(f"[Rank {rank}] [{i+1}/{len(my_combinations)} - {progress:.1f}%]:")
-        print(f"    v_th={combo['v_th_std']:.3f}, g={combo['g_std']:.3f}")
+        print(f"    v_th={combo['v_th_std']:.3f}, g={combo['g_std']:.3f}, rate={combo['static_input_rate']:.0f}")
 
         result = execute_combination_with_recovery(
             experiment=experiment,

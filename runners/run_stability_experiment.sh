@@ -1,5 +1,5 @@
 #!/bin/bash
-# run_stability_experiment.sh - Network stability analysis (refactored)
+# run_stability_experiment.sh - Network stability analysis
 
 # Source shared utilities
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -47,7 +47,6 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             echo "Network Stability Experiment"
             echo "Usage: $0 [OPTIONS]"
-            echo "See experiment_utils.sh for detailed options"
             exit 0
             ;;
         *) log_message "ERROR: Unknown option '$1'"; exit 1 ;;
@@ -61,19 +60,20 @@ TOTAL_COMBINATIONS=$((N_V_TH * N_G * N_INPUT_RATES))
 
 log_section "NETWORK STABILITY EXPERIMENT"
 log_message "MPI processes: $N_PROCESSES"
-log_message "Sessions: ${SESSION_IDS} (${N_SESSIONS} sessions)"
-log_message "Parameter grid: ${N_V_TH} × ${N_G} × ${N_INPUT_RATES} = ${TOTAL_COMBINATIONS} combinations"
+log_message "Sessions: $N_SESSIONS | Combinations: $TOTAL_COMBINATIONS"
 
 # Setup directories
 setup_directories "$OUTPUT_DIR" || exit 1
 
-# Verify required files
+# Verify files
 REQUIRED_FILES=(
     "runners/mpi_stability_runner.py"
     "runners/mpi_utils.py"
     "experiments/stability_experiment.py"
+    "experiments/base_experiment.py"
+    "experiments/experiment_utils.py"
     "analysis/stability_analysis.py"
-    "src/spiking_network.py"
+    "analysis/common_utils.py"
 )
 verify_required_files REQUIRED_FILES || exit 1
 
@@ -82,33 +82,26 @@ check_python_dependencies "import numpy, scipy, mpi4py, psutil" || exit 1
 check_mpi || exit 1
 
 # Validate modes
-validate_mode "$SYNAPTIC_MODE" "pulse filter" "synaptic mode" || exit 1
-validate_mode "$STATIC_INPUT_MODE" "independent common_stochastic common_tonic" "static input mode" || exit 1
-validate_mode "$V_TH_DISTRIBUTION" "normal uniform" "threshold distribution" || exit 1
+validate_mode "$SYNAPTIC_MODE" "pulse filter" "synaptic_mode" || exit 1
+validate_mode "$STATIC_INPUT_MODE" "independent common_stochastic common_tonic" "static_input_mode" || exit 1
+validate_mode "$V_TH_DISTRIBUTION" "normal uniform" "v_th_distribution" || exit 1
 
 # Run experiments
 log_section "RUNNING EXPERIMENTS"
 COMPLETED_SESSIONS=()
 FAILED_SESSIONS=()
-OVERALL_START_TIME=$(date +%s)
+OVERALL_START=$(date +%s)
 
 for SESSION_ID in "${SESSION_ID_ARRAY[@]}"; do
-    log_message "Starting session ${SESSION_ID}..."
+    log_message "Starting stability session ${SESSION_ID}..."
 
     mpirun -n ${N_PROCESSES} python runners/mpi_stability_runner.py \
-        --session_id ${SESSION_ID} \
-        --n_v_th ${N_V_TH} \
-        --n_g ${N_G} \
-        --n_neurons ${N_NEURONS} \
-        --output_dir ${OUTPUT_DIR} \
-        --v_th_std_min ${V_TH_STD_MIN} \
-        --v_th_std_max ${V_TH_STD_MAX} \
-        --g_std_min ${G_STD_MIN} \
-        --g_std_max ${G_STD_MAX} \
-        --input_rate_min ${INPUT_RATE_MIN} \
-        --input_rate_max ${INPUT_RATE_MAX} \
-        --n_input_rates ${N_INPUT_RATES} \
-        --synaptic_mode ${SYNAPTIC_MODE} \
+        --session_id ${SESSION_ID} --n_v_th ${N_V_TH} --n_g ${N_G} \
+        --n_neurons ${N_NEURONS} --output_dir ${OUTPUT_DIR} \
+        --v_th_std_min ${V_TH_STD_MIN} --v_th_std_max ${V_TH_STD_MAX} \
+        --g_std_min ${G_STD_MIN} --g_std_max ${G_STD_MAX} \
+        --input_rate_min ${INPUT_RATE_MIN} --input_rate_max ${INPUT_RATE_MAX} \
+        --n_input_rates ${N_INPUT_RATES} --synaptic_mode ${SYNAPTIC_MODE} \
         --static_input_mode ${STATIC_INPUT_MODE} \
         --v_th_distribution ${V_TH_DISTRIBUTION}
 
@@ -127,8 +120,7 @@ if [ "$AVERAGE_SESSIONS" = true ] && [ ${#COMPLETED_SESSIONS[@]} -gt 1 ]; then
 fi
 
 # Final summary
-OVERALL_END_TIME=$(date +%s)
-TOTAL_DURATION=$((OVERALL_END_TIME - OVERALL_START_TIME))
+TOTAL_DURATION=$(($(date +%s) - OVERALL_START))
 print_final_summary "stability" "$TOTAL_DURATION" "${#COMPLETED_SESSIONS[@]}" "$N_SESSIONS" \
-    COMPLETED_SESSIONS FAILED_SESSIONS "$OUTPUT_DIR" "Analysis: LZ complexity, Shannon entropy, settling time, coincidence"
+    COMPLETED_SESSIONS FAILED_SESSIONS "$OUTPUT_DIR" ""
 exit $?

@@ -5,7 +5,7 @@ Leaky Integrate-and-Fire neuron model with direct heterogeneity and exact mean p
 
 import numpy as np
 from typing import Tuple, List, Dict
-from rng_utils import get_rng
+from .rng_utils import get_rng
 
 class LIFNeuron:
     """LIF neuron with direct heterogeneity and exact mean preservation."""

@@ -8,7 +8,7 @@ Synapse class applies the filtering based on mode.
 import numpy as np
 from typing import List, Tuple, Optional, Dict, Any
 from scipy import sparse
-from rng_utils import get_rng
+from .rng_utils import get_rng
 
 class Synapse:
     """Synapses with pulse vs filter modes. Can be used for recurrent or input connections."""

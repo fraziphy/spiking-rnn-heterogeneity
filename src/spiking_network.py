@@ -5,9 +5,9 @@ Spiking RNN network with HD dynamic input support for encoding experiments.
 
 import numpy as np
 from typing import List, Tuple, Dict, Any, Optional
-from lif_neuron import LIFNeuron
-from synaptic_model import Synapse, StaticPoissonInput, HDDynamicInput, ReadoutLayer
-from rng_utils import get_rng
+from .lif_neuron import LIFNeuron
+from .synaptic_model import Synapse, StaticPoissonInput, HDDynamicInput, ReadoutLayer
+from .rng_utils import get_rng
 
 class SpikingRNN:
     """Spiking RNN with HD input support for encoding experiments."""

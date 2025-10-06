@@ -1,4 +1,4 @@
-# analysis/stability_analysis.py - Updated with lz_column_wise and delta=0.1ms
+# analysis/stability_analysis.py - Refactored with common utilities
 """
 Network stability analysis: full-simulation difference patterns, LZ complexity,
 settling time, and coincidence measures.
@@ -9,18 +9,9 @@ from typing import List, Tuple, Dict, Any, Optional
 from collections import defaultdict
 from scipy.stats import entropy
 
-def spikes_to_binary(spikes: List[Tuple[float, int]], num_neurons: int,
-                    duration: float, bin_size: float) -> np.ndarray:
-    """Convert spike times into a binary matrix."""
-    num_bins = int(duration / bin_size)
-    binary_matrix = np.zeros((num_neurons, num_bins), dtype=int)
+# Import from common utilities
+from .common_utils import spikes_to_binary
 
-    for spike_time, neuron_id in spikes:
-        time_bin = int(round(spike_time / bin_size))
-        if 0 <= time_bin < num_bins:
-            binary_matrix[neuron_id, time_bin] = 1
-
-    return binary_matrix
 
 def lempel_ziv_complexity(temporal_sequence: np.ndarray) -> int:
     """Compute the Lempel-Ziv complexity of a one dimensional temporal sequence."""
@@ -40,26 +31,21 @@ def lempel_ziv_complexity(temporal_sequence: np.ndarray) -> int:
     unique_substrings = list(dict.fromkeys(substrings))
     return len(unique_substrings)
 
+
 def compute_shannon_entropy(sequence: np.ndarray) -> float:
     """Compute Shannon entropy of a discrete sequence."""
     if len(sequence) == 0:
         return 0.0
 
-    # Get unique values and their counts
     unique, counts = np.unique(sequence, return_counts=True)
     probabilities = counts / len(sequence)
-
-    # Compute entropy (using natural log, can change to log2 if preferred)
     return float(entropy(probabilities, base=2))
+
 
 def find_settling_time(symbol_sequence: np.ndarray, perturbation_bin: int,
                       bin_size: float, min_zero_duration_ms: float = 50.0) -> float:
     """
     Find time when network settles back to baseline (zero state).
-
-    Searches from the end of the sequence backwards to find at least
-    min_zero_duration_ms of consecutive zeros, indicating the system
-    has forgotten the perturbation.
 
     Args:
         symbol_sequence: Full symbol sequence from time 0
@@ -83,12 +69,11 @@ def find_settling_time(symbol_sequence: np.ndarray, perturbation_bin: int,
         window = post_pert_seq[start_idx:end_idx]
 
         if np.all(window == 0):
-            # Found settling point - return time from perturbation in ms
             settling_time_ms = start_idx * bin_size
             return float(settling_time_ms)
 
-    # Never settled
     return np.nan
+
 
 def unified_coincidence_factor(spike_train1: List[float], spike_train2: List[float],
                               delta: float = 2.0, duration: float = None) -> Tuple[float, float]:
@@ -127,12 +112,12 @@ def unified_coincidence_factor(spike_train1: List[float], spike_train2: List[flo
 
     # Expected coincidences
     if duration > 0:
-        rate_SRM = N_SRM / duration  # Rate in spikes/ms
+        rate_SRM = N_SRM / duration
         expected_coinc = rate_SRM * delta * N_data
     else:
         expected_coinc = 0
 
-    N = 1 - rate_SRM * delta  # Normalization factor for Kistler coincidence
+    N = 1 - rate_SRM * delta
 
     # Gamma coincidence and Kistler coincidence
     gamma = (N_coinc - expected_coinc) / (0.5 * (N_data + N_SRM))
@@ -142,6 +127,7 @@ def unified_coincidence_factor(spike_train1: List[float], spike_train2: List[flo
         kistler = gamma / N
 
     return kistler, gamma
+
 
 def average_coincidence_multi_window(spikes1: List[Tuple[float, int]],
                                    spikes2: List[Tuple[float, int]],
@@ -192,6 +178,7 @@ def average_coincidence_multi_window(spikes1: List[Tuple[float, int]],
 
     return results
 
+
 def analyze_perturbation_response(spikes_control: List[Tuple[float, int]],
                                 spikes_perturbed: List[Tuple[float, int]],
                                 num_neurons: int, perturbation_time: float,
@@ -205,7 +192,7 @@ def analyze_perturbation_response(spikes_control: List[Tuple[float, int]],
         spikes_control: Control spike times [(time, neuron_id), ...]
         spikes_perturbed: Perturbed spike times [(time, neuron_id), ...]
         num_neurons: Number of neurons
-        perturbation_time: Time of perturbation (ms)
+        perturbation_time: Time of perturbation (ms) - UPDATED TO 200ms
         simulation_end: End time of simulation (ms)
         perturbed_neuron: ID of perturbed neuron
         dt: Time step size (ms), default 0.1 ms
@@ -217,7 +204,7 @@ def analyze_perturbation_response(spikes_control: List[Tuple[float, int]],
     bin_size = dt
     total_duration = simulation_end
 
-    # 1. Convert full spike trains to binary matrices
+    # 1. Convert full spike trains to binary matrices (using common utility)
     matrix_control = spikes_to_binary(spikes_control, num_neurons,
                                      total_duration, bin_size)
     matrix_perturbed = spikes_to_binary(spikes_perturbed, num_neurons,
@@ -258,7 +245,6 @@ def analyze_perturbation_response(spikes_control: List[Tuple[float, int]],
     # 7. Shannon entropies (BOTH post-perturbation only)
     shannon_entropy_symbols = compute_shannon_entropy(symbol_seq[pert_bin:])
 
-    # Extract post-perturbation spike differences for consistent entropy calculation
     spike_diff_post = spike_diff_full[:, pert_bin:]
     shannon_entropy_spikes = compute_shannon_entropy(spike_diff_post.flatten())
 

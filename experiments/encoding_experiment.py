@@ -1,4 +1,4 @@
-# experiments/encoding_experiment.py - HD input encoding capacity study
+# experiments/encoding_experiment.py - Refactored with base class
 """
 Encoding capacity experiment: study how networks encode high-dimensional inputs
 with varying intrinsic dimensionality.
@@ -9,58 +9,39 @@ import os
 import sys
 import time
 import pickle
-import random
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Any, Optional
 
-import warnings
-
-def compute_safe_mean(array):
-    """Compute mean suppressing empty slice warnings."""
-    with warnings.catch_warnings():
-        warnings.filterwarnings('ignore', category=RuntimeWarning,
-                              message='Mean of empty slice')
-        return float(np.nanmean(array))
-
-def compute_safe_std(array):
-    """Compute std suppressing degrees of freedom warnings."""
-    with warnings.catch_warnings():
-        warnings.filterwarnings('ignore', category=RuntimeWarning,
-                              message='Degrees of freedom')
-        return float(np.nanstd(array))
+# Import base class and utilities
+from .base_experiment import BaseExperiment
 
 # Import with flexible handling
 try:
     from src.spiking_network import SpikingRNN
-    from src.hd_input_generator import HDInputGenerator
+    from src.hd_input import HDInputGenerator
     from src.rng_utils import get_rng
     from analysis.encoding_analysis import decode_hd_input
+    from analysis.statistics_utils import get_extreme_combinations, is_extreme_combo
 except ImportError:
-    try:
-        from ..src.spiking_network import SpikingRNN
-        from ..src.hd_input_generator import HDInputGenerator
-        from ..src.rng_utils import get_rng
-        from ..analysis.encoding_analysis import decode_hd_input
-    except ImportError:
-        current_dir = os.path.dirname(__file__)
-        project_root = os.path.dirname(current_dir)
-        src_dir = os.path.join(project_root, 'src')
-        analysis_dir = os.path.join(project_root, 'analysis')
-        sys.path.insert(0, src_dir)
-        sys.path.insert(0, analysis_dir)
-        from spiking_network import SpikingRNN
-        from hd_input_generator import HDInputGenerator
-        from rng_utils import get_rng
-        from encoding_analysis import decode_hd_input
+    current_dir = os.path.dirname(__file__)
+    project_root = os.path.dirname(current_dir)
+    for subdir in ['src', 'analysis']:
+        sys.path.insert(0, os.path.join(project_root, subdir))
+    from spiking_network import SpikingRNN
+    from hd_input import HDInputGenerator
+    from rng_utils import get_rng
+    from encoding_analysis import decode_hd_input
+    from statistics_utils import get_extreme_combinations, is_extreme_combo
 
 
-class EncodingExperiment:
+class EncodingExperiment(BaseExperiment):
     """Encoding capacity experiment with HD inputs."""
 
     def __init__(self, n_neurons: int = 1000, dt: float = 0.1,
                  synaptic_mode: str = "filter",
                  static_input_mode: str = "independent",
                  hd_input_mode: str = "independent",
-                 embed_dim: int = 10):
+                 embed_dim: int = 10,
+                 signal_cache_dir: str = "hd_signals"):
         """
         Initialize encoding experiment.
 
@@ -69,49 +50,44 @@ class EncodingExperiment:
             dt: Time step (ms)
             synaptic_mode: "pulse" or "filter"
             static_input_mode: Static background mode
-            hd_input_mode: HD input mode ("independent", "common_stochastic", "common_tonic")
-            embed_dim: HD embedding dimensionality (number of input channels)
+            hd_input_mode: HD input mode
+            embed_dim: HD embedding dimensionality
+            signal_cache_dir: Directory for HD signal caching
         """
-        self.n_neurons = n_neurons
-        self.dt = dt
+        super().__init__(n_neurons, dt)
+
         self.synaptic_mode = synaptic_mode
         self.static_input_mode = static_input_mode
         self.hd_input_mode = hd_input_mode
         self.embed_dim = embed_dim
 
-        # Timing parameters
-        self.transient_time = 50.0  # ms
+        # Timing parameters - UPDATED TO 200ms transient
+        self.transient_time = 200.0  # ms
         self.encoding_time = 300.0  # ms
         self.total_duration = self.transient_time + self.encoding_time
 
         # Number of trials
         self.n_trials = 20
 
-        # HD input generator
-        self.hd_generator = HDInputGenerator(embed_dim=embed_dim, dt=dt)
+        # HD input generator with caching
+        self.hd_generator = HDInputGenerator(
+            embed_dim=embed_dim,
+            dt=dt,
+            signal_cache_dir=signal_cache_dir
+        )
 
     def run_single_trial(self, session_id: int, v_th_std: float, g_std: float,
                         trial_id: int, hd_dim: int,
                         v_th_distribution: str = "normal",
                         static_input_rate: float = 200.0,
                         hd_noise_std: float = 0.5,
-                        hd_rate_scale: float = 1.0) -> Dict[str, Any]:
+                        hd_rate_scale: float = 1.0,
+                        return_thresholds: bool = False) -> Dict[str, Any]:
         """
         Run single encoding trial.
 
         Args:
-            session_id: Session ID
-            v_th_std: Threshold std
-            g_std: Weight std
-            trial_id: Trial ID
-            hd_dim: HD intrinsic dimensionality
-            v_th_distribution: Threshold distribution
-            static_input_rate: Background input rate
-            hd_noise_std: Noise std for HD input
-            hd_rate_scale: Rate scaling for HD input
-
-        Returns:
-            Trial results with spike times and readout
+            return_thresholds: If True, return spike thresholds (for low-dim experiments)
         """
         # Create network
         network = SpikingRNN(
@@ -123,7 +99,7 @@ class EncodingExperiment:
             n_hd_channels=self.embed_dim
         )
 
-        # Network parameters
+        # Initialize network
         network_params = {
             'v_th_distribution': v_th_distribution,
             'static_input_strength': 10.0,
@@ -132,7 +108,6 @@ class EncodingExperiment:
             'readout_weight_scale': 1.0
         }
 
-        # Initialize network
         network.initialize_network(
             session_id, v_th_std, g_std,
             hd_dim=hd_dim,
@@ -170,18 +145,17 @@ class EncodingExperiment:
                           for t, nid in spike_times
                           if t >= self.transient_time]
 
-        # Extract encoding period readout
-        encoding_readout = [(t - self.transient_time, activity)
-                           for t, activity in readout_history
-                           if t >= self.transient_time]
-
-        return {
+        result = {
             'spike_times': encoding_spikes,
-            'readout_history': encoding_readout,
-            'hd_input_patterns': hd_input_patterns,
             'n_spikes': len(encoding_spikes),
             'trial_id': trial_id
         }
+
+        # Optionally return spike thresholds (for low-dim experiments)
+        if return_thresholds:
+            result['spike_thresholds'] = network.neurons.spike_thresholds.copy()
+
+        return result
 
     def run_parameter_combination(self, session_id: int, v_th_std: float, g_std: float,
                                  hd_dim: int,
@@ -189,56 +163,36 @@ class EncodingExperiment:
                                  static_input_rate: float = 200.0,
                                  hd_noise_std: float = 0.5,
                                  hd_rate_scale: float = 1.0,
-                                 signal_manager = None) -> Dict[str, Any]:
+                                 extreme_combos: List = None) -> Dict[str, Any]:
         """
         Run full parameter combination with multiple trials.
 
         Args:
-            session_id: Session ID
-            v_th_std: Threshold std
-            g_std: Weight std
-            hd_dim: HD intrinsic dimensionality
-            v_th_distribution: Threshold distribution
-            static_input_rate: Background input rate
-            hd_noise_std: Noise std for HD input
-            hd_rate_scale: Rate scaling for HD input
-            signal_manager: HDSignalManager instance (optional, for caching)
-
-        Returns:
-            Results dictionary with all trials and decoding analysis
+            extreme_combos: List of extreme (v_th_std, g_std) combinations for neuron data saving
         """
         start_time = time.time()
 
-        # Load or generate HD base signal
-        if signal_manager is not None:
-            signal_data = signal_manager.get_or_generate_signal(
-                session_id=session_id,
-                hd_dim=hd_dim,
-                embed_dim=self.embed_dim
-            )
-            # Set the generator's base signal
-            self.hd_generator.Y_base = signal_data['Y_base']
-            self.hd_generator.chosen_components = signal_data['chosen_components']
-            self.hd_generator.n_timesteps = signal_data['n_timesteps']
-        else:
-            # Initialize HD generator base input (not cached)
-            rate_rnn_params = {
-                'n_neurons': 1000,
-                'T': 350.0,  # 50ms transient + 300ms encoding
-                'g': 1.2
-            }
+        # Initialize HD generator base input (cached)
+        self.hd_generator.initialize_base_input(
+            session_id=session_id,
+            hd_dim=hd_dim,
+            rate_rnn_params={'n_neurons': 1000, 'T': 500.0, 'g': 1.2}
+        )
 
-            self.hd_generator.initialize_base_input(
-                session_id=session_id,
-                hd_dim=hd_dim,
-                rate_rnn_params=rate_rnn_params
-            )
+        # Determine if we should save neuron-level data
+        save_neuron_data = False
+        if hd_dim == 1 and self.embed_dim == 1 and extreme_combos is not None:
+            save_neuron_data = is_extreme_combo(v_th_std, g_std, extreme_combos)
 
         # Run all trials
         trial_results = []
+        spike_thresholds = None
 
         for trial_idx in range(self.n_trials):
             trial_id = trial_idx + 1
+
+            # Only get thresholds on first trial if saving neuron data
+            return_thresholds = (save_neuron_data and trial_idx == 0)
 
             trial_result = self.run_single_trial(
                 session_id=session_id,
@@ -249,12 +203,17 @@ class EncodingExperiment:
                 v_th_distribution=v_th_distribution,
                 static_input_rate=static_input_rate,
                 hd_noise_std=hd_noise_std,
-                hd_rate_scale=hd_rate_scale
+                hd_rate_scale=hd_rate_scale,
+                return_thresholds=return_thresholds
             )
+
+            # Extract and store thresholds from first trial
+            if return_thresholds and 'spike_thresholds' in trial_result:
+                spike_thresholds = trial_result.pop('spike_thresholds')
 
             trial_results.append(trial_result)
 
-        # Extract arrays for basic statistics
+        # Extract basic statistics
         n_spikes_array = np.array([r['n_spikes'] for r in trial_results])
 
         # Perform decoding analysis
@@ -276,6 +235,35 @@ class EncodingExperiment:
             n_splits=self.n_trials  # LOOCV
         )
 
+        # Prepare decoding results based on dimensionality
+        if save_neuron_data:
+            # Low-dim: keep neuron-level data
+            decoding_data = {
+                'test_rmse_mean': decoding_results['test_rmse_mean'],
+                'test_r2_mean': decoding_results['test_r2_mean'],
+                'test_correlation_mean': decoding_results['test_correlation_mean'],
+                'decoder_weights': decoding_results['decoder_weights'],
+                'spike_jitter_per_fold': decoding_results['spike_jitter_per_fold'],
+                'spike_thresholds': spike_thresholds
+            }
+        else:
+            # High-dim or non-extreme: only summary statistics
+            # Extract dimensionality metrics
+            weight_pr_per_fold = [svd['participation_ratio'] for svd in decoding_results['weight_svd_analysis']]
+            weight_ed_per_fold = [svd['effective_dim_95'] for svd in decoding_results['weight_svd_analysis']]
+            decoded_pr_per_fold = [pca['participation_ratio'] for pca in decoding_results['decoded_pca_analysis']]
+            decoded_ed_per_fold = [pca['effective_dim_95'] for pca in decoding_results['decoded_pca_analysis']]
+
+            decoding_data = {
+                'test_rmse_mean': decoding_results['test_rmse_mean'],
+                'test_r2_mean': decoding_results['test_r2_mean'],
+                'test_correlation_mean': decoding_results['test_correlation_mean'],
+                'weight_participation_ratio_mean': float(np.mean(weight_pr_per_fold)),
+                'weight_effective_dim_mean': float(np.mean(weight_ed_per_fold)),
+                'decoded_participation_ratio_mean': float(np.mean(decoded_pr_per_fold)),
+                'decoded_effective_dim_mean': float(np.mean(decoded_ed_per_fold))
+            }
+
         # Compile results
         results = {
             # Parameter information
@@ -292,9 +280,6 @@ class EncodingExperiment:
             'static_input_mode': self.static_input_mode,
             'hd_input_mode': self.hd_input_mode,
 
-            # Trial data
-            'trial_results': trial_results,
-
             # Basic statistics
             'n_spikes_mean': float(np.mean(n_spikes_array)),
             'n_spikes_std': float(np.std(n_spikes_array)),
@@ -302,104 +287,59 @@ class EncodingExperiment:
             # HD input statistics
             'hd_base_stats': self.hd_generator.get_base_statistics(),
 
-            # Decoding analysis
-            'decoding': decoding_results,
+            # Decoding analysis (smart storage)
+            'decoding': decoding_data,
 
             # Metadata
             'n_trials': len(trial_results),
             'computation_time': time.time() - start_time,
             'transient_time': self.transient_time,
-            'encoding_time': self.encoding_time
+            'encoding_time': self.encoding_time,
+            'saved_neuron_data': save_neuron_data
         }
 
         return results
+
+    def extract_trial_arrays(self, trial_results: List[Dict]) -> Dict[str, np.ndarray]:
+        """Extract arrays from trial results (required by base class)."""
+        # Encoding experiment doesn't use trial-level arrays
+        return {}
 
     def run_full_experiment(self, session_id: int, v_th_stds: np.ndarray,
                           g_stds: np.ndarray, hd_dims: np.ndarray,
                           v_th_distribution: str = "normal",
                           static_input_rates: np.ndarray = None,
                           hd_noise_std: float = 0.5,
-                          hd_rate_scale: float = 1.0,
-                          use_signal_cache: bool = True,
-                          signal_cache_dir: str = "hd_signals") -> List[Dict[str, Any]]:
-        """
-        Run full encoding experiment with randomized job distribution.
-
-        Args:
-            session_id: Session ID
-            v_th_stds: Array of threshold stds
-            g_stds: Array of weight stds
-            hd_dims: Array of HD intrinsic dimensionalities
-            v_th_distribution: Threshold distribution
-            static_input_rates: Array of background rates
-            hd_noise_std: Noise std for HD input
-            hd_rate_scale: Rate scaling for HD input
-            use_signal_cache: Whether to use HD signal caching
-            signal_cache_dir: Directory for signal cache
-
-        Returns:
-            List of results for all parameter combinations
-        """
+                          hd_rate_scale: float = 1.0) -> List[Dict[str, Any]]:
+        """Run full encoding experiment with randomized job distribution."""
         if static_input_rates is None:
             static_input_rates = np.array([200.0])
 
-        # Initialize signal manager if caching is enabled
-        if use_signal_cache:
-            from src.hd_signal_manager import HDSignalManager
-            signal_manager = HDSignalManager(signal_cache_dir)
+        # Get extreme combinations for smart storage
+        extreme_combos = get_extreme_combinations(v_th_stds, g_stds)
 
-            # Pre-generate all HD signals for this session
-            print(f"Pre-generating HD signals for session {session_id}...")
-            for hd_dim in hd_dims:
-                signal_manager.get_or_generate_signal(session_id, int(hd_dim), self.embed_dim)
-            print("Signal pre-generation complete.\n")
-        else:
-            signal_manager = None
-
-        # Create all parameter combinations
-        all_combinations = []
-        combo_idx = 0
-        for input_rate in static_input_rates:
-            for hd_dim in hd_dims:
-                for v_th_std in v_th_stds:
-                    for g_std in g_stds:
-                        all_combinations.append({
-                            'combo_idx': combo_idx,
-                            'session_id': session_id,
-                            'v_th_std': v_th_std,
-                            'g_std': g_std,
-                            'hd_dim': hd_dim,
-                            'v_th_distribution': v_th_distribution,
-                            'static_input_rate': input_rate,
-                            'hd_noise_std': hd_noise_std,
-                            'hd_rate_scale': hd_rate_scale
-                        })
-                        combo_idx += 1
-
-        # RANDOMIZE job order for better CPU load balancing
-        random.shuffle(all_combinations)
+        # Create parameter combinations using base class method
+        all_combinations = self.create_parameter_combinations(
+            session_id=session_id,
+            v_th_stds=v_th_stds,
+            g_stds=g_stds,
+            static_input_rates=static_input_rates,
+            v_th_distribution=v_th_distribution,
+            hd_dims=hd_dims,  # Encoding-specific
+            hd_noise_std=hd_noise_std,
+            hd_rate_scale=hd_rate_scale
+        )
 
         total_combinations = len(all_combinations)
 
-        print(f"Starting encoding experiment with randomized job distribution: {total_combinations} combinations")
+        print(f"Starting encoding experiment: {total_combinations} combinations")
         print(f"  Session ID: {session_id}")
-        print(f"  v_th_stds: {len(v_th_stds)} (range: {np.min(v_th_stds):.3f}-{np.max(v_th_stds):.3f})")
-        print(f"  g_stds: {len(g_stds)} (range: {np.min(g_stds):.3f}-{np.max(g_stds):.3f})")
-        print(f"  hd_dims: {len(hd_dims)} (range: {np.min(hd_dims)}-{np.max(hd_dims)})")
-        print(f"  embed_dim: {self.embed_dim}")
-        print(f"  v_th_distribution: {v_th_distribution}")
-        print(f"  Static rates: {static_input_rates}")
-        print(f"  Synaptic mode: {self.synaptic_mode}")
-        print(f"  Static input mode: {self.static_input_mode}")
-        print(f"  HD input mode: {self.hd_input_mode}")
-        print(f"  Trials per combination: {self.n_trials}")
-        print(f"  Job order: RANDOMIZED for load balancing")
+        print(f"  Extreme combos for neuron data: {len(extreme_combos)}")
 
         results = []
         for i, combo in enumerate(all_combinations):
-            print(f"[{i+1}/{total_combinations}] Processing randomized job:")
-            print(f"    v_th_std={combo['v_th_std']:.3f}, g_std={combo['g_std']:.3f}")
-            print(f"    hd_dim={combo['hd_dim']}, rate={combo['static_input_rate']:.0f}Hz")
+            print(f"[{i+1}/{total_combinations}]:")
+            print(f"    v_th={combo['v_th_std']:.3f}, g={combo['g_std']:.3f}, hd={combo['hd_dim']}")
 
             result = self.run_parameter_combination(
                 session_id=combo['session_id'],
@@ -408,140 +348,13 @@ class EncodingExperiment:
                 hd_dim=combo['hd_dim'],
                 v_th_distribution=combo['v_th_distribution'],
                 static_input_rate=combo['static_input_rate'],
-                hd_noise_std=combo['hd_noise_std'],
-                hd_rate_scale=combo['hd_rate_scale']
+                hd_noise_std=combo.get('hd_noise_std', 0.5),
+                hd_rate_scale=combo.get('hd_rate_scale', 1.0),
+                extreme_combos=extreme_combos
             )
 
             result['original_combination_index'] = combo['combo_idx']
             results.append(result)
 
-            # Progress reporting
-            print(f"  Mean spikes: {result['n_spikes_mean']:.0f}±{result['n_spikes_std']:.0f}")
-            print(f"  Time: {result['computation_time']:.1f}s")
-
-        # Sort results back by original combination index
-        results.sort(key=lambda x: x['original_combination_index'])
-
         print(f"Encoding experiment completed: {len(results)} combinations processed")
         return results
-
-
-def create_parameter_grid(n_v_th_points: int = 5, n_g_points: int = 5,
-                         n_hd_points: int = 5,
-                         v_th_std_range: Tuple[float, float] = (0.0, 4.0),
-                         g_std_range: Tuple[float, float] = (0.0, 4.0),
-                         hd_dim_range: Tuple[int, int] = (1, 10),
-                         input_rate_range: Tuple[float, float] = (100.0, 500.0),
-                         n_input_rates: int = 3) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Create parameter grids for encoding experiment."""
-    v_th_stds = np.linspace(v_th_std_range[0], v_th_std_range[1], n_v_th_points)
-    g_stds = np.linspace(g_std_range[0], g_std_range[1], n_g_points)
-    hd_dims = np.linspace(hd_dim_range[0], hd_dim_range[1], n_hd_points, dtype=int)
-    static_input_rates = np.linspace(input_rate_range[0], input_rate_range[1], n_input_rates)
-
-    return v_th_stds, g_stds, hd_dims, static_input_rates
-
-
-def save_results(results: List[Dict[str, Any]], filename: str, use_data_subdir: bool = True):
-    """Save encoding experiment results."""
-    if not os.path.isabs(filename):
-        if use_data_subdir:
-            results_dir = os.path.join(os.getcwd(), "results", "data")
-            full_path = os.path.join(results_dir, filename)
-        else:
-            full_path = os.path.join(os.getcwd(), filename)
-    else:
-        full_path = filename
-
-    directory = os.path.dirname(full_path)
-    os.makedirs(directory, exist_ok=True)
-
-    with open(full_path, 'wb') as f:
-        pickle.dump(results, f)
-
-    print(f"Encoding results saved: {full_path}")
-
-
-def load_results(filename: str) -> List[Dict[str, Any]]:
-    """Load encoding experiment results."""
-    with open(filename, 'rb') as f:
-        results = pickle.load(f)
-    print(f"Encoding results loaded: {len(results)} combinations from {filename}")
-    return results
-
-
-def average_across_sessions(results_files: List[str]) -> List[Dict[str, Any]]:
-    """Average encoding results across sessions."""
-    print(f"Averaging encoding results across {len(results_files)} sessions...")
-
-    # Load all session results
-    all_session_results = []
-    for file_path in results_files:
-        session_results = load_results(file_path)
-        all_session_results.append(session_results)
-        print(f"  Loaded session with {len(session_results)} combinations")
-
-    # Verify consistency
-    n_combinations = len(all_session_results[0])
-    for i, session_results in enumerate(all_session_results[1:], 1):
-        if len(session_results) != n_combinations:
-            raise ValueError(f"Session {i+1} has {len(session_results)} combinations, expected {n_combinations}")
-
-    # Average across sessions
-    averaged_results = []
-
-    for combo_idx in range(n_combinations):
-        combo_results = [session_results[combo_idx] for session_results in all_session_results]
-        first_result = combo_results[0]
-
-        # Concatenate trial results across sessions
-        all_trials = []
-        for session_result in combo_results:
-            all_trials.extend(session_result['trial_results'])
-
-        # Compute statistics across all trials
-        n_spikes_array = np.array([t['n_spikes'] for t in all_trials])
-
-        # Create averaged result
-        averaged_result = {
-            # Parameter information
-            'v_th_std': first_result['v_th_std'],
-            'g_std': first_result['g_std'],
-            'hd_dim': first_result['hd_dim'],
-            'embed_dim': first_result['embed_dim'],
-            'v_th_distribution': first_result['v_th_distribution'],
-            'static_input_rate': first_result['static_input_rate'],
-            'hd_noise_std': first_result['hd_noise_std'],
-            'hd_rate_scale': first_result['hd_rate_scale'],
-            'synaptic_mode': first_result['synaptic_mode'],
-            'static_input_mode': first_result['static_input_mode'],
-            'hd_input_mode': first_result['hd_input_mode'],
-            'original_combination_index': first_result.get('original_combination_index', combo_idx),
-
-            # All trial data
-            'trial_results': all_trials,
-
-            # Session-averaged statistics
-            'n_spikes_mean': compute_safe_mean(n_spikes_array),
-            'n_spikes_std': compute_safe_std(n_spikes_array),
-
-            # HD input statistics
-            'hd_base_stats': first_result['hd_base_stats'],
-
-            # Metadata
-            'n_sessions': len(combo_results),
-            'n_trials_per_session': first_result['n_trials'],
-            'total_trials': len(all_trials),
-            'total_computation_time': sum(r['computation_time'] for r in combo_results),
-            'session_ids_used': [r.get('session_id', 'unknown') for r in combo_results],
-            'transient_time': first_result['transient_time'],
-            'encoding_time': first_result['encoding_time']
-        }
-
-        averaged_results.append(averaged_result)
-
-        if (combo_idx + 1) % 10 == 0:
-            print(f"  Averaged {combo_idx + 1}/{n_combinations} combinations")
-
-    print(f"Session averaging completed: {len(averaged_results)} combinations averaged")
-    return averaged_results

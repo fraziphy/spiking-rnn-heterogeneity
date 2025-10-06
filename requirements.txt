@@ -1,9 +1,12 @@
-# Core dependencies for Spiking RNN Heterogeneity Framework v5.0.0
-# NEW: Corrected synaptic filtering, pulse/filter modes, three static input modes
+# Core dependencies for Spiking RNN Heterogeneity Framework v5.1.0
+# Refactored: Eliminated code duplication, unified utilities
 
 # Numerical computing
 numpy>=1.20.0
 scipy>=1.7.0
+
+# Machine learning (for encoding experiments)
+scikit-learn>=1.0.0
 
 # Parallel processing
 mpi4py>=3.1.0

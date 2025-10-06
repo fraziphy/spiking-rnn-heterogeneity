@@ -1,20 +1,50 @@
-# Spiking RNN Heterogeneity Framework v5.0.0
+# Spiking RNN Heterogeneity Framework v5.1.0
 
 A comprehensive framework for studying **spontaneous activity**, **network stability**, and **HD input encoding capacity** in heterogeneous spiking recurrent neural networks.
 
-## Major Updates in v5.0.0
+## Overview
 
-### 🧠 NEW: HD Input Encoding Experiments
+This framework enables systematic investigation of how heterogeneity affects three key network properties:
 
-Complete system for studying how networks encode high-dimensional inputs:
+1. **Spontaneous Activity**: Firing rates, dimensionality, silent neurons, Poisson statistics
+2. **Network Stability**: Response to perturbations, complexity measures, settling dynamics
+3. **HD Encoding Capacity**: How networks encode high-dimensional inputs with varying intrinsic dimensionality
 
-**HD Input Generation**:
+## Major Updates in v5.1.0
+
+### Code Refactoring: Zero Duplication
+
+BREAKING CHANGES: Import paths updated, standalone functions removed
+
+New Shared Modules:
+- analysis/common_utils.py - Spike processing, dimensionality utilities
+- analysis/statistics_utils.py - Extreme combinations, hierarchical statistics  
+- experiments/base_experiment.py - Base class with shared functionality
+- experiments/experiment_utils.py - Unified save/load/average functions
+- src/hd_input.py - Merged HD generation + caching (was 2 separate files)
+
+Files Deleted:
+- experiments/param_grid_utils.py (moved to BaseExperiment)
+- src/hd_input_generator.py (merged into hd_input.py)
+- src/hd_signal_manager.py (merged into hd_input.py)
+
+Benefits:
+- Zero code duplication across experiments
+- Single source of truth for all utilities
+- Consistent 200ms transient time throughout codebase
+- Cleaner import structure
+- Better maintainability and extensibility
+- ~500 lines of duplicate code eliminated
+
+### From v5.0.0: HD Input Encoding System
+
+HD Input Generation:
 - d-dimensional signals embedded in k-dimensional space
 - Generated from chaotic rate RNN dynamics via PCA
 - Controlled intrinsic dimensionality (d) vs embedding dimensionality (k)
-- Signal caching: ~1000× storage savings
+- Signal caching system: ~1000× storage savings
 
-**Linear Decoder with Full Analysis**:
+Linear Decoder with Full Analysis:
 - Ridge regression with exponential kernel filtering
 - Leave-one-out cross-validation (20 folds)
 - Per-fold metrics: RMSE, R², Pearson correlation
@@ -22,85 +52,77 @@ Complete system for studying how networks encode high-dimensional inputs:
 - Decoded dimensionality: PCA per trial analyzing if decoder discovers true d
 - Spike jitter: Reliability analysis for weight-jitter correlations
 
-**Three HD Input Modes**:
-- `independent`: Each neuron gets independent Poisson from HD rates
-- `common_stochastic`: Neurons share Poisson per channel, differs across channels
-- `common_tonic`: Deterministic expected values (zero variance)
+Three HD Input Modes:
+- independent: Each neuron gets independent Poisson from HD rates
+- common_stochastic: Neurons share Poisson per channel, differs across channels
+- common_tonic: Deterministic expected values (zero variance)
 
-### 🔧 Code Refactoring: Eliminated Repetition
+Smart Storage Logic:
+- Low-dim (hd_dim ≤ 2, embed_dim ≤ 2) + extreme combos → Save full neuron data
+- All other conditions → Summary statistics only
+- Reduces storage by ~100× while preserving detailed analysis for key conditions
 
-**New Shared Utilities**:
-- `runners/mpi_utils.py`: Work distribution, health monitoring, recovery (used by all MPI runners)
-- `runners/experiment_utils.sh`: Shell functions for logging, validation, averaging (used by all scripts)
-- ~600 lines of duplicate code eliminated across runners
+### From v4.0.0: Corrected Synaptic Architecture
 
-**New Modules**:
-- `src/hd_input_generator.py`: Rate RNN simulation and PCA embedding
-- `src/hd_signal_manager.py`: HD signal caching and loading
-- `analysis/encoding_analysis.py`: Complete decoding pipeline
-- `experiments/encoding_experiment.py`: Encoding experiment coordination
-
-### 📊 From v4.0.0: Corrected Synaptic Architecture
-
-- **Fixed double filtering bug**: Input classes now generate events only; synapses apply filtering
-- **Pulse vs filter synapses**: Clear terminology for synaptic dynamics
-- **Three static input modes**: independent, common_stochastic, common_tonic
-- **New stability measures**: LZ column-wise, coincidence at 0.1ms
+- Fixed double filtering bug: Input classes now generate events only; synapses apply filtering
+- Pulse vs filter synapses: Clear terminology for synaptic dynamics
+- Three static input modes: independent, common_stochastic, common_tonic
+- New stability measures: LZ column-wise, coincidence at 0.1ms
 
 ## Project Structure
 
-```
 spiking_rnn_heterogeneity/
 ├── src/                           # Core neural network modules
-│   ├── rng_utils.py               # Parameter-dependent RNG (extended for HD)
+│   ├── rng_utils.py               # Parameter-dependent RNG
 │   ├── lif_neuron.py              # Mean-centered LIF neurons
 │   ├── synaptic_model.py          # Synapse + input generators + HDDynamicInput
-│   ├── spiking_network.py         # Complete RNN (encoding support)
-│   ├── hd_input_generator.py      # NEW v5.0: HD signal generation
-│   └── hd_signal_manager.py       # NEW v5.0: Signal caching
+│   ├── spiking_network.py         # Complete RNN
+│   └── hd_input.py                # v5.1: Unified HD generation + caching
 ├── analysis/                      # Analysis modules  
+│   ├── common_utils.py            # v5.1: Shared utilities
+│   ├── statistics_utils.py        # v5.1: Extreme combos, hierarchical stats
 │   ├── spontaneous_analysis.py    # Firing + dimensionality + Poisson
 │   ├── stability_analysis.py      # Shannon + LZ + settling + coincidence
-│   └── encoding_analysis.py       # NEW v5.0: Decoding + dimensionality
+│   └── encoding_analysis.py       # Decoding + dimensionality
 ├── experiments/                   # Experiment coordination
-│   ├── spontaneous_experiment.py  # Spontaneous activity
-│   ├── stability_experiment.py    # Network stability
-│   └── encoding_experiment.py     # NEW v5.0: HD encoding capacity
+│   ├── base_experiment.py         # v5.1: Base class with shared methods
+│   ├── experiment_utils.py        # v5.1: Unified save/load/average
+│   ├── spontaneous_experiment.py  # Inherits BaseExperiment
+│   ├── stability_experiment.py    # Inherits BaseExperiment
+│   └── encoding_experiment.py     # Inherits BaseExperiment + smart storage
 ├── runners/                       # Execution scripts
-│   ├── mpi_utils.py               # NEW v5.0: Shared MPI utilities
-│   ├── experiment_utils.sh        # NEW v5.0: Shared shell functions
-│   ├── mpi_spontaneous_runner.py  # Refactored with shared utils
-│   ├── mpi_stability_runner.py    # Refactored with shared utils
-│   ├── mpi_encoding_runner.py     # NEW v5.0: Encoding MPI runner
+│   ├── mpi_utils.py               # Shared MPI utilities
+│   ├── experiment_utils.sh        # Shared shell functions
+│   ├── mpi_spontaneous_runner.py
+│   ├── mpi_stability_runner.py
+│   ├── mpi_encoding_runner.py
 │   ├── run_spontaneous_experiment.sh
 │   ├── run_stability_experiment.sh
-│   └── run_encoding_experiment.sh # NEW v5.0: Encoding shell script
-├── tests/                         # Testing framework
+│   └── run_encoding_experiment.sh
+├── tests/                         # Testing framework (38 tests total)
 │   ├── test_installation.py
 │   ├── test_comprehensive_structure.py
-│   └── test_encoding_implementation.py  # NEW v5.0
-├── hd_signals/                    # NEW v5.0: Cached HD signals
+│   └── test_encoding_implementation.py
+├── hd_signals/                    # Cached HD signals
 └── results/data/                  # Experiment outputs
-```
 
 ## Quick Start
 
 ### 1. Setup Environment
 
-```bash
-# Install dependencies (added scikit-learn for encoding)
+# Install dependencies
 pip install numpy scipy mpi4py psutil matplotlib scikit-learn
 
 # Install MPI (Ubuntu/Debian)
 sudo apt-get install openmpi-bin openmpi-dev
 
-# Test installation
+# Test installation (38 comprehensive tests)
 python tests/test_installation.py
+python tests/test_comprehensive_structure.py
 python tests/test_encoding_implementation.py
-```
 
-### Run Sequential Pipeline (Recommended)
-```bash
+### 2. Run Sequential Pipeline (Recommended)
+
 # Make pipeline executable
 chmod +x pipeline.sh
 
@@ -118,98 +140,95 @@ ps aux | grep pipeline
 ls -la results/data/
 tail -n 50 pipeline.log
 
+### 3. Run Individual Experiments
 
-### 2. Run Encoding Experiments (NEW)
-
-```bash
-# Quick test
-./runners/run_encoding_experiment.sh \
-    --session_ids '1' \
-    --n_v_th 3 --n_g 3 --n_hd 3 \
-    --hd_dim_min 1 --hd_dim_max 5 \
-    --embed_dim 10
-
-# Full study
+# Encoding experiments
 ./runners/run_encoding_experiment.sh \
     --session_ids '1 2 3 4 5' \
     --n_v_th 10 --n_g 10 --n_hd 5 \
     --hd_dim_min 1 --hd_dim_max 10
 
-# Compare HD input modes
-./runners/run_encoding_experiment.sh --hd_input_mode independent
-./runners/run_encoding_experiment.sh --hd_input_mode common_stochastic
-./runners/run_encoding_experiment.sh --hd_input_mode common_tonic
-```
-
-### 3. Run Spontaneous Activity
-
-```bash
+# Spontaneous activity
 ./runners/run_spontaneous_experiment.sh \
     --duration 5 --session_ids "1 2 3" \
     --synaptic_mode filter \
     --static_input_mode independent
-```
 
-### 4. Run Stability Analysis
-
-```bash
+# Stability analysis
 ./runners/run_stability_experiment.sh \
     --session_ids "1 2 3" \
     --synaptic_mode filter \
     --static_input_mode common_tonic
-```
+
+## Code Organization (v5.1.0)
+
+### Import Structure
+
+Old (v5.0.0 - DEPRECATED):
+from spontaneous_experiment import create_parameter_grid  # No longer exists
+from spontaneous_experiment import save_results           # No longer exists
+
+New (v5.1.0):
+from experiments.base_experiment import BaseExperiment
+from experiments.experiment_utils import save_results, load_results
+from analysis.common_utils import spikes_to_binary, compute_participation_ratio
+from analysis.statistics_utils import get_extreme_combinations
+
+### BaseExperiment Class
+
+All experiments now inherit from BaseExperiment:
+
+class SpontaneousExperiment(BaseExperiment):
+    def extract_trial_arrays(self, trial_results):
+        # Experiment-specific extraction
+        pass
+    
+    def compute_all_statistics(self, arrays_dict):
+        # Experiment-specific statistics
+        pass
+
+# Shared methods available:
+BaseExperiment.create_parameter_grid(...)  # Static method
+self.create_parameter_combinations(...)     # Instance method
+BaseExperiment.compute_safe_mean(...)      # Safe statistics
+
+### Common Utils
+
+Shared across all analysis modules:
+
+from analysis.common_utils import (
+    spikes_to_binary,              # Used by spontaneous + stability
+    spikes_to_matrix,              # Used by encoding
+    compute_participation_ratio,   # Used by all
+    compute_dimensionality_from_covariance  # Unified computation
+)
 
 ## Scientific Innovation
 
 ### HD Input Encoding (v5.0.0)
 
-**The Challenge**: How does network heterogeneity affect encoding capacity for high-dimensional inputs?
+The Challenge: How does network heterogeneity affect encoding capacity for high-dimensional inputs?
 
-**HD Input Protocol**:
-```python
-# Generate d-dimensional signal in k-dimensional space
-1. Run chaotic rate RNN (g=1.2, 1000 neurons, 350ms)
-2. PCA to extract k=10 principal components
-3. Random rotation in k-space
-4. Select d random components (intrinsic dimensionality)
-5. Embed back into k-space via random orthogonal basis
-6. Result: k channels spanning d-dimensional subspace
-```
+HD Input Protocol:
+1. Run chaotic rate RNN (g=1.2, 1000 neurons, 500ms)
+2. Remove 200ms transient (standardized across all experiments)
+3. PCA to extract k=10 principal components
+4. Random rotation in k-space
+5. Select d random components (intrinsic dimensionality)
+6. Embed back into k-space via random orthogonal basis
+7. Result: k channels spanning d-dimensional subspace
 
-**Key Design**:
-- All k channels active (equal drive across HD values)
-- Intrinsic dimensionality d hidden from decoder
-- Per-trial Gaussian noise added to base signal
-- Fair comparison: decoder complexity doesn't scale with d
-
-**Decoding Analysis**:
-```python
-# Per cross-validation fold:
-1. Train linear decoder on training trials
-2. Analyze weight matrix W (n_neurons × k):
-   - SVD: singular values, explained variance
-   - Effective dimensionality: components for 95% variance
-   - Participation ratio: (Σλ)² / Σλ²
-3. Decode test trials
-4. PCA on decoded output (per trial):
-   - Does decoded signal span d-dimensional space?
-5. Compute spike jitter for training trials:
-   - Which neurons are reliable?
-   - Correlate with decoder weights
-```
-
-**Scientific Questions**:
-- Does encoding capacity decrease with higher d?
-- Do heterogeneous networks encode better?
-- Does decoder discover true dimensionality d?
-- Are reliable neurons (low jitter) more important for decoding?
+Smart Storage:
+- Low-dim (d≤2, k≤2) + extreme corners → Full neuron data saved
+- All others → Summary statistics only
+- Enables detailed analysis where it matters most
+- ~100× storage reduction
 
 ### Corrected Synaptic Filtering (v4.0.0)
 
-**The Problem**: Input classes applied filtering, then synapses applied it again (double filtering).
+The Problem: Input classes applied filtering, then synapses applied it again (double filtering).
 
-**The Solution**:
-```python
+The Solution:
 # Input classes generate events only
 class StaticPoissonInput:
     def generate_events(...) -> np.ndarray:
@@ -223,63 +242,62 @@ class Synapse:
             self.current += events         # Add new
         elif self.synaptic_mode == "pulse":
             self.current = events          # Replace
-```
 
-**Impact**: Single, consistent filtering path; correct pulse vs filter comparison.
+Impact: Single, consistent filtering path; correct pulse vs filter comparison.
 
 ### Static Input Modes (v4.0.0)
 
-**Three modes to probe network computation**:
+Three modes to probe network computation:
 
-1. **independent**: Each neuron gets independent Poisson spikes (max variability)
-2. **common_stochastic**: All neurons get identical Poisson spikes (synchronous drive)
-3. **common_tonic**: Deterministic expected value (zero variance)
+1. independent: Each neuron gets independent Poisson spikes (max variability)
+2. common_stochastic: All neurons get identical Poisson spikes (synchronous drive)
+3. common_tonic: Deterministic expected value (zero variance)
 
-**Pulse vs Filter with Tonic Input**:
-- Pulse: `current = 0.05` (constant)
-- Filter: `current → 2.5` (50× due to integration)
+Pulse vs Filter with Tonic Input:
+- Pulse: current = 0.05 (constant)
+- Filter: current → 2.5 (50× due to integration)
 
 ## Data Analysis
 
 ### Encoding Results (v5.0.0)
 
-```python
 import pickle
+from experiments.experiment_utils import load_results
 
-filename = 'results/data/encoding_session_1_filter_independent_independent_normal_k10.pkl'
-with open(filename, 'rb') as f:
-    results = pickle.load(f)
+results = load_results('results/data/encoding_session_1_filter_independent_independent_normal_k10.pkl')
 
 for result in results:
     hd_dim = result['hd_dim']
-    embed_dim = result['embed_dim']
     
-    # Performance metrics
+    # Performance
     test_rmse = result['decoding']['test_rmse_mean']
     test_r2 = result['decoding']['test_r2_mean']
-    test_corr = result['decoding']['test_correlation_mean']
     
-    # Weight dimensionality (per fold)
-    weight_svd = result['decoding']['weight_svd_analysis']
-    weight_dims = [f['effective_dim_95'] for f in weight_svd]
-    weight_pr = [f['participation_ratio'] for f in weight_svd]
+    # Dimensionality
+    weight_dims = [f['effective_dim_95'] for f in result['decoding']['weight_svd_analysis']]
+    decoded_dims = [f['effective_dim_95'] for f in result['decoding']['decoded_pca_analysis']]
     
-    # Decoded dimensionality (per fold, averaged over trials)
-    decoded_pca = result['decoding']['decoded_pca_analysis']
-    decoded_dims = [f['effective_dim_95'] for f in decoded_pca]
-    
-    # Spike jitter (per fold)
-    jitter_folds = result['decoding']['spike_jitter_per_fold']
-    
-    print(f"HD={hd_dim}, k={embed_dim}")
-    print(f"  RMSE: {test_rmse:.4f}, R²: {test_r2:.4f}")
-    print(f"  Weight dim: {np.mean(weight_dims):.1f}")
-    print(f"  Decoded dim: {np.mean(decoded_dims):.1f}")
-```
+    print(f"HD={hd_dim}: RMSE={test_rmse:.4f}, Weight dim={np.mean(weight_dims):.1f}")
+
+### Session Averaging
+
+from experiments.experiment_utils import average_across_sessions_encoding
+
+# Average across multiple sessions
+averaged_results = average_across_sessions_encoding(
+    session_files=[
+        'results/data/encoding_session_1_filter_independent_independent_normal_k10.pkl',
+        'results/data/encoding_session_2_filter_independent_independent_normal_k10.pkl',
+    ]
+)
+
+# Access hierarchical statistics
+for result in averaged_results:
+    print(f"HD={result['hd_dim']}")
+    print(f"  RMSE: {result['decoding']['test_rmse_mean']:.4f} ± {result['decoding']['test_rmse_std']:.4f}")
 
 ### Stability Results (v4.0.0)
 
-```python
 filename = 'results/data/stability_session_1_filter_common_tonic_normal.pkl'
 with open(filename, 'rb') as f:
     results = pickle.load(f)
@@ -289,48 +307,44 @@ for result in results:
     lz_column = result['lz_column_wise_mean']
     kistler_01ms = result['kistler_delta_0.1ms_mean']
     settling_time = result['settling_time_ms_mean']
-```
 
 ## System Requirements
 
-- **Python**: 3.8+
-- **CPU**: Multi-core (32+ cores recommended)
-- **Memory**: 16GB+ (spontaneous), 32GB+ (stability), 64GB+ (encoding)
-- **Storage**: 5GB+ per experiment, 10MB for HD signal cache
+- Python: 3.8+
+- CPU: Multi-core (32+ cores recommended)
+- Memory: 16GB+ (spontaneous), 32GB+ (stability), 64GB+ (encoding)
+- Storage: 5GB+ per experiment, 10MB for HD signal cache
 
 ## Version History
 
-- **v5.0.0**: **ENCODING CAPACITY SYSTEM** - HD input encoding experiments with comprehensive decoding analysis
-  - NEW: HD input generation (d-dimensional signals in k-dimensional space)
-  - NEW: Linear decoder with SVD/PCA dimensionality analysis
-  - NEW: Spike jitter computation and weight-jitter correlations
-  - NEW: HD signal caching system (~1000× storage savings)
-  - Code refactoring: Shared utilities (mpi_utils.py, experiment_utils.sh)
-  - ~600 lines of duplicate code eliminated
-  - Added: hd_input_generator.py, hd_signal_manager.py, encoding_analysis.py
-  - Added: encoding_experiment.py, mpi_encoding_runner.py, run_encoding_experiment.sh
+- v5.1.0: CODE REFACTORING - Eliminated ALL code duplication
+  - NEW: analysis/common_utils.py, analysis/statistics_utils.py
+  - NEW: experiments/base_experiment.py, experiments/experiment_utils.py
+  - MERGED: src/hd_input.py (was 2 files)
+  - DELETED: experiments/param_grid_utils.py
+  - All experiments inherit from BaseExperiment
+  - Single source of truth for utilities
+  - Updated all import paths
+  - Standardized 200ms transient time throughout
 
-- **v4.0.0**: **ARCHITECTURE REVOLUTION** - Corrected synaptic filtering, pulse/filter terminology
+- v5.0.0: ENCODING CAPACITY SYSTEM - HD input encoding experiments
+  - HD input generation (d-dimensional signals in k-dimensional space)
+  - Linear decoder with SVD/PCA dimensionality analysis
+  - Spike jitter computation and weight-jitter correlations
+  - HD signal caching system (~1000× storage savings)
+  - Smart storage logic (low-dim + extremes only)
+
+- v4.0.0: ARCHITECTURE REVOLUTION - Corrected synaptic filtering
   - Fixed double filtering bug
-  - Three static input modes: independent, common_stochastic, common_tonic
-  - New stability measures: lz_column_wise, coincidence at 0.1ms
-
-- **v3.5.1**: Critical bug fixes - Shannon entropy, settling time
-- **v3.5.0**: Full-simulation stability, Shannon entropy, settling time
-- **v3.0.0**: Split architecture (spontaneous + stability)
+  - Three static/HD input modes
+  - New stability measures (LZ column-wise, 0.1ms coincidence)
 
 ## Citation
 
-```bibtex
-@software{spiking_rnn_heterogeneity_v500,
-  title = {Spiking RNN Heterogeneity Framework v5.0.0},
+@software{spiking_rnn_heterogeneity_v510,
+  title = {Spiking RNN Heterogeneity Framework v5.1.0},
   author = {Your Name},
   year = {2025},
-  version = {5.0.0},
+  version = {5.1.0},
   url = {https://github.com/yourusername/spiking-rnn-heterogeneity}
 }
-```
-
----
-
-**Key Innovation v5.0.0**: Complete HD input encoding system with linear decoder, dimensionality analysis (SVD/PCA), spike jitter, and weight-jitter correlations. Addresses how network heterogeneity affects encoding capacity for high-dimensional inputs.
