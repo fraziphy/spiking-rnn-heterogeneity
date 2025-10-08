@@ -135,9 +135,23 @@ average_sessions() {
     local averaging_script=$(cat << EOF
 import sys
 import os
-sys.path.insert(0, 'experiments')
 
-from ${experiment_type}_experiment import average_across_sessions, save_results
+# Add project root to path
+project_root = os.getcwd()
+sys.path.insert(0, project_root)
+
+# Import using full package paths
+from experiments.experiment_utils import save_results
+
+# Import the correct averaging function based on experiment type
+if '${experiment_type}' == 'spontaneous':
+    from experiments.experiment_utils import average_across_sessions_spontaneous as average_across_sessions
+elif '${experiment_type}' == 'stability':
+    from experiments.experiment_utils import average_across_sessions_stability as average_across_sessions
+elif '${experiment_type}' == 'encoding':
+    from experiments.experiment_utils import average_across_sessions_encoding as average_across_sessions
+else:
+    raise ValueError(f"Unknown experiment type: ${experiment_type}")
 
 import argparse
 parser = argparse.ArgumentParser()
@@ -151,6 +165,8 @@ try:
     print(f'${experiment_type} session averaging completed: {args.output_file}')
 except Exception as e:
     print(f'${experiment_type} session averaging failed: {e}')
+    import traceback
+    traceback.print_exc()
     sys.exit(1)
 EOF
 )
