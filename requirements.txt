@@ -1,18 +1,19 @@
-# Core dependencies for Spiking RNN Heterogeneity Framework v5.1.0
-# Refactored: Eliminated code duplication, unified utilities
+# Core dependencies for Spiking RNN Heterogeneity Framework v6.0.0
+# NEW: Reservoir computing tasks (categorical, temporal, auto-encoding)
+# Refactored: Unified utilities, eliminated code duplication
 
 # Numerical computing
 numpy>=1.20.0
 scipy>=1.7.0
 
-# Machine learning (for encoding experiments)
+# Machine learning (for encoding + task experiments)
 scikit-learn>=1.0.0
 
-# Parallel processing
+# Parallel processing (MPI for distributed computation)
 mpi4py>=3.1.0
 
-# System monitoring
+# System monitoring (health checks during long runs)
 psutil>=5.8.0
 
-# Visualization (optional)
+# Visualization (optional, for analysis)
 matplotlib>=3.5.0

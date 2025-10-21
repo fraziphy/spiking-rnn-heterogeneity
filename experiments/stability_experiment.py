@@ -22,9 +22,9 @@ except ImportError:
     project_root = os.path.dirname(current_dir)
     for subdir in ['src', 'analysis']:
         sys.path.insert(0, os.path.join(project_root, subdir))
-    from spiking_network import SpikingRNN
-    from rng_utils import get_rng
-    from stability_analysis import analyze_perturbation_response
+    from src.spiking_network import SpikingRNN  # FIXED
+    from src.rng_utils import get_rng  # FIXED
+    from analysis.stability_analysis import analyze_perturbation_response
 
 
 class StabilityExperiment(BaseExperiment):

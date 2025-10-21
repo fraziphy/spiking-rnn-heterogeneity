@@ -1,7 +1,7 @@
-# src/hd_input.py - Unified HD input generation and management
+# src/hd_input.py - Updated with pattern_id support for task experiments
 """
 High-dimensional input generator with caching for encoding experiments.
-Combines functionality from hd_input_generator.py and hd_signal_manager.py.
+Extended to support multiple patterns for task-performance experiments.
 """
 
 import numpy as np
@@ -14,7 +14,8 @@ from .rng_utils import get_rng
 
 
 def run_rate_rnn(n_neurons: int, T: float, dt: float, g: float,
-                 session_id: int, hd_dim: int, embed_dim: int) -> Tuple[np.ndarray, np.ndarray]:
+                 session_id: int, hd_dim: int, embed_dim: int,
+                 pattern_id: int = 0) -> Tuple[np.ndarray, np.ndarray]:
     """
     Run rate RNN to generate temporal patterns for HD inputs.
 
@@ -26,14 +27,17 @@ def run_rate_rnn(n_neurons: int, T: float, dt: float, g: float,
         session_id: Session ID for reproducibility
         hd_dim: HD intrinsic dimensionality (affects seed)
         embed_dim: HD embedding dimensionality (affects seed)
+        pattern_id: Pattern identifier for generating different patterns (default 0)
 
     Returns:
         rates: Neural activity after transient removal, shape (n_steps, n_neurons)
         time: Time array
     """
-    # Get RNG for this session/hd_dim/embed_dim combination
-    rng = get_rng(session_id, 0.0, 0.0, 0, 'rate_rnn_for_hd',
-                  hd_dim=hd_dim, embed_dim=embed_dim)
+    # Get RNG for this session/hd_dim/embed_dim/pattern_id combination
+    # rng = get_rng(session_id, 0.0, 0.0, 0, f'rate_rnn_for_hd_pattern_{pattern_id}',
+    #               hd_dim=hd_dim, embed_dim=embed_dim)
+    rng = get_rng(session_id, 0.0, 0.0, 0,
+                  f'rate_rnn_for_hd_pattern_{pattern_id}')
 
     n_steps = int(T / dt)
     time = np.arange(0, T, dt)
@@ -53,7 +57,7 @@ def run_rate_rnn(n_neurons: int, T: float, dt: float, g: float,
         x += dx * dt / 2
         rates[t_idx] = phi_x
 
-    # Remove transient (first 200ms as per refactoring plan)
+    # Remove transient (first 200ms)
     transient_steps = int(200.0 / dt)
     rates_clean = rates[transient_steps:]
 
@@ -61,7 +65,7 @@ def run_rate_rnn(n_neurons: int, T: float, dt: float, g: float,
 
 
 def make_embedding(Rates: np.ndarray, k: int, d: int,
-                   session_id: int) -> Tuple[np.ndarray, np.ndarray]:
+                   session_id: int, pattern_id: int = 0) -> Tuple[np.ndarray, np.ndarray]:
     """
     Generate k-dimensional embedding with intrinsic dimensionality d.
 
@@ -70,14 +74,17 @@ def make_embedding(Rates: np.ndarray, k: int, d: int,
         k: Embedding dimensionality (ambient space)
         d: Intrinsic dimensionality (d <= k)
         session_id: Session ID for reproducibility
+        pattern_id: Pattern identifier (default 0)
 
     Returns:
         Y_embedded: Embedded trajectory, shape (T, k)
         chosen_components: Indices of PCA components chosen
     """
-    # Get RNG for embedding (fixed per session/d/k)
-    rng = get_rng(session_id, 0.0, 0.0, 0, 'hd_embedding',
-                  hd_dim=d, embed_dim=k)
+    # Get RNG for embedding (fixed per session/d/k/pattern_id)
+    # rng = get_rng(session_id, 0.0, 0.0, 0, f'hd_embedding_pattern_{pattern_id}',
+    #               hd_dim=d, embed_dim=k)
+    rng = get_rng(session_id, 0.0, 0.0, 0,
+                  f'hd_embedding_pattern_{pattern_id}')
 
     # Step 1: PCA decomposition
     pca = PCA(n_components=k)
@@ -110,7 +117,7 @@ def make_embedding(Rates: np.ndarray, k: int, d: int,
 
 
 class HDInputGenerator:
-    """High-dimensional input generator with signal caching."""
+    """High-dimensional input generator with signal caching and pattern support."""
 
     def __init__(self, embed_dim: int = 10, dt: float = 0.1,
                  signal_cache_dir: Optional[str] = None):
@@ -129,24 +136,24 @@ class HDInputGenerator:
         if signal_cache_dir:
             os.makedirs(signal_cache_dir, exist_ok=True)
 
-        # Will be initialized per session/hd_dim/embed_dim
+        # Will be initialized per session/hd_dim/embed_dim/pattern_id
         self.Y_base = None
         self.chosen_components = None
         self.n_timesteps = None
 
-    def _get_signal_filename(self, session_id: int, hd_dim: int) -> str:
+    def _get_signal_filename(self, session_id: int, hd_dim: int, pattern_id: int = 0) -> str:
         """Generate filename for HD signal cache."""
         if not self.signal_cache_dir:
             return None
         return os.path.join(self.signal_cache_dir,
-                          f"hd_signal_session_{session_id}_hd_{hd_dim}_k_{self.embed_dim}.pkl")
+                          f"hd_signal_session_{session_id}_hd_{hd_dim}_k_{self.embed_dim}_pattern_{pattern_id}.pkl")
 
-    def _signal_exists(self, session_id: int, hd_dim: int) -> bool:
+    def _signal_exists(self, session_id: int, hd_dim: int, pattern_id: int = 0) -> bool:
         """Check if HD signal already exists in cache."""
-        filename = self._get_signal_filename(session_id, hd_dim)
+        filename = self._get_signal_filename(session_id, hd_dim, pattern_id)
         return filename and os.path.exists(filename)
 
-    def _save_signal(self, session_id: int, hd_dim: int, rate_rnn_params: dict):
+    def _save_signal(self, session_id: int, hd_dim: int, pattern_id: int, rate_rnn_params: dict):
         """Save generated signal to cache."""
         if not self.signal_cache_dir:
             return
@@ -158,17 +165,18 @@ class HDInputGenerator:
             'session_id': session_id,
             'hd_dim': hd_dim,
             'embed_dim': self.embed_dim,
+            'pattern_id': pattern_id,
             'rate_rnn_params': rate_rnn_params,
             'statistics': self.get_base_statistics()
         }
 
-        filename = self._get_signal_filename(session_id, hd_dim)
+        filename = self._get_signal_filename(session_id, hd_dim, pattern_id)
         with open(filename, 'wb') as f:
             pickle.dump(signal_data, f)
 
-    def _load_signal(self, session_id: int, hd_dim: int) -> bool:
+    def _load_signal(self, session_id: int, hd_dim: int, pattern_id: int = 0) -> bool:
         """Load signal from cache. Returns True if successful."""
-        filename = self._get_signal_filename(session_id, hd_dim)
+        filename = self._get_signal_filename(session_id, hd_dim, pattern_id)
         if not filename or not os.path.exists(filename):
             return False
 
@@ -182,27 +190,29 @@ class HDInputGenerator:
         return True
 
     def initialize_base_input(self, session_id: int, hd_dim: int,
+                             pattern_id: int = 0,
                              rate_rnn_params: dict = None):
         """
-        Generate or load base HD input (fixed per session/hd_dim/embed_dim).
+        Generate or load base HD input (fixed per session/hd_dim/embed_dim/pattern_id).
 
         Args:
             session_id: Session ID
             hd_dim: Intrinsic dimensionality (d)
+            pattern_id: Pattern identifier (default 0 for backward compatibility)
             rate_rnn_params: Parameters for rate RNN
                 - n_neurons: default 1000
                 - T: default 500ms (200ms transient + 300ms encoding)
-                - g: default 1.2
+                - g: default 2.0
         """
         # Try to load from cache first
-        if self._load_signal(session_id, hd_dim):
+        if self._load_signal(session_id, hd_dim, pattern_id):
             return
 
         # Generate new signal
         if rate_rnn_params is None:
             rate_rnn_params = {'n_neurons': 1000, 'T': 500.0, 'g': 2.0}
 
-        # Run rate RNN
+        # Run rate RNN with pattern_id
         rates, _ = run_rate_rnn(
             n_neurons=rate_rnn_params.get('n_neurons', 1000),
             T=rate_rnn_params.get('T', 500.0),
@@ -210,47 +220,48 @@ class HDInputGenerator:
             g=rate_rnn_params.get('g', 2.0),
             session_id=session_id,
             hd_dim=hd_dim,
-            embed_dim=self.embed_dim
+            embed_dim=self.embed_dim,
+            pattern_id=pattern_id
         )
 
-        # Generate embedding
+        # Generate embedding with pattern_id
         self.Y_base, self.chosen_components = make_embedding(
             Rates=rates,
             k=self.embed_dim,
             d=hd_dim,
-            session_id=session_id
+            session_id=session_id,
+            pattern_id=pattern_id
         )
 
         self.n_timesteps = self.Y_base.shape[0]
 
         # Save to cache
-        self._save_signal(session_id, hd_dim, rate_rnn_params)
+        self._save_signal(session_id, hd_dim, pattern_id, rate_rnn_params)
 
     def generate_trial_input(self, session_id: int, v_th_std: float, g_std: float,
                             trial_id: int, hd_dim: int,
+                            pattern_id: int = 0,
                             noise_std: float = 0.5,
-                            rate_scale: float = 1.0) -> np.ndarray:
+                            rate_scale: float = 1.0,
+                            static_input_rate: float = 0.0) -> np.ndarray:  # ADD THIS PARAMETER
         """
         Generate HD input for a single trial with added noise.
 
-        Args:
-            session_id: Session ID
-            v_th_std: Threshold std (for RNG)
-            g_std: Weight std (for RNG)
-            trial_id: Trial ID (for trial-specific noise)
-            hd_dim: Intrinsic dimensionality
-            noise_std: Standard deviation of additive Gaussian noise
-            rate_scale: Multiplicative scaling factor for rates
-
-        Returns:
-            Y_trial: HD input with noise, shape (n_timesteps, embed_dim)
+        Noise depends on: session_id, v_th_std, g_std, trial_id, pattern_id,
+                        hd_dim, embed_dim, AND static_input_rate.
         """
         if self.Y_base is None:
             raise ValueError("Must call initialize_base_input() first")
 
-        # Get RNG for trial-specific noise
-        rng = get_rng(session_id, v_th_std, g_std, trial_id, 'hd_input_noise',
-                     hd_dim=hd_dim, embed_dim=self.embed_dim)
+        # Get RNG for trial-specific noise (includes ALL parameters)
+        # Convert static_input_rate to integer for seed
+        rate_int = int(static_input_rate * 1000)  # 200.5 Hz -> 200500
+
+        rng = get_rng(session_id, v_th_std, g_std, trial_id,
+                    f'hd_input_noise_{pattern_id}',
+                    rate=static_input_rate,  # ADD THIS
+                    hd_dim=hd_dim,
+                    embed_dim=self.embed_dim)
 
         # Add Gaussian noise
         noise = rng.normal(0, noise_std, self.Y_base.shape)
@@ -263,6 +274,44 @@ class HDInputGenerator:
         Y_trial = Y_positive * rate_scale
 
         return Y_trial
+
+    # Add this method to the HDInputGenerator class in src/hd_input.py
+    def initialize_and_get_patterns(self, session_id: int, hd_dim: int,
+                                    n_patterns: int,
+                                    rate_rnn_params: dict = None) -> Dict[int, np.ndarray]:
+        """
+        Initialize and return multiple patterns at once.
+        Used for distributed execution where all ranks need same patterns.
+
+        Args:
+            session_id: Session ID
+            hd_dim: Intrinsic dimensionality
+            n_patterns: Number of patterns to generate
+            rate_rnn_params: Parameters for rate RNN (optional)
+
+        Returns:
+            Dictionary mapping pattern_id to pattern arrays
+        """
+        if rate_rnn_params is None:
+            rate_rnn_params = {
+                'n_neurons': 1000,
+                'T': 200.0 + 300.0,  # transient + stimulus
+                'g': 2.0
+            }
+
+        patterns = {}
+
+        for pattern_id in range(n_patterns):
+            self.initialize_base_input(
+                session_id=session_id,
+                hd_dim=hd_dim,
+                pattern_id=pattern_id,
+                rate_rnn_params=rate_rnn_params
+            )
+            patterns[pattern_id] = self.Y_base.copy()
+
+        return patterns
+
 
     def get_base_statistics(self) -> dict:
         """Get statistics about the base HD input."""

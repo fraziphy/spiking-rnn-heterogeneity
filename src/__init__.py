@@ -5,7 +5,7 @@ Core neural network modules for spiking RNN heterogeneity studies.
 
 from .rng_utils import HierarchicalRNG, get_rng
 from .lif_neuron import LIFNeuron
-from .synaptic_model import Synapse, StaticPoissonInput, HDDynamicInput, ReadoutLayer
+from .synaptic_model import Synapse, StaticPoissonInput, HDDynamicInput
 from .hd_input import HDInputGenerator, run_rate_rnn, make_embedding  # FIXED: was hd_input_generator
 from .spiking_network import SpikingRNN
 
@@ -16,7 +16,6 @@ __all__ = [
     'Synapse',
     'StaticPoissonInput',
     'HDDynamicInput',
-    'ReadoutLayer',
     'HDInputGenerator',
     'run_rate_rnn',
     'make_embedding',

@@ -22,6 +22,48 @@ project_root = os.path.dirname(current_dir)
 sys.path.insert(0, project_root)
 
 
+def test_dimensionality_svd():
+    """Test the new SVD-based dimensionality computation."""
+    print("\nTesting dimensionality computation with SVD...")
+
+    from analysis.common_utils import compute_dimensionality_svd
+
+    # Create test data
+    data = np.random.randn(100, 50)  # 100 timebins, 50 neurons
+
+    dim_metrics = compute_dimensionality_svd(data, variance_threshold=0.95)
+
+    # Check required fields
+    required_keys = ['participation_ratio', 'effective_dimensionality',
+                     'intrinsic_dimensionality', 'total_variance', 'n_components']
+
+    missing_keys = [k for k in required_keys if k not in dim_metrics]
+    if not missing_keys:
+        print(f"  ✓ All required fields present")
+        print(f"    Participation ratio: {dim_metrics['participation_ratio']:.2f}")
+        print(f"    Effective dim: {dim_metrics['effective_dimensionality']:.2f}")
+        print(f"    Intrinsic dim: {dim_metrics['intrinsic_dimensionality']}")
+        print(f"    Total variance: {dim_metrics['total_variance']:.2f}")
+    else:
+        print(f"  ✗ Missing fields: {missing_keys}")
+        return False
+
+    # Test with empty data
+    empty_data = np.zeros((1, 50))
+    dim_empty = compute_dimensionality_svd(empty_data)
+    if dim_empty['participation_ratio'] == 0.0:
+        print(f"  ✓ Handles empty data correctly")
+    else:
+        print(f"  ✗ Empty data handling failed")
+        return False
+
+    return True
+
+# Update the tests list in run_all_comprehensive_tests() (around line 425):
+# Add after ("Coincidence Delta 0.1ms", test_coincidence_delta_01ms),
+("Dimensionality SVD", test_dimensionality_svd),
+
+
 def test_pulse_filter_terminology():
     """Test that pulse/filter terminology is correctly implemented."""
     print("Testing pulse/filter terminology...")
@@ -523,26 +565,23 @@ def test_base_experiment_functionality():
     try:
         from experiments.base_experiment import BaseExperiment
 
-        # Test parameter grid creation
+        # Test parameter grid creation (simple - for spontaneous/stability)
         v_th, g, rates = BaseExperiment.create_parameter_grid(
             n_v_th_points=3, n_g_points=3, n_input_rates=2
         )
         assert len(v_th) == 3 and len(g) == 3 and len(rates) == 2
-        print("  ✓ Parameter grid creation")
+        print("  ✓ Parameter grid creation (simple)")
 
-        # Test with HD dimensions
+        # Test with HD INPUT dimensions (NEW API - for encoding/task experiments)
         v_th, g, hd_dims, rates = BaseExperiment.create_parameter_grid(
-            n_v_th_points=3, n_g_points=3, n_input_rates=2,
-            n_hd_points=4, hd_dim_range=(1, 10)
+            n_v_th_points=3,
+            n_g_points=3,
+            n_input_rates=2,
+            n_hd_input_points=4,  # NEW API
+            hd_input_dim_range=(1, 10)  # NEW API
         )
         assert len(hd_dims) == 4
-        print("  ✓ Parameter grid with HD dimensions")
-
-        # Test safe statistics
-        array_with_nan = np.array([1.0, 2.0, np.nan, 4.0])
-        mean = BaseExperiment.compute_safe_mean(array_with_nan)
-        assert not np.isnan(mean)
-        print("  ✓ Safe statistics computation")
+        print("  ✓ Parameter grid with HD input dimensions")
 
         return True
 
@@ -625,7 +664,7 @@ def run_all_comprehensive_tests():
             results.append((test_name, False))
 
     print("\n" + "=" * 70)
-    print("COMPREHENSIVE TEST SUMMARY")
+    print("COMPLETE COMPREHENSIVE TEST SUMMARY")
     print("=" * 70)
 
     for test_name, success in results:

@@ -1,4 +1,4 @@
-# src/synaptic_model.py - Corrected: Inputs generate events, synapses apply filtering
+# src/synaptic_model.py - Fixed: Removed ReadoutLayer (synapses handle filtering)
 """
 Synaptic model with pulse vs filter modes.
 Input classes generate spike events or tonic values WITHOUT filtering.
@@ -11,7 +11,7 @@ from scipy import sparse
 from .rng_utils import get_rng
 
 class Synapse:
-    """Synapses with pulse vs filter modes. Can be used for recurrent or input connections."""
+    """Synapses with pulse vs filter modes. Can be used for recurrent, input, or readout connections."""
 
     def __init__(self, n_neurons: int, dt: float = 0.1, synaptic_mode: str = "filter"):
         """Initialize synaptic model."""
@@ -30,7 +30,8 @@ class Synapse:
         self.synaptic_current = None
 
     def initialize_weights(self, session_id: int, v_th_std: float, g_std: float,
-                          g_mean: float = 0.0, connection_prob: float = 0.1):
+                           g_mean: float = 0.0, connection_prob: float = 0.1,
+                           n_source_neurons: int = None):
         """Initialize synaptic weights with direct heterogeneity and exact mean preservation."""
 
         # Store parameters
@@ -40,9 +41,14 @@ class Synapse:
         weight_rng = get_rng(session_id, v_th_std, g_std, 0, 'synaptic_weights')
         conn_rng = get_rng(session_id, v_th_std, g_std, 0, 'connectivity')
 
+        # Determine source and target neuron counts
+        n_source = n_source_neurons if n_source_neurons is not None else self.n_neurons
+        n_target = self.n_neurons
+
         # Generate connectivity pattern
-        connectivity = conn_rng.random((self.n_neurons, self.n_neurons)) < connection_prob
-        np.fill_diagonal(connectivity, False)
+        connectivity = conn_rng.random((n_target, n_source)) < connection_prob
+        if n_source == n_target:
+            np.fill_diagonal(connectivity, False)  # Only for square matrices
 
         # Generate weights for connected synapses
         n_connections = np.sum(connectivity)
@@ -66,7 +72,7 @@ class Synapse:
             rows, cols = np.where(connectivity)
             self.weight_matrix = sparse.csr_matrix(
                 (weights, (rows, cols)),
-                shape=(self.n_neurons, self.n_neurons)
+                shape=(n_target, n_source)
             )
         else:
             # No connections
@@ -358,42 +364,3 @@ class HDDynamicInput:
             'total_connections': int(np.sum(self.connectivity_matrix)),
             'connection_density': float(np.mean(self.connectivity_matrix))
         }
-
-
-class ReadoutLayer:
-    """Readout layer with parameter-dependent weights."""
-
-    def __init__(self, n_rnn_neurons: int, n_readout_neurons: int = 10, dt: float = 0.1):
-        self.n_rnn_neurons = n_rnn_neurons
-        self.n_readout_neurons = n_readout_neurons
-        self.dt = dt
-        self.tau_readout = 20.0
-        self.readout_weights = None
-        self.readout_activity = None
-
-    def initialize_weights(self, session_id: int, v_th_std: float, g_std: float,
-                          weight_scale: float = 1.0):
-        """Initialize readout weights based on parameters."""
-        rng = get_rng(session_id, v_th_std, g_std, 0, 'readout_weights')
-
-        self.readout_weights = rng.normal(
-            0.0, weight_scale / np.sqrt(self.n_rnn_neurons),
-            (self.n_readout_neurons, self.n_rnn_neurons)
-        )
-        self.readout_activity = np.zeros(self.n_readout_neurons)
-
-    def update(self, rnn_spike_indices: List[int]) -> np.ndarray:
-        """Update readout activity."""
-        self.readout_activity *= np.exp(-self.dt / self.tau_readout)
-
-        if len(rnn_spike_indices) > 0:
-            spike_contribution = np.sum(
-                self.readout_weights[:, rnn_spike_indices], axis=1
-            )
-            self.readout_activity += spike_contribution
-
-        return self.readout_activity.copy()
-
-    def get_output(self) -> np.ndarray:
-        """Get current readout output."""
-        return self.readout_activity.copy()

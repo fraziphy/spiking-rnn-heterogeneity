@@ -121,26 +121,29 @@ def test_hd_input_generator():
     import tempfile
 
     with tempfile.TemporaryDirectory() as tmpdir:
+        # Test with inputs subdirectory (like task experiments)
+        inputs_dir = os.path.join(tmpdir, 'inputs')
+
         # Test initialization
-        generator = HDInputGenerator(embed_dim=10, dt=0.1, signal_cache_dir=tmpdir)
+        generator = HDInputGenerator(embed_dim=10, dt=0.1, signal_cache_dir=inputs_dir)
         assert generator.embed_dim == 10
         assert generator.dt == 0.1
         print("  ✓ HDInputGenerator initializes correctly")
 
         # Test base input initialization
-        generator.initialize_base_input(session_id=1, hd_dim=5)
+        generator.initialize_base_input(session_id=1, hd_dim=5, pattern_id=0)  # ADD pattern_id
         assert generator.Y_base is not None
         assert generator.Y_base.shape == (3000, 10)  # 300ms encoding period
         print(f"  ✓ Base input initialized: shape {generator.Y_base.shape}")
 
         # Test caching
-        cache_file = generator._get_signal_filename(1, 5)
+        cache_file = generator._get_signal_filename(1, 5, 0)  # ADD pattern_id
         assert os.path.exists(cache_file), "Cache file not created"
         print("  ✓ Signal caching works")
 
         # Test loading from cache
-        generator2 = HDInputGenerator(embed_dim=10, dt=0.1, signal_cache_dir=tmpdir)
-        generator2.initialize_base_input(session_id=1, hd_dim=5)
+        generator2 = HDInputGenerator(embed_dim=10, dt=0.1, signal_cache_dir=inputs_dir)
+        generator2.initialize_base_input(session_id=1, hd_dim=5, pattern_id=0)
         assert np.array_equal(generator.Y_base, generator2.Y_base)
         print("  ✓ Cache loading works")
 
@@ -276,6 +279,7 @@ def test_encoding_experiment_single_trial():
     experiment.hd_generator.initialize_base_input(
         session_id=1,
         hd_dim=3,
+        pattern_id=0,
         rate_rnn_params={'n_neurons': 100, 'T': 500.0, 'g': 1.2}
     )
     print("  ✓ HD generator initialized")
@@ -315,7 +319,7 @@ def test_encoding_experiment_smart_storage():
 
     # Create experiment with hd_dim=1, embed_dim=1
     experiment = EncodingExperiment(n_neurons=50, embed_dim=1)
-    experiment.hd_generator.initialize_base_input(session_id=1, hd_dim=1)
+    experiment.hd_generator.initialize_base_input(session_id=1, hd_dim=1, pattern_id=0)
     print("  ✓ Experiment initialized for low-dim test")
 
     # Run extreme combination (should save neuron data)
@@ -345,7 +349,7 @@ def test_encoding_experiment_smart_storage():
 
     # Test high-dim (should NOT save neuron data even at extremes)
     experiment_hd = EncodingExperiment(n_neurons=50, embed_dim=10)
-    experiment_hd.hd_generator.initialize_base_input(session_id=1, hd_dim=5)
+    experiment_hd.hd_generator.initialize_base_input(session_id=1, hd_dim=5, pattern_id=0)
     print("  Running high-dim combination...")
 
     result_hd = experiment_hd.run_parameter_combination(

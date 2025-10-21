@@ -1,7 +1,17 @@
 # setup.py
 """
-Setup configuration for Spiking RNN Heterogeneity Framework v5.1.0
-Refactored: Eliminated code duplication across experiments and analysis modules
+Setup configuration for Spiking RNN Heterogeneity Framework v6.0.0
+
+NEW in v6.0.0:
+- Reservoir computing tasks: categorical classification, temporal transformation, auto-encoding
+- Pattern-based HD input generation with task-specific caching
+- Dimensionality analysis for auto-encoding experiments
+- Unified TaskPerformanceExperiment infrastructure
+
+Refactored in v5.1.0:
+- Eliminated code duplication across experiments and analysis modules
+- Base experiment class with shared methods
+- Unified utilities in common_utils and experiment_utils
 """
 
 from setuptools import setup, find_packages
@@ -13,7 +23,8 @@ def read_readme():
         with open(readme_path, 'r', encoding='utf-8') as f:
             return f.read()
     except FileNotFoundError:
-        return "Refactored framework for studying spontaneous activity, network stability, and HD encoding capacity in heterogeneous spiking neural networks"
+        return ("Framework for studying spontaneous activity, network stability, HD encoding, "
+                "and reservoir computing tasks in heterogeneous spiking neural networks")
 
 def read_requirements():
     requirements_path = os.path.join(os.path.dirname(__file__), 'requirements.txt')
@@ -37,8 +48,8 @@ def read_requirements():
 
 setup(
     name="spiking-rnn-heterogeneity",
-    version="5.1.0",
-    description="Refactored framework with unified utilities: eliminated code duplication across experiments and analysis",
+    version="6.0.0",
+    description="Reservoir computing tasks with refactored framework: categorical, temporal, and auto-encoding experiments",
     long_description=read_readme(),
     long_description_content_type="text/markdown",
     author="Computational Neuroscience Research Group",
@@ -49,9 +60,10 @@ setup(
     include_package_data=True,
     package_data={
         '': ['*.txt', '*.md', '*.sh'],
-        'runners': ['*.sh'],
+        'runners': ['*.sh', '*.py'],
         'tests': ['*.py'],
         'results': ['*.pkl', '*.json'],
+        'hd_signals': ['*.pkl'],
     },
 
     python_requires=">=3.8",
@@ -86,12 +98,18 @@ setup(
 
     entry_points={
         'console_scripts': [
+            # Testing
             'spiking-rnn-test=tests.test_installation:main',
             'spiking-rnn-structure-test=tests.test_comprehensive_structure:run_all_comprehensive_tests',
             'spiking-rnn-encoding-test=tests.test_encoding_implementation:main',
+            'spiking-rnn-task-test=tests.test_task_performance:main',  # NEW in v6.0
+            # Original experiments
             'spiking-rnn-spontaneous=runners.mpi_spontaneous_runner:main',
             'spiking-rnn-stability=runners.mpi_stability_runner:main',
             'spiking-rnn-encoding=runners.mpi_encoding_runner:main',
+            # NEW in v6.0: Task experiments
+            'spiking-rnn-task=runners.mpi_task_runner:main',
+            'spiking-rnn-autoencoding=runners.mpi_autoencoding_runner:main',
         ],
     },
 
@@ -112,12 +130,15 @@ setup(
     keywords=[
         "spiking neural networks",
         "heterogeneity",
+        "reservoir computing",
+        "categorical classification",
+        "temporal transformation",
+        "auto-encoding",
         "spontaneous activity",
         "network stability",
         "HD encoding",
+        "dimensionality analysis",
         "refactored code",
-        "unified utilities",
-        "base experiment class",
         "computational neuroscience",
     ],
 
@@ -125,6 +146,7 @@ setup(
         "Documentation": "https://github.com/yourusername/spiking-rnn-heterogeneity/wiki",
         "Bug Reports": "https://github.com/yourusername/spiking-rnn-heterogeneity/issues",
         "Source Code": "https://github.com/yourusername/spiking-rnn-heterogeneity",
+        "Changelog": "https://github.com/yourusername/spiking-rnn-heterogeneity/releases",
     },
 
     zip_safe=False,

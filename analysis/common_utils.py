@@ -172,3 +172,117 @@ def compute_dimensionality_from_covariance(data: np.ndarray,
         'participation_ratio': compute_participation_ratio(eigenvalues),
         'total_variance': float(np.sum(eigenvalues))
     }
+
+
+
+def compute_dimensionality_svd(data, variance_threshold=0.95):
+    """
+    Compute dimensionality metrics using SVD (faster than covariance).
+
+    Args:
+        data: (n_samples, n_features) array - e.g., (n_timebins, n_neurons)
+        variance_threshold: float - threshold for cumulative variance (default 0.95)
+
+    Returns:
+        dict with dimensionality metrics
+    """
+    # Center data
+    data_centered = data - data.mean(axis=0)
+
+    # Handle empty or single-sample data
+    if data_centered.shape[0] <= 1:
+        return {
+            'participation_ratio': 0.0,
+            'effective_dimensionality': 0.0,
+            'intrinsic_dimensionality': 0.0,
+            'total_variance': 0.0,
+            'n_components': 0
+        }
+
+    # SVD (faster than covariance!)
+    try:
+        U, S, Vt = np.linalg.svd(data_centered, full_matrices=False)
+    except np.linalg.LinAlgError:
+        return {
+            'participation_ratio': 0.0,
+            'effective_dimensionality': 0.0,
+            'intrinsic_dimensionality': 0.0,
+            'total_variance': 0.0,
+            'n_components': 0
+        }
+
+    # Eigenvalues of C = X.T @ X (no normalization needed!)
+    eigenvalues = S ** 2
+
+    # Remove near-zero eigenvalues
+    eigenvalues = eigenvalues[eigenvalues > 1e-10]
+
+    if len(eigenvalues) == 0:
+        return {
+            'participation_ratio': 0.0,
+            'effective_dimensionality': 0.0,
+            'intrinsic_dimensionality': 0.0,
+            'total_variance': 0.0,
+            'n_components': 0
+        }
+
+    # Total variance
+    total_variance = np.sum(eigenvalues)
+
+    # Participation ratio: (sum λ)² / (sum λ²)
+    participation_ratio = (np.sum(eigenvalues) ** 2) / np.sum(eigenvalues ** 2)
+
+    # Effective dimensionality (normalized eigenvalues)
+    normalized_eigenvalues = eigenvalues / total_variance
+    effective_dimensionality = np.exp(-np.sum(
+        normalized_eigenvalues * np.log(normalized_eigenvalues + 1e-12)
+    ))
+
+    # Intrinsic dimensionality (cumulative variance threshold)
+    sorted_eigenvalues = np.sort(eigenvalues)[::-1]
+    cumulative_variance = np.cumsum(sorted_eigenvalues) / total_variance
+    intrinsic_dimensionality = np.searchsorted(cumulative_variance, variance_threshold) + 1
+
+    return {
+        'participation_ratio': float(participation_ratio),
+        'effective_dimensionality': float(effective_dimensionality),
+        'intrinsic_dimensionality': float(intrinsic_dimensionality),
+        'total_variance': float(total_variance),
+        'n_components': len(eigenvalues)
+    }
+
+
+
+def apply_exponential_filter(spike_matrix: np.ndarray, tau: float, dt: float) -> np.ndarray:
+    """
+    Apply exponential filter with time constant tau.
+
+    Converts spike counts to filtered synaptic currents using exponential decay.
+    Used for preprocessing spike data before decoding/readout.
+
+    Args:
+        spike_matrix: (T, N) spike count matrix (timesteps × neurons)
+        tau: Time constant in ms (decay time of synaptic filter)
+        dt: Time step in ms
+
+    Returns:
+        Filtered traces (T, N) - same shape as input
+
+    Example:
+        >>> spikes = np.array([[1, 0, 1], [0, 1, 0], [1, 1, 0]])
+        >>> filtered = apply_exponential_filter(spikes, tau=10.0, dt=0.1)
+    """
+    T, N = spike_matrix.shape
+    filtered = np.zeros_like(spike_matrix, dtype=float)
+
+    # Exponential decay factor
+    decay = np.exp(-dt / tau)
+
+    # Apply causal exponential filter
+    for t in range(T):
+        if t == 0:
+            filtered[t] = spike_matrix[t] * (1 - decay)
+        else:
+            filtered[t] = filtered[t-1] * decay + spike_matrix[t] * (1 - decay)
+
+    return filtered

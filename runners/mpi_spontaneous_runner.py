@@ -28,7 +28,7 @@ try:
 except ImportError:
     current_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(current_dir)
-    sys.path.insert(0, project_root)  # Add project root, not subdirectories
+    sys.path.insert(0, project_root)
 
     from experiments.spontaneous_experiment import SpontaneousExperiment
     from experiments.base_experiment import BaseExperiment
@@ -107,29 +107,27 @@ def execute_combination_with_recovery(experiment: SpontaneousExperiment, rank: i
     }
 
 
-def run_mpi_spontaneous_experiment(session_id: int = 1,
-                                 n_v_th: int = 10, n_g: int = 10,
-                                 n_neurons: int = 1000, output_dir: str = "results",
-                                 v_th_std_min: float = 0.0, v_th_std_max: float = 4.0,
-                                 g_std_min: float = 0.0, g_std_max: float = 4.0,
-                                 input_rate_min: float = 50.0, input_rate_max: float = 1000.0,
-                                 n_input_rates: int = 5, synaptic_mode: str = "filter",
-                                 static_input_mode: str = "independent",
-                                 v_th_distribution: str = "normal",
-                                 duration: float = 5000.0):
-    """Run spontaneous activity experiment for single session."""
+def run_mpi_spontaneous_experiment(args):
+    """Run spontaneous activity experiment with MPI parallelization."""
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     size = comm.Get_size()
 
+    session_id = args.session_id
+    n_neurons = args.n_neurons
+    output_dir = args.output_dir
+    synaptic_mode = args.synaptic_mode
+    static_input_mode = args.static_input_mode
+    v_th_distribution = args.v_th_distribution
+    duration = args.duration
+
     if rank == 0:
         print("=" * 80)
-        print("SPONTANEOUS ACTIVITY EXPERIMENT - SINGLE SESSION")
+        print(f"SPONTANEOUS ACTIVITY EXPERIMENT - SESSION {session_id}")
         print("=" * 80)
         print(f"Configuration:")
         print(f"  MPI processes: {size}")
         print(f"  Session ID: {session_id}")
-        print(f"  Parameter grid: {n_v_th} × {n_g} × {n_input_rates}")
         print(f"  Duration: {duration:.0f} ms")
 
         if not os.path.isabs(output_dir):
@@ -140,14 +138,14 @@ def run_mpi_spontaneous_experiment(session_id: int = 1,
     output_dir = comm.bcast(output_dir if rank == 0 else None, root=0)
     comm.Barrier()
 
-    # Create parameter grids using base class method
+    # Create parameter grids
     v_th_stds, g_stds, static_input_rates = BaseExperiment.create_parameter_grid(
-        n_v_th_points=n_v_th,
-        n_g_points=n_g,
-        v_th_std_range=(v_th_std_min, v_th_std_max),
-        g_std_range=(g_std_min, g_std_max),
-        input_rate_range=(input_rate_min, input_rate_max),
-        n_input_rates=n_input_rates
+        n_v_th_points=args.n_v_th_std,
+        n_g_points=args.n_g_std,
+        v_th_std_range=(args.v_th_std_min, args.v_th_std_max),
+        g_std_range=(args.g_std_min, args.g_std_max),
+        input_rate_range=(args.static_input_rate_min, args.static_input_rate_max),
+        n_input_rates=args.n_static_input_rates
     )
 
     # Initialize experiment
@@ -170,9 +168,12 @@ def run_mpi_spontaneous_experiment(session_id: int = 1,
     total_combinations = len(all_combinations)
 
     if rank == 0:
+        print(f"  Parameter grid: {args.n_v_th_std} × {args.n_g_std} × {args.n_static_input_rates}")
+        print(f"  Total combinations: {total_combinations}")
         print_work_distribution(total_combinations, size)
+
         expected_time = estimate_computation_time(total_combinations, size, duration/1000.0 * 0.5, 10)
-        print(f"\nEstimated total time: {expected_time:.1f} hours")
+        print(f"\nEstimated time: {expected_time:.1f} hours")
 
     start_idx, end_idx = distribute_work(total_combinations, comm)
     my_combinations = all_combinations[start_idx:end_idx]
@@ -218,33 +219,29 @@ def run_mpi_spontaneous_experiment(session_id: int = 1,
         output_file = os.path.join(output_dir,
                                    f"spontaneous_session_{session_id}_{synaptic_mode}_{static_input_mode}_{v_th_distribution}_{duration_sec:.1f}s.pkl")
         save_results(final_results, output_file, use_data_subdir=False)
-        print(f"\nSpontaneous results saved: {output_file}")
+        print(f"\nResults saved: {output_file}")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run MPI spontaneous activity experiment")
-    parser.add_argument("--session_id", type=int, default=1)
-    parser.add_argument("--n_v_th", type=int, default=10)
-    parser.add_argument("--n_g", type=int, default=10)
+    parser = argparse.ArgumentParser(description="MPI spontaneous activity experiment")
+
+    parser.add_argument("--session_id", type=int, required=True)
+    parser.add_argument("--n_v_th_std", type=int, default=10)
+    parser.add_argument("--n_g_std", type=int, default=10)
     parser.add_argument("--n_neurons", type=int, default=1000)
     parser.add_argument("--output_dir", type=str, default="results")
     parser.add_argument("--v_th_std_min", type=float, default=0.0)
     parser.add_argument("--v_th_std_max", type=float, default=4.0)
     parser.add_argument("--g_std_min", type=float, default=0.0)
     parser.add_argument("--g_std_max", type=float, default=4.0)
-    parser.add_argument("--input_rate_min", type=float, default=50.0)
-    parser.add_argument("--input_rate_max", type=float, default=1000.0)
-    parser.add_argument("--n_input_rates", type=int, default=5)
+    parser.add_argument("--static_input_rate_min", type=float, default=50.0)
+    parser.add_argument("--static_input_rate_max", type=float, default=1000.0)
+    parser.add_argument("--n_static_input_rates", type=int, default=5)
     parser.add_argument("--synaptic_mode", type=str, default="filter", choices=["pulse", "filter"])
     parser.add_argument("--static_input_mode", type=str, default="independent",
                        choices=["independent", "common_stochastic", "common_tonic"])
     parser.add_argument("--v_th_distribution", type=str, default="normal", choices=["normal", "uniform"])
-    parser.add_argument("--duration", type=float, default=5.0)
+    parser.add_argument("--duration", type=float, default=5000.0)
 
     args = parser.parse_args()
-
-    # Convert duration to ms if given in seconds
-    if args.duration < 100:
-        args.duration = args.duration * 1000.0
-
-    run_mpi_spontaneous_experiment(**vars(args))
+    run_mpi_spontaneous_experiment(args)

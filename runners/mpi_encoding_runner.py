@@ -1,6 +1,6 @@
-# runners/mpi_encoding_runner.py - Refactored with unified imports
+# runners/mpi_encoding_runner.py
 """
-MPI-parallelized encoding experiment runner with HD input decoding analysis.
+MPI-parallelized encoding experiment runner.
 """
 
 import numpy as np
@@ -11,7 +11,7 @@ import argparse
 from mpi4py import MPI
 from typing import Dict, Any
 
-# Import shared MPI utilities (sibling module in runners/)
+# Import shared MPI utilities
 from mpi_utils import (
     distribute_work,
     monitor_system_health,
@@ -20,7 +20,7 @@ from mpi_utils import (
     estimate_computation_time
 )
 
-# Import experiment class and utilities (cross-package)
+# Import experiment modules
 try:
     from experiments.encoding_experiment import EncodingExperiment
     from experiments.base_experiment import BaseExperiment
@@ -31,7 +31,6 @@ except ImportError:
     project_root = os.path.dirname(current_dir)
     sys.path.insert(0, project_root)
 
-    # MUST use experiments. and analysis. prefixes here too
     from experiments.encoding_experiment import EncodingExperiment
     from experiments.base_experiment import BaseExperiment
     from experiments.experiment_utils import save_results
@@ -86,6 +85,9 @@ def execute_combination_with_recovery(experiment: EncodingExperiment, rank: int,
 
         except Exception as e:
             print(f"[Rank {rank}] Error (attempt {attempt}): {str(e)}")
+            import traceback
+            traceback.print_exc()
+
             if "memory" in str(e).lower():
                 recovery_break(rank, 600, "memory_error")
             elif "decoding" in str(e).lower() or "svd" in str(e).lower():
@@ -112,33 +114,30 @@ def execute_combination_with_recovery(experiment: EncodingExperiment, rank: int,
     }
 
 
-def run_mpi_encoding_experiment(session_id: int = 1,
-                               n_v_th: int = 5, n_g: int = 5, n_hd: int = 4,
-                               n_neurons: int = 1000, output_dir: str = "results",
-                               v_th_std_min: float = 0.0, v_th_std_max: float = 4.0,
-                               g_std_min: float = 0.0, g_std_max: float = 4.0,
-                               hd_dim_min: int = 1, hd_dim_max: int = 10,
-                               input_rate_min: float = 100.0, input_rate_max: float = 500.0,
-                               n_input_rates: int = 3,
-                               synaptic_mode: str = "filter",
-                               static_input_mode: str = "independent",
-                               hd_input_mode: str = "independent",
-                               v_th_distribution: str = "normal",
-                               embed_dim: int = 10,
-                               signal_cache_dir: str = "hd_signals"):
-    """Run encoding experiment for single session with MPI parallelization."""
+def run_mpi_encoding_experiment(args):
+    """Run encoding experiment with MPI parallelization."""
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     size = comm.Get_size()
 
+    session_id = args.session_id
+    n_neurons = args.n_neurons
+    output_dir = args.output_dir
+    signal_cache_dir = args.signal_cache_dir
+    synaptic_mode = args.synaptic_mode
+    static_input_mode = args.static_input_mode
+    hd_input_mode = args.hd_input_mode
+    v_th_distribution = args.v_th_distribution
+    embed_dim = args.embed_dim_input
+
     if rank == 0:
         print("=" * 80)
-        print("ENCODING EXPERIMENT - SINGLE SESSION")
+        print(f"ENCODING EXPERIMENT - SESSION {session_id}")
         print("=" * 80)
         print(f"Configuration:")
         print(f"  MPI processes: {size}")
         print(f"  Session ID: {session_id}")
-        print(f"  Parameter grid: {n_v_th} × {n_g} × {n_hd} × {n_input_rates}")
+        print(f"  Embed dim: {embed_dim}")
 
         if not os.path.isabs(output_dir):
             output_dir = os.path.join(os.path.abspath(output_dir), "data")
@@ -155,19 +154,19 @@ def run_mpi_encoding_experiment(session_id: int = 1,
     signal_cache_dir = comm.bcast(signal_cache_dir if rank == 0 else None, root=0)
     comm.Barrier()
 
-    # Create parameter grids using base class method
+    # Create parameter grids - simplified
     v_th_stds, g_stds, hd_dims, static_input_rates = BaseExperiment.create_parameter_grid(
-        n_v_th_points=n_v_th,
-        n_g_points=n_g,
-        v_th_std_range=(v_th_std_min, v_th_std_max),
-        g_std_range=(g_std_min, g_std_max),
-        input_rate_range=(input_rate_min, input_rate_max),
-        n_input_rates=n_input_rates,
-        n_hd_points=n_hd,
-        hd_dim_range=(hd_dim_min, hd_dim_max)
+        n_v_th_points=args.n_v_th_std,
+        n_g_points=args.n_g_std,
+        v_th_std_range=(args.v_th_std_min, args.v_th_std_max),
+        g_std_range=(args.g_std_min, args.g_std_max),
+        input_rate_range=(args.static_input_rate_min, args.static_input_rate_max),
+        n_input_rates=args.n_static_input_rates,
+        n_hd_input_points=args.n_hd_dim_input,
+        hd_input_dim_range=(args.hd_dim_input_min, args.hd_dim_input_max)
     )
 
-    # Get extreme combinations
+    # Get extreme combinations for smart storage
     extreme_combos = get_extreme_combinations(v_th_stds, g_stds)
 
     # Initialize experiment
@@ -189,7 +188,7 @@ def run_mpi_encoding_experiment(session_id: int = 1,
 
     comm.Barrier()
 
-    # Generate parameter combinations using base class method
+    # Generate parameter combinations
     all_combinations = experiment.create_parameter_combinations(
         session_id=session_id,
         v_th_stds=v_th_stds,
@@ -202,9 +201,14 @@ def run_mpi_encoding_experiment(session_id: int = 1,
     total_combinations = len(all_combinations)
 
     if rank == 0:
+        print(f"  Parameter grid: {args.n_v_th_std} × {args.n_g_std} × {args.n_hd_dim_input} × {args.n_static_input_rates}")
+        print(f"  Total combinations: {total_combinations}")
+        print(f"  HD dims: {args.hd_dim_input_min} to {args.hd_dim_input_max} ({args.n_hd_dim_input} points)")
+        print(f"  Static rates: {args.static_input_rate_min} to {args.static_input_rate_max} ({args.n_static_input_rates} points)")
         print_work_distribution(total_combinations, size)
+
         expected_time = estimate_computation_time(total_combinations, size, 180, 20)
-        print(f"\nEstimated total time: {expected_time:.1f} hours")
+        print(f"\nEstimated time: {expected_time:.1f} hours")
 
     start_idx, end_idx = distribute_work(total_combinations, comm)
     my_combinations = all_combinations[start_idx:end_idx]
@@ -217,7 +221,7 @@ def run_mpi_encoding_experiment(session_id: int = 1,
     for i, combo in enumerate(my_combinations):
         progress = (i + 1) / len(my_combinations) * 100
         print(f"[Rank {rank}] [{i+1}/{len(my_combinations)} - {progress:.1f}%]:")
-        print(f"    v_th={combo['v_th_std']:.3f}, g={combo['g_std']:.3f}, hd={combo['hd_dim']}")
+        print(f"    v_th={combo['v_th_std']:.3f}, g={combo['g_std']:.3f}, hd={combo['hd_dim']}, rate={combo['static_input_rate']:.0f}")
 
         result = execute_combination_with_recovery(
             experiment=experiment,
@@ -250,34 +254,35 @@ def run_mpi_encoding_experiment(session_id: int = 1,
         output_file = os.path.join(output_dir,
                                    f"encoding_session_{session_id}_{synaptic_mode}_{static_input_mode}_{hd_input_mode}_{v_th_distribution}_k{embed_dim}.pkl")
         save_results(final_results, output_file, use_data_subdir=False)
-        print(f"\nEncoding results saved: {output_file}")
+        print(f"\nResults saved: {output_file}")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run MPI encoding experiment")
-    parser.add_argument("--session_id", type=int, default=1)
-    parser.add_argument("--n_v_th", type=int, default=5)
-    parser.add_argument("--n_g", type=int, default=5)
-    parser.add_argument("--n_hd", type=int, default=4)
+    parser = argparse.ArgumentParser(description="MPI encoding experiment")
+
+    parser.add_argument("--session_id", type=int, required=True)
+    parser.add_argument("--n_v_th_std", type=int, default=5)
+    parser.add_argument("--n_g_std", type=int, default=5)
+    parser.add_argument("--n_hd_dim_input", type=int, default=4)
     parser.add_argument("--n_neurons", type=int, default=1000)
     parser.add_argument("--output_dir", type=str, default="results")
     parser.add_argument("--v_th_std_min", type=float, default=0.0)
     parser.add_argument("--v_th_std_max", type=float, default=4.0)
     parser.add_argument("--g_std_min", type=float, default=0.0)
     parser.add_argument("--g_std_max", type=float, default=4.0)
-    parser.add_argument("--hd_dim_min", type=int, default=1)
-    parser.add_argument("--hd_dim_max", type=int, default=10)
-    parser.add_argument("--input_rate_min", type=float, default=100.0)
-    parser.add_argument("--input_rate_max", type=float, default=500.0)
-    parser.add_argument("--n_input_rates", type=int, default=3)
+    parser.add_argument("--hd_dim_input_min", type=int, default=1)
+    parser.add_argument("--hd_dim_input_max", type=int, default=10)
+    parser.add_argument("--static_input_rate_min", type=float, default=100.0)
+    parser.add_argument("--static_input_rate_max", type=float, default=500.0)
+    parser.add_argument("--n_static_input_rates", type=int, default=3)
     parser.add_argument("--synaptic_mode", type=str, default="filter", choices=["pulse", "filter"])
     parser.add_argument("--static_input_mode", type=str, default="independent",
                        choices=["independent", "common_stochastic", "common_tonic"])
     parser.add_argument("--hd_input_mode", type=str, default="independent",
                        choices=["independent", "common_stochastic", "common_tonic"])
     parser.add_argument("--v_th_distribution", type=str, default="normal", choices=["normal", "uniform"])
-    parser.add_argument("--embed_dim", type=int, default=10)
+    parser.add_argument("--embed_dim_input", type=int, default=10)
     parser.add_argument("--signal_cache_dir", type=str, default="hd_signals")
 
     args = parser.parse_args()
-    run_mpi_encoding_experiment(**vars(args))
+    run_mpi_encoding_experiment(args)

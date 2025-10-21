@@ -1,134 +1,167 @@
-# Spiking RNN Heterogeneity Framework v5.1.0
+# Spiking RNN Heterogeneity Framework v6.0.0
 
-A comprehensive framework for studying **spontaneous activity**, **network stability**, and **HD input encoding capacity** in heterogeneous spiking recurrent neural networks.
+A comprehensive framework for studying **spontaneous activity**, **network stability**, **HD input encoding**, and **reservoir computing tasks** in heterogeneous spiking recurrent neural networks.
 
 ## Overview
 
-This framework enables systematic investigation of how heterogeneity affects three key network properties:
+This framework enables systematic investigation of how heterogeneity affects four key network properties:
 
 1. **Spontaneous Activity**: Firing rates, dimensionality, silent neurons, Poisson statistics
 2. **Network Stability**: Response to perturbations, complexity measures, settling dynamics
 3. **HD Encoding Capacity**: How networks encode high-dimensional inputs with varying intrinsic dimensionality
+4. **Reservoir Computing**: Categorical classification, temporal transformation, and auto-encoding tasks
 
-## Major Updates in v5.1.0
+## Major Updates in v6.0.0
 
-### Code Refactoring: Zero Duplication
+### 🎯 NEW: Reservoir Computing Tasks
 
-BREAKING CHANGES: Import paths updated, standalone functions removed
+**Three Task Types:**
 
-New Shared Modules:
-- analysis/common_utils.py - Spike processing, dimensionality utilities
-- analysis/statistics_utils.py - Extreme combinations, hierarchical statistics  
-- experiments/base_experiment.py - Base class with shared functionality
-- experiments/experiment_utils.py - Unified save/load/average functions
-- src/hd_input.py - Merged HD generation + caching (was 2 separate files)
+1. **Categorical Classification** (`categorical`)
+   - 10 input patterns → 10 one-hot output classes
+   - Decision window-based readout (last 50ms for classification)
+   - Metrics: Accuracy, confusion matrix, per-class performance
+   - Output dim = number of input patterns (one-hot encoding)
 
-Files Deleted:
-- experiments/param_grid_utils.py (moved to BaseExperiment)
-- src/hd_input_generator.py (merged into hd_input.py)
-- src/hd_signal_manager.py (merged into hd_input.py)
+2. **Temporal Transformation** (`temporal`)
+   - d_in-dimensional input → d_out-dimensional output
+   - Different HD signals with controlled dimensionality
+   - Continuous time-varying transformation
+   - Metrics: RMSE, R², Pearson correlation per channel
 
-Benefits:
+3. **Auto-Encoding** (`auto_encoding`)
+   - Special case: input = output (d_in = d_out, k_in = k_out)
+   - Network must reconstruct its own input signal
+   - Tests representation capacity directly
+   - Includes **dimensionality analysis** at 2ms, 10ms, 20ms bins
+
+**Unified Infrastructure:**
+- 100 trials per pattern (1000 total trials with 10 patterns)
+- 20-fold stratified cross-validation (balanced across patterns)
+- Parallel trial simulation via MPI
+- Exponential synaptic filtering (τ = 5ms)
+- Ridge regression readout (λ = 0.001)
+- Pattern-based caching system for inputs/outputs
+- Distributed or centralized CV modes
+
+**Dimensionality Analysis (Auto-Encoding Only):**
+- Computed per trial at multiple time scales (2ms, 10ms, 20ms)
+- Participation Ratio: (Σλ)² / Σλ²
+- Effective Dimensionality: exp(-Σ p_i log p_i)
+- Intrinsic Dimensionality: Components for 95% variance
+- Aggregated statistics: mean ± std across trials
+
+### 🔧 Code Refactoring: Zero Duplication (v5.1.0)
+
+**New Shared Modules:**
+- `analysis/common_utils.py` - Spike processing, dimensionality, **exponential filtering**
+- `analysis/statistics_utils.py` - Extreme combinations, hierarchical statistics  
+- `experiments/base_experiment.py` - Base class with shared functionality
+- `experiments/experiment_utils.py` - Unified save/load/average, **ridge regression**, **task evaluation**
+- `experiments/task_performance_experiment.py` - **NEW**: Unified task infrastructure
+- `src/hd_input.py` - Merged HD generation + caching (was 2 separate files)
+
+**Files Deleted:**
+- `experiments/param_grid_utils.py` (moved to BaseExperiment)
+- `src/hd_input_generator.py` (merged into hd_input.py)
+- `src/hd_signal_manager.py` (merged into hd_input.py)
+
+**Benefits:**
 - Zero code duplication across experiments
 - Single source of truth for all utilities
 - Consistent 200ms transient time throughout codebase
-- Cleaner import structure
-- Better maintainability and extensibility
-- ~500 lines of duplicate code eliminated
+- Task experiments share 90% of code
+- ~1000+ lines of duplicate code eliminated
 
-### From v5.0.0: HD Input Encoding System
+### 🎨 Enhanced HD Input System (v5.0.0 → v6.0.0)
 
-HD Input Generation:
-- d-dimensional signals embedded in k-dimensional space
-- Generated from chaotic rate RNN dynamics via PCA
-- Controlled intrinsic dimensionality (d) vs embedding dimensionality (k)
-- Signal caching system: ~1000× storage savings
+**Pattern-Based Generation:**
+- `pattern_id` parameter added to all HD functions
+- Different patterns from same (session, hd_dim, embed_dim)
+- Used for multi-pattern tasks (10 patterns × 100 trials)
+- Separate caching: `hd_signals/categorical/`, `hd_signals/temporal/`, `hd_signals/autoencoding/`
 
-Linear Decoder with Full Analysis:
-- Ridge regression with exponential kernel filtering
-- Leave-one-out cross-validation (20 folds)
-- Per-fold metrics: RMSE, R², Pearson correlation
-- Weight dimensionality: SVD, singular values, participation ratio, effective dim (95%)
-- Decoded dimensionality: PCA per trial analyzing if decoder discovers true d
-- Spike jitter: Reliability analysis for weight-jitter correlations
-
-Three HD Input Modes:
-- independent: Each neuron gets independent Poisson from HD rates
-- common_stochastic: Neurons share Poisson per channel, differs across channels
-- common_tonic: Deterministic expected values (zero variance)
-
-Smart Storage Logic:
-- Low-dim (hd_dim ≤ 2, embed_dim ≤ 2) + extreme combos → Save full neuron data
-- All other conditions → Summary statistics only
-- Reduces storage by ~100× while preserving detailed analysis for key conditions
-
-### From v4.0.0: Corrected Synaptic Architecture
-
-- Fixed double filtering bug: Input classes now generate events only; synapses apply filtering
-- Pulse vs filter synapses: Clear terminology for synaptic dynamics
-- Three static input modes: independent, common_stochastic, common_tonic
-- New stability measures: LZ column-wise, coincidence at 0.1ms
+**Independence Guarantees:**
+- HD patterns independent of (hd_dim, embed_dim) - controlled by session + pattern_id only
+- Network structure independent of task parameters - controlled by session + v_th + g only
+- Trial noise independent across all parameters - controlled by trial_id + all params
 
 ## Project Structure
 
+```
 spiking_rnn_heterogeneity/
 ├── src/                           # Core neural network modules
-│   ├── rng_utils.py               # Parameter-dependent RNG
+│   ├── rng_utils.py               # Parameter-dependent RNG (extended for HD params)
 │   ├── lif_neuron.py              # Mean-centered LIF neurons
 │   ├── synaptic_model.py          # Synapse + input generators + HDDynamicInput
 │   ├── spiking_network.py         # Complete RNN
-│   └── hd_input.py                # v5.1: Unified HD generation + caching
+│   └── hd_input.py                # v6.0: Pattern-based HD generation + caching
 ├── analysis/                      # Analysis modules  
-│   ├── common_utils.py            # v5.1: Shared utilities
-│   ├── statistics_utils.py        # v5.1: Extreme combos, hierarchical stats
+│   ├── common_utils.py            # v6.0: Added apply_exponential_filter + compute_dimensionality_svd
+│   ├── statistics_utils.py        # Extreme combos, hierarchical stats
 │   ├── spontaneous_analysis.py    # Firing + dimensionality + Poisson
 │   ├── stability_analysis.py      # Shannon + LZ + settling + coincidence
 │   └── encoding_analysis.py       # Decoding + dimensionality
 ├── experiments/                   # Experiment coordination
 │   ├── base_experiment.py         # v5.1: Base class with shared methods
-│   ├── experiment_utils.py        # v5.1: Unified save/load/average
+│   ├── experiment_utils.py        # v6.0: Added ridge regression + task evaluation
+│   ├── task_performance_experiment.py  # v6.0: NEW - Unified task infrastructure
 │   ├── spontaneous_experiment.py  # Inherits BaseExperiment
 │   ├── stability_experiment.py    # Inherits BaseExperiment
 │   └── encoding_experiment.py     # Inherits BaseExperiment + smart storage
 ├── runners/                       # Execution scripts
 │   ├── mpi_utils.py               # Shared MPI utilities
 │   ├── experiment_utils.sh        # Shared shell functions
+│   ├── linspace.py                # v6.0: NEW - Parameter grid helper
+│   ├── mpi_task_runner.py         # v6.0: NEW - Categorical/temporal tasks
+│   ├── mpi_autoencoding_runner.py # v6.0: NEW - Auto-encoding task
 │   ├── mpi_spontaneous_runner.py
 │   ├── mpi_stability_runner.py
 │   ├── mpi_encoding_runner.py
+│   ├── run_categorical_task.sh    # v6.0: NEW
+│   ├── run_temporal_task.sh       # v6.0: NEW
+│   ├── run_autoencoding_task.sh   # v6.0: NEW
 │   ├── run_spontaneous_experiment.sh
 │   ├── run_stability_experiment.sh
 │   └── run_encoding_experiment.sh
-├── tests/                         # Testing framework (38 tests total)
-│   ├── test_installation.py
+├── tests/                         # Testing framework (50+ tests total)
+│   ├── test_installation.py       # v6.0: Updated for new imports
 │   ├── test_comprehensive_structure.py
-│   └── test_encoding_implementation.py
-├── hd_signals/                    # Cached HD signals
+│   ├── test_encoding_implementation.py
+│   └── test_task_performance.py   # v6.0: NEW - 17 task tests
+├── hd_signals/                    # v6.0: Organized by task
+│   ├── categorical/               # Categorical task patterns
+│   ├── temporal/                  # Temporal task patterns (inputs + outputs)
+│   ├── autoencoding/              # Auto-encoding patterns
+│   └── encoding/                  # Original encoding experiment
 └── results/data/                  # Experiment outputs
+```
 
 ## Quick Start
 
 ### 1. Setup Environment
 
+```bash
 # Install dependencies
 pip install numpy scipy mpi4py psutil matplotlib scikit-learn
 
 # Install MPI (Ubuntu/Debian)
 sudo apt-get install openmpi-bin openmpi-dev
 
-# Test installation (38 comprehensive tests)
+# Test installation (50+ comprehensive tests)
 python tests/test_installation.py
 python tests/test_comprehensive_structure.py
 python tests/test_encoding_implementation.py
+python tests/test_task_performance.py  # NEW in v6.0
+```
 
-### 2. Run Sequential Pipeline (Recommended)
+### Run Sequential Pipeline (Recommended)
 
 # Make pipeline executable
 chmod +x pipeline.sh
 
 # Run complete pipeline in background with logging
-nohup ./pipeline.sh > pipeline.log 2>&1 &
-disown
+nohup ./pipeline.sh > pipeline.log 2>&1 & disown
 
 # Monitor progress
 tail -f pipeline.log
@@ -140,9 +173,43 @@ ps aux | grep pipeline
 ls -la results/data/
 tail -n 50 pipeline.log
 
-### 3. Run Individual Experiments
+### 2. Run Reservoir Computing Tasks (NEW!)
 
-# Encoding experiments
+```bash
+# Categorical classification (10 patterns → 10 classes)
+./runners/run_categorical_task.sh \
+    --n_sessions 10 \
+    --n_input_patterns 10 \
+    --n_trials_per_pattern 100 \
+    --n_processes 10 \
+    --v_th_std_min 0.0 --v_th_std_max 4.0 --n_v_th_std 5 \
+    --g_std_min 0.0 --g_std_max 4.0 --n_g_std 5 \
+    --hd_dim_input_min 1 --hd_dim_input_max 5 --n_hd_dim_input 1
+
+# Temporal transformation (d_in → d_out)
+./runners/run_temporal_task.sh \
+    --n_sessions 10 \
+    --hd_dim_input_min 1 --hd_dim_input_max 5 \
+    --hd_dim_output_min 1 --hd_dim_output_max 2 \
+    --use_distributed_cv  # Optional: faster but uses more RAM
+
+# Auto-encoding (input → input reconstruction)
+./runners/run_autoencoding_task.sh \
+    --n_sessions 10 \
+    --input_hd_dim 3 \
+    --embed_dim_input 10 \
+    --n_processes 10
+```
+
+**Memory Management:**
+- **Centralized CV** (default): Rank 0 does all CV, saves RAM on other ranks
+- **Distributed CV** (`--use_distributed_cv`): All ranks do CV, faster but uses more RAM
+- With 10 processes × 24GB/process ≈ 240GB total (safe for 251GB systems)
+
+### 3. Run Original Experiments
+
+```bash
+# Encoding experiments (original HD encoding capacity)
 ./runners/run_encoding_experiment.sh \
     --session_ids '1 2 3 4 5' \
     --n_v_th 10 --n_g 10 --n_hd 5 \
@@ -159,76 +226,169 @@ tail -n 50 pipeline.log
     --session_ids "1 2 3" \
     --synaptic_mode filter \
     --static_input_mode common_tonic
+```
 
-## Code Organization (v5.1.0)
+## Code Organization (v6.0.0)
 
 ### Import Structure
 
-Old (v5.0.0 - DEPRECATED):
-from spontaneous_experiment import create_parameter_grid  # No longer exists
-from spontaneous_experiment import save_results           # No longer exists
-
-New (v5.1.0):
-from experiments.base_experiment import BaseExperiment
-from experiments.experiment_utils import save_results, load_results
-from analysis.common_utils import spikes_to_binary, compute_participation_ratio
-from analysis.statistics_utils import get_extreme_combinations
-
-### BaseExperiment Class
-
-All experiments now inherit from BaseExperiment:
-
-class SpontaneousExperiment(BaseExperiment):
-    def extract_trial_arrays(self, trial_results):
-        # Experiment-specific extraction
-        pass
-    
-    def compute_all_statistics(self, arrays_dict):
-        # Experiment-specific statistics
-        pass
-
-# Shared methods available:
-BaseExperiment.create_parameter_grid(...)  # Static method
-self.create_parameter_combinations(...)     # Instance method
-BaseExperiment.compute_safe_mean(...)      # Safe statistics
-
-### Common Utils
-
-Shared across all analysis modules:
-
-from analysis.common_utils import (
-    spikes_to_binary,              # Used by spontaneous + stability
-    spikes_to_matrix,              # Used by encoding
-    compute_participation_ratio,   # Used by all
-    compute_dimensionality_from_covariance  # Unified computation
+```python
+# Task experiments (NEW in v6.0)
+from experiments.task_performance_experiment import TaskPerformanceExperiment
+from experiments.experiment_utils import (
+    save_results, load_results,
+    apply_exponential_filter,  # NEW in v6.0
+    train_task_readout,        # NEW in v6.0
+    predict_task_readout,      # NEW in v6.0
+    evaluate_categorical_task, # NEW in v6.0
+    evaluate_temporal_task     # NEW in v6.0
 )
+
+# Original experiments
+from experiments.base_experiment import BaseExperiment
+from experiments.spontaneous_experiment import SpontaneousExperiment
+from experiments.encoding_experiment import EncodingExperiment
+
+# Analysis utilities
+from analysis.common_utils import (
+    spikes_to_binary, 
+    spikes_to_matrix,
+    compute_participation_ratio,
+    compute_dimensionality_svd,    # NEW in v6.0
+    apply_exponential_filter       # Moved from experiment_utils in v6.0
+)
+
+from analysis.statistics_utils import get_extreme_combinations
+```
+
+### TaskPerformanceExperiment Class (NEW)
+
+```python
+# Create categorical task
+categorical_exp = TaskPerformanceExperiment(
+    task_type='categorical',
+    n_neurons=1000,
+    n_input_patterns=10,
+    input_dim_intrinsic=5,
+    input_dim_embedding=10,
+    n_trials_per_pattern=100,
+    tau_syn=5.0,
+    lambda_reg=0.001
+)
+
+# Create temporal task
+temporal_exp = TaskPerformanceExperiment(
+    task_type='temporal',
+    output_dim_intrinsic=2,
+    output_dim_embedding=4,
+    # ... other params
+)
+
+# Create auto-encoding task (special case)
+autoencoding_exp = TaskPerformanceExperiment(
+    task_type='temporal',  # Uses temporal infrastructure
+    output_dim_intrinsic=5,    # Same as input!
+    output_dim_embedding=10,   # Same as input!
+    # ... other params
+)
+
+# All share same methods:
+exp.simulate_trials_parallel(...)   # Parallel trial simulation
+exp.convert_spikes_to_traces(...)   # Exponential filtering
+exp.cross_validate(...)             # Stratified CV with ridge regression
+```
 
 ## Scientific Innovation
 
-### HD Input Encoding (v5.0.0)
+### Reservoir Computing Tasks (v6.0.0)
 
-The Challenge: How does network heterogeneity affect encoding capacity for high-dimensional inputs?
+**Why Reservoir Computing?**
+Networks process inputs without weight training. Only readout layer is trained (ridge regression). Tests computational capacity directly.
 
-HD Input Protocol:
-1. Run chaotic rate RNN (g=1.2, 1000 neurons, 500ms)
+**Task Design:**
+
+1. **Categorical**: Static pattern recognition
+   - 10 unique HD patterns (d=5, k=10)
+   - Network response → Last 50ms averaged → 10-class softmax
+   - Measures: Can heterogeneity improve pattern separation?
+
+2. **Temporal**: Dynamic signal transformation
+   - Continuous d_in-dimensional input → d_out-dimensional output
+   - Different intrinsic dimensionalities test capacity limits
+   - Measures: Can networks transform across dimensionalities?
+
+3. **Auto-Encoding**: Representation fidelity
+   - Input = Output (d=d, k=k)
+   - Network must maintain information through recurrent dynamics
+   - **Plus dimensionality analysis**: Does network compress/expand representation?
+
+**Key Innovation - Dimensionality Analysis in Auto-Encoding:**
+- Unlike encoding (decoder dimensionality) or other tasks (only performance)
+- Auto-encoding analyzes **network state dimensionality** at multiple timescales
+- Reveals if network compresses (dim < d), preserves (dim ≈ d), or expands (dim > d)
+- Critical for understanding representation strategies
+
+**Pattern Independence:**
+```python
+# Same network structure for all patterns in a session
+network = SpikingRNN(...)
+network.initialize_network(session_id=1, v_th_std=1.0, g_std=1.0)
+# → Thresholds and weights identical across all pattern presentations
+
+# Different HD patterns from same parameters
+pattern_A = HDInputGenerator.initialize_base_input(session_id=1, hd_dim=5, pattern_id=0)
+pattern_B = HDInputGenerator.initialize_base_input(session_id=1, hd_dim=5, pattern_id=1)
+# → Different chaotic trajectories, but both are 5-dimensional
+
+# Different trial noise for each presentation
+trial_1 = generate_trial_input(session_id=1, trial_id=1, pattern_id=0, ...)
+trial_2 = generate_trial_input(session_id=1, trial_id=2, pattern_id=0, ...)
+# → Same pattern, different noise realizations
+```
+
+### HD Input Encoding (v5.0.0 → v6.0.0)
+
+**Enhanced with Pattern Support:**
+
+```python
+# Original encoding (single signal per session)
+HDInputGenerator.initialize_base_input(session_id=1, hd_dim=5)
+
+# Task experiments (multiple patterns per session)
+for pattern_id in range(10):
+    HDInputGenerator.initialize_base_input(session_id=1, hd_dim=5, pattern_id=pattern_id)
+```
+
+**HD Input Protocol:**
+1. Run chaotic rate RNN (g=1.2, 100 neurons, 500ms) with pattern-specific seed
 2. Remove 200ms transient (standardized across all experiments)
 3. PCA to extract k=10 principal components
-4. Random rotation in k-space
+4. Random rotation in k-space (pattern-specific)
 5. Select d random components (intrinsic dimensionality)
 6. Embed back into k-space via random orthogonal basis
 7. Result: k channels spanning d-dimensional subspace
 
-Smart Storage:
-- Low-dim (d≤2, k≤2) + extreme corners → Full neuron data saved
-- All others → Summary statistics only
-- Enables detailed analysis where it matters most
-- ~100× storage reduction
+**Caching System:**
+```
+hd_signals/
+├── categorical/
+│   └── hd_signal_session_1_hd_5_k_10_pattern_0.pkl
+│   └── hd_signal_session_1_hd_5_k_10_pattern_1.pkl
+├── temporal/
+│   ├── inputs/
+│   │   └── hd_signal_session_1_hd_5_k_10_pattern_0.pkl
+│   └── outputs/
+│       └── hd_signal_session_1_hd_2_k_4_pattern_0.pkl
+└── autoencoding/
+    └── hd_signal_session_1_hd_3_k_10_pattern_0.pkl
+```
 
 ### Corrected Synaptic Filtering (v4.0.0)
 
-The Problem: Input classes applied filtering, then synapses applied it again (double filtering).
+**The Problem:** Input classes applied filtering, then synapses applied it again (double filtering).
 
-The Solution:
+**The Solution:**
+```python
 # Input classes generate events only
 class StaticPoissonInput:
     def generate_events(...) -> np.ndarray:
@@ -242,48 +402,69 @@ class Synapse:
             self.current += events         # Add new
         elif self.synaptic_mode == "pulse":
             self.current = events          # Replace
+```
 
-Impact: Single, consistent filtering path; correct pulse vs filter comparison.
-
-### Static Input Modes (v4.0.0)
-
-Three modes to probe network computation:
-
-1. independent: Each neuron gets independent Poisson spikes (max variability)
-2. common_stochastic: All neurons get identical Poisson spikes (synchronous drive)
-3. common_tonic: Deterministic expected value (zero variance)
-
-Pulse vs Filter with Tonic Input:
-- Pulse: current = 0.05 (constant)
-- Filter: current → 2.5 (50× due to integration)
+**Impact:** Single, consistent filtering path; correct pulse vs filter comparison.
 
 ## Data Analysis
 
-### Encoding Results (v5.0.0)
+### Task Performance Results (v6.0.0)
 
+```python
 import pickle
 from experiments.experiment_utils import load_results
 
+# Categorical task
+results = load_results('results/data/task_categorical_session_1_vth_1.000_g_1.000_rate_200_hdin_5_hdout_10.pkl')
+
+for result in results:
+    print(f"Session {result['session_id']}")
+    print(f"  Test Accuracy: {result['test_accuracy_mean']:.3f} ± {result['test_accuracy_std']:.3f}")
+    print(f"  Confusion Matrix:\n{result['cv_confusion_matrices'][0]}")
+
+# Temporal task
+results = load_results('results/data/task_temporal_session_1_vth_1.000_g_1.000_rate_200_hdin_5_hdout_2.pkl')
+
+for result in results:
+    print(f"  Test RMSE: {result['test_rmse_mean']:.4f}")
+    print(f"  Test R²: {result['test_r2_mean']:.4f}")
+    print(f"  Test Correlation: {result['test_correlation_mean']:.4f}")
+
+# Auto-encoding task (includes dimensionality!)
+results = load_results('results/data/task_autoencoding_session_1_vth_1.000_g_1.000_rate_200_hd_3.pkl')
+
+for result in results:
+    print(f"  Test RMSE: {result['test_rmse_mean']:.4f}")
+    
+    # NEW: Dimensionality analysis
+    for bin_size in ['2.0ms', '10.0ms', '20.0ms']:
+        dim_key = f'bin_{bin_size}'
+        pr_mean = result['dimensionality_summary'][dim_key]['participation_ratio_mean']
+        ed_mean = result['dimensionality_summary'][dim_key]['effective_dimensionality_mean']
+        print(f"  {bin_size}: PR={pr_mean:.2f}, ED={ed_mean:.2f}")
+```
+
+### Encoding Results (v5.0.0)
+
+```python
 results = load_results('results/data/encoding_session_1_filter_independent_independent_normal_k10.pkl')
 
 for result in results:
     hd_dim = result['hd_dim']
-    
-    # Performance
     test_rmse = result['decoding']['test_rmse_mean']
     test_r2 = result['decoding']['test_r2_mean']
     
-    # Dimensionality
     weight_dims = [f['effective_dim_95'] for f in result['decoding']['weight_svd_analysis']]
     decoded_dims = [f['effective_dim_95'] for f in result['decoding']['decoded_pca_analysis']]
     
     print(f"HD={hd_dim}: RMSE={test_rmse:.4f}, Weight dim={np.mean(weight_dims):.1f}")
+```
 
 ### Session Averaging
 
+```python
 from experiments.experiment_utils import average_across_sessions_encoding
 
-# Average across multiple sessions
 averaged_results = average_across_sessions_encoding(
     session_files=[
         'results/data/encoding_session_1_filter_independent_independent_normal_k10.pkl',
@@ -291,60 +472,74 @@ averaged_results = average_across_sessions_encoding(
     ]
 )
 
-# Access hierarchical statistics
 for result in averaged_results:
     print(f"HD={result['hd_dim']}")
     print(f"  RMSE: {result['decoding']['test_rmse_mean']:.4f} ± {result['decoding']['test_rmse_std']:.4f}")
-
-### Stability Results (v4.0.0)
-
-filename = 'results/data/stability_session_1_filter_common_tonic_normal.pkl'
-with open(filename, 'rb') as f:
-    results = pickle.load(f)
-
-for result in results:
-    lz_spatial = result['lz_spatial_patterns_mean']
-    lz_column = result['lz_column_wise_mean']
-    kistler_01ms = result['kistler_delta_0.1ms_mean']
-    settling_time = result['settling_time_ms_mean']
+```
 
 ## System Requirements
 
-- Python: 3.8+
-- CPU: Multi-core (32+ cores recommended)
-- Memory: 16GB+ (spontaneous), 32GB+ (stability), 64GB+ (encoding)
-- Storage: 5GB+ per experiment, 10MB for HD signal cache
+- **Python**: 3.8+
+- **CPU**: Multi-core (32+ cores recommended for MPI)
+- **Memory**: 
+  - Spontaneous: 16GB+
+  - Stability: 32GB+
+  - Encoding: 64GB+
+  - Tasks: 240GB+ (10 processes × 24GB, centralized CV)
+- **Storage**: 
+  - ~5GB per traditional experiment
+  - ~10MB for HD signal cache per experiment type
+  - Task experiments: ~100MB per session (includes dimensionality for auto-encoding)
 
 ## Version History
 
-- v5.1.0: CODE REFACTORING - Eliminated ALL code duplication
-  - NEW: analysis/common_utils.py, analysis/statistics_utils.py
-  - NEW: experiments/base_experiment.py, experiments/experiment_utils.py
-  - MERGED: src/hd_input.py (was 2 files)
-  - DELETED: experiments/param_grid_utils.py
+- **v6.0.0**: RESERVOIR COMPUTING TASKS
+  - **NEW**: Categorical classification, temporal transformation, auto-encoding
+  - **NEW**: `TaskPerformanceExperiment` class (unified infrastructure)
+  - **NEW**: Pattern-based HD input generation (`pattern_id` parameter)
+  - **NEW**: Dimensionality analysis for auto-encoding (2ms, 10ms, 20ms bins)
+  - **NEW**: Ridge regression readout with stratified 20-fold CV
+  - **NEW**: Distributed and centralized CV modes
+  - **NEW**: Task-specific signal caching directories
+  - **NEW**: 17 comprehensive task tests in `test_task_performance.py`
+  - MOVED: `apply_exponential_filter` from `experiment_utils` to `common_utils`
+  - ADDED: `compute_dimensionality_svd` to `common_utils` (faster than covariance)
+  - ADDED: Task evaluation functions to `experiment_utils`
+
+- **v5.1.0**: CODE REFACTORING - Eliminated ALL code duplication
+  - NEW: `analysis/common_utils.py`, `analysis/statistics_utils.py`
+  - NEW: `experiments/base_experiment.py`, `experiments/experiment_utils.py`
+  - MERGED: `src/hd_input.py` (was 2 files)
+  - DELETED: `experiments/param_grid_utils.py`
   - All experiments inherit from BaseExperiment
   - Single source of truth for utilities
-  - Updated all import paths
   - Standardized 200ms transient time throughout
 
-- v5.0.0: ENCODING CAPACITY SYSTEM - HD input encoding experiments
+- **v5.0.0**: ENCODING CAPACITY SYSTEM
   - HD input generation (d-dimensional signals in k-dimensional space)
   - Linear decoder with SVD/PCA dimensionality analysis
-  - Spike jitter computation and weight-jitter correlations
+  - Spike jitter computation
   - HD signal caching system (~1000× storage savings)
   - Smart storage logic (low-dim + extremes only)
 
-- v4.0.0: ARCHITECTURE REVOLUTION - Corrected synaptic filtering
+- **v4.0.0**: ARCHITECTURE REVOLUTION
   - Fixed double filtering bug
   - Three static/HD input modes
   - New stability measures (LZ column-wise, 0.1ms coincidence)
 
 ## Citation
 
-@software{spiking_rnn_heterogeneity_v510,
-  title = {Spiking RNN Heterogeneity Framework v5.1.0},
+```bibtex
+@software{spiking_rnn_heterogeneity_v600,
+  title = {Spiking RNN Heterogeneity Framework v6.0.0: Reservoir Computing Tasks},
   author = {Your Name},
   year = {2025},
-  version = {5.1.0},
+  version = {6.0.0},
+  note = {Categorical classification, temporal transformation, and auto-encoding tasks with dimensionality analysis},
   url = {https://github.com/yourusername/spiking-rnn-heterogeneity}
 }
+```
+
+## License
+
+MIT License - See LICENSE file for details

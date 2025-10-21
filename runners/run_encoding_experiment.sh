@@ -1,99 +1,163 @@
 #!/bin/bash
-# run_encoding_experiment.sh - HD input encoding experiment
+#
+# Encoding experiment runner
+#
+
+set -e
 
 # Source shared utilities
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/experiment_utils.sh"
 
 # Default parameters
+N_SESSIONS=10
+SESSION_START=0
+SESSION_END=-1
 N_PROCESSES=50
-SESSION_IDS="1 2 3 4 5 6 7 8 9 10"
-N_V_TH=5
-N_G=5
-N_HD=10
+
+# Network
 N_NEURONS=1000
-OUTPUT_DIR="results"
-V_TH_STD_MIN=0.03
+
+# Heterogeneity
+V_TH_STD_MIN=0.0
 V_TH_STD_MAX=3.0
+N_V_TH_STD=5
 G_STD_MIN=0.03
 G_STD_MAX=3.0
-HD_DIM_MIN=1
-HD_DIM_MAX=13
-INPUT_RATE_MIN=100.0
-INPUT_RATE_MAX=500.0
-N_INPUT_RATES=3
+N_G_STD=5
+
+# Static input
+STATIC_INPUT_RATE_MIN=100.0
+STATIC_INPUT_RATE_MAX=500.0
+N_STATIC_INPUT_RATES=3
+
+# HD input
+HD_DIM_INPUT_MIN=1
+HD_DIM_INPUT_MAX=13
+N_HD_DIM_INPUT=10
+EMBED_DIM_INPUT=13
+
+# Network modes
 SYNAPTIC_MODE="filter"
 STATIC_INPUT_MODE="independent"
 HD_INPUT_MODE="independent"
 V_TH_DISTRIBUTION="normal"
-EMBED_DIM=13
+
+# Paths
+OUTPUT_DIR="results/encoding"
 SIGNAL_CACHE_DIR="hd_signals"
+LOG_DIR="logs/encoding"
+
+# Averaging
 AVERAGE_SESSIONS=true
 
-# Parse command line arguments
+show_help() {
+    cat << EOF
+Usage: $0 [OPTIONS]
+
+Encoding experiment runner.
+
+Execution:
+  --n_sessions N                Sessions to run (default: 10)
+  --session_start N             First session (default: 0)
+  --session_end N               Last session (auto-calculated)
+  --n_processes N               MPI processes (default: 50)
+
+Heterogeneity:
+  --v_th_std_min X              Min threshold std (default: 0.03)
+  --v_th_std_max X              Max threshold std (default: 3.0)
+  --n_v_th_std N                Points (default: 5)
+  --g_std_min X                 Min weight std (default: 0.03)
+  --g_std_max X                 Max weight std (default: 3.0)
+  --n_g_std N                   Points (default: 5)
+
+Static Input:
+  --static_input_rate_min X     Min Hz (default: 100.0)
+  --static_input_rate_max X     Max Hz (default: 500.0)
+  --n_static_input_rates N      Points (default: 3)
+
+HD Input:
+  --hd_dim_input_min N          Min HD dim (default: 1)
+  --hd_dim_input_max N          Max HD dim (default: 13)
+  --n_hd_dim_input N            Points (default: 10)
+  --embed_dim_input N           Embedding dim (default: 13)
+
+Network Modes:
+  --synaptic_mode MODE          pulse|filter (default: filter)
+  --static_input_mode MODE      independent|common_stochastic|common_tonic
+  --hd_input_mode MODE          independent|common_stochastic|common_tonic
+  --v_th_distribution DIST      normal|uniform (default: normal)
+
+Paths:
+  --output_dir DIR              Output (default: results/encoding)
+  --signal_cache_dir DIR        HD cache (default: hd_signals)
+
+Options:
+  --no_average                  Skip session averaging
+
+  -h, --help                    Show help
+
+EOF
+}
+
 while [[ $# -gt 0 ]]; do
     case $1 in
-        -n|--nproc) N_PROCESSES="$2"; shift 2 ;;
-        -s|--session_ids) SESSION_IDS="$2"; shift 2 ;;
-        --n_v_th) N_V_TH="$2"; shift 2 ;;
-        --n_g) N_G="$2"; shift 2 ;;
-        --n_hd) N_HD="$2"; shift 2 ;;
+        --n_sessions) N_SESSIONS="$2"; shift 2 ;;
+        --session_start) SESSION_START="$2"; shift 2 ;;
+        --session_end) SESSION_END="$2"; shift 2 ;;
+        --n_processes) N_PROCESSES="$2"; shift 2 ;;
         --n_neurons) N_NEURONS="$2"; shift 2 ;;
-        -o|--output) OUTPUT_DIR="$2"; shift 2 ;;
         --v_th_std_min) V_TH_STD_MIN="$2"; shift 2 ;;
         --v_th_std_max) V_TH_STD_MAX="$2"; shift 2 ;;
+        --n_v_th_std) N_V_TH_STD="$2"; shift 2 ;;
         --g_std_min) G_STD_MIN="$2"; shift 2 ;;
         --g_std_max) G_STD_MAX="$2"; shift 2 ;;
-        --hd_dim_min) HD_DIM_MIN="$2"; shift 2 ;;
-        --hd_dim_max) HD_DIM_MAX="$2"; shift 2 ;;
-        --input_rate_min) INPUT_RATE_MIN="$2"; shift 2 ;;
-        --input_rate_max) INPUT_RATE_MAX="$2"; shift 2 ;;
-        --n_input_rates) N_INPUT_RATES="$2"; shift 2 ;;
+        --n_g_std) N_G_STD="$2"; shift 2 ;;
+        --static_input_rate_min) STATIC_INPUT_RATE_MIN="$2"; shift 2 ;;
+        --static_input_rate_max) STATIC_INPUT_RATE_MAX="$2"; shift 2 ;;
+        --n_static_input_rates) N_STATIC_INPUT_RATES="$2"; shift 2 ;;
+        --hd_dim_input_min) HD_DIM_INPUT_MIN="$2"; shift 2 ;;
+        --hd_dim_input_max) HD_DIM_INPUT_MAX="$2"; shift 2 ;;
+        --n_hd_dim_input) N_HD_DIM_INPUT="$2"; shift 2 ;;
+        --embed_dim_input) EMBED_DIM_INPUT="$2"; shift 2 ;;
         --synaptic_mode) SYNAPTIC_MODE="$2"; shift 2 ;;
         --static_input_mode) STATIC_INPUT_MODE="$2"; shift 2 ;;
         --hd_input_mode) HD_INPUT_MODE="$2"; shift 2 ;;
         --v_th_distribution) V_TH_DISTRIBUTION="$2"; shift 2 ;;
-        --embed_dim) EMBED_DIM="$2"; shift 2 ;;
+        --output_dir) OUTPUT_DIR="$2"; shift 2 ;;
         --signal_cache_dir) SIGNAL_CACHE_DIR="$2"; shift 2 ;;
         --no_average) AVERAGE_SESSIONS=false; shift ;;
-        -h|--help)
-            echo "Encoding Experiment - HD Input Decoding Analysis"
-            echo "Usage: $0 [OPTIONS]"
-            exit 0
-            ;;
-        *) log_message "ERROR: Unknown option '$1'"; exit 1 ;;
+        -h|--help) show_help; exit 0 ;;
+        *) log_message "ERROR: Unknown option '$1'"; show_help; exit 1 ;;
     esac
 done
 
-# Parse session IDs
-parse_session_ids "$SESSION_IDS" SESSION_ID_ARRAY
-N_SESSIONS=${#SESSION_ID_ARRAY[@]}
-TOTAL_COMBINATIONS=$((N_V_TH * N_G * N_HD * N_INPUT_RATES))
+if [ $SESSION_END -eq -1 ]; then
+    SESSION_END=$((SESSION_START + N_SESSIONS - 1))
+fi
+
+TOTAL_COMBOS=$((N_V_TH_STD * N_G_STD * N_HD_DIM_INPUT * N_STATIC_INPUT_RATES))
 
 log_section "ENCODING EXPERIMENT"
 log_message "MPI processes: $N_PROCESSES"
-log_message "Sessions: $N_SESSIONS | Combinations: $TOTAL_COMBINATIONS"
-log_message "HD dim range: ${HD_DIM_MIN}-${HD_DIM_MAX} | Embed dim: ${EMBED_DIM}"
+log_message "Sessions: ${SESSION_START} to ${SESSION_END}"
+log_message "Parameter grid: ${N_V_TH_STD}×${N_G_STD}×${N_HD_DIM_INPUT}×${N_STATIC_INPUT_RATES} = ${TOTAL_COMBOS} combinations"
+log_message "HD dim: ${HD_DIM_INPUT_MIN} to ${HD_DIM_INPUT_MAX}, Embed: ${EMBED_DIM_INPUT}"
 
 # Setup directories
-setup_directories "$OUTPUT_DIR" "$SIGNAL_CACHE_DIR" || exit 1
+setup_directories "$OUTPUT_DIR" "$LOG_DIR" "$SIGNAL_CACHE_DIR" || exit 1
 
 # Verify files
 REQUIRED_FILES=(
     "runners/mpi_encoding_runner.py"
     "runners/mpi_utils.py"
     "experiments/encoding_experiment.py"
-    "experiments/base_experiment.py"
-    "experiments/experiment_utils.py"
     "analysis/encoding_analysis.py"
-    "analysis/common_utils.py"
-    "analysis/statistics_utils.py"
-    "src/hd_input.py"
 )
 verify_required_files REQUIRED_FILES || exit 1
 
 # Check dependencies
-check_python_dependencies "import numpy, scipy, mpi4py, sklearn, psutil" || exit 1
+check_python_dependencies "import numpy, scipy, sklearn, mpi4py" || exit 1
 check_mpi || exit 1
 
 # Validate modes
@@ -108,20 +172,33 @@ COMPLETED_SESSIONS=()
 FAILED_SESSIONS=()
 OVERALL_START=$(date +%s)
 
-for SESSION_ID in "${SESSION_ID_ARRAY[@]}"; do
+for SESSION_ID in $(seq ${SESSION_START} ${SESSION_END}); do
     log_message "Starting encoding session ${SESSION_ID}..."
+    LOG_FILE="${LOG_DIR}/session_${SESSION_ID}.log"
 
     mpirun -n ${N_PROCESSES} python runners/mpi_encoding_runner.py \
-        --session_id ${SESSION_ID} --n_v_th ${N_V_TH} --n_g ${N_G} --n_hd ${N_HD} \
-        --n_neurons ${N_NEURONS} --output_dir ${OUTPUT_DIR} \
-        --v_th_std_min ${V_TH_STD_MIN} --v_th_std_max ${V_TH_STD_MAX} \
-        --g_std_min ${G_STD_MIN} --g_std_max ${G_STD_MAX} \
-        --hd_dim_min ${HD_DIM_MIN} --hd_dim_max ${HD_DIM_MAX} \
-        --input_rate_min ${INPUT_RATE_MIN} --input_rate_max ${INPUT_RATE_MAX} \
-        --n_input_rates ${N_INPUT_RATES} --synaptic_mode ${SYNAPTIC_MODE} \
-        --static_input_mode ${STATIC_INPUT_MODE} --hd_input_mode ${HD_INPUT_MODE} \
-        --v_th_distribution ${V_TH_DISTRIBUTION} --embed_dim ${EMBED_DIM} \
-        --signal_cache_dir ${SIGNAL_CACHE_DIR}
+        --session_id ${SESSION_ID} \
+        --n_v_th_std ${N_V_TH_STD} \
+        --n_g_std ${N_G_STD} \
+        --n_hd_dim_input ${N_HD_DIM_INPUT} \
+        --n_neurons ${N_NEURONS} \
+        --output_dir ${OUTPUT_DIR} \
+        --v_th_std_min ${V_TH_STD_MIN} \
+        --v_th_std_max ${V_TH_STD_MAX} \
+        --g_std_min ${G_STD_MIN} \
+        --g_std_max ${G_STD_MAX} \
+        --hd_dim_input_min ${HD_DIM_INPUT_MIN} \
+        --hd_dim_input_max ${HD_DIM_INPUT_MAX} \
+        --static_input_rate_min ${STATIC_INPUT_RATE_MIN} \
+        --static_input_rate_max ${STATIC_INPUT_RATE_MAX} \
+        --n_static_input_rates ${N_STATIC_INPUT_RATES} \
+        --synaptic_mode ${SYNAPTIC_MODE} \
+        --static_input_mode ${STATIC_INPUT_MODE} \
+        --hd_input_mode ${HD_INPUT_MODE} \
+        --v_th_distribution ${V_TH_DISTRIBUTION} \
+        --embed_dim_input ${EMBED_DIM_INPUT} \
+        --signal_cache_dir ${SIGNAL_CACHE_DIR} \
+        2>&1 | tee ${LOG_FILE}
 
     if [ $? -eq 0 ]; then
         COMPLETED_SESSIONS+=(${SESSION_ID})
@@ -132,14 +209,14 @@ done
 
 # Session averaging
 if [ "$AVERAGE_SESSIONS" = true ] && [ ${#COMPLETED_SESSIONS[@]} -gt 1 ]; then
-    FILE_PATTERN="encoding_session_SESSION_ID_${SYNAPTIC_MODE}_${STATIC_INPUT_MODE}_${HD_INPUT_MODE}_${V_TH_DISTRIBUTION}_k${EMBED_DIM}.pkl"
-    OUTPUT_PATTERN="encoding_averaged_${SYNAPTIC_MODE}_${STATIC_INPUT_MODE}_${HD_INPUT_MODE}_${V_TH_DISTRIBUTION}_k${EMBED_DIM}_sessions_SESSION_IDS.pkl"
+    FILE_PATTERN="encoding_session_SESSION_ID_${SYNAPTIC_MODE}_${STATIC_INPUT_MODE}_${HD_INPUT_MODE}_${V_TH_DISTRIBUTION}_k${EMBED_DIM_INPUT}.pkl"
+    OUTPUT_PATTERN="encoding_averaged_${SYNAPTIC_MODE}_${STATIC_INPUT_MODE}_${HD_INPUT_MODE}_${V_TH_DISTRIBUTION}_k${EMBED_DIM_INPUT}_sessions_SESSION_IDS.pkl"
     average_sessions "$OUTPUT_DIR" "encoding" "$FILE_PATTERN" "$OUTPUT_PATTERN" COMPLETED_SESSIONS
 fi
 
 # Final summary
 TOTAL_DURATION=$(($(date +%s) - OVERALL_START))
 EXTRA_INFO="HD signals cached in: ${SIGNAL_CACHE_DIR}/"
-print_final_summary "encoding" "$TOTAL_DURATION" "${#COMPLETED_SESSIONS[@]}" "$N_SESSIONS" \
+print_final_summary "encoding" "$TOTAL_DURATION" "${#COMPLETED_SESSIONS[@]}" "$((SESSION_END - SESSION_START + 1))" \
     COMPLETED_SESSIONS FAILED_SESSIONS "$OUTPUT_DIR" "$EXTRA_INFO"
 exit $?

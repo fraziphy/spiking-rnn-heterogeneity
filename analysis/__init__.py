@@ -9,7 +9,9 @@ from .common_utils import (
     spikes_to_matrix,
     compute_participation_ratio,
     compute_effective_dimensionality,
-    compute_dimensionality_from_covariance
+    compute_dimensionality_from_covariance,
+    compute_dimensionality_svd,
+    apply_exponential_filter
 )
 
 # Statistics utilities
@@ -51,6 +53,8 @@ __all__ = [
     'compute_participation_ratio',
     'compute_effective_dimensionality',
     'compute_dimensionality_from_covariance',
+    'compute_dimensionality_svd',
+    'apply_exponential_filter',
 
     # Statistics utilities
     'get_extreme_combinations',

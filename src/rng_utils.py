@@ -6,6 +6,7 @@ Extended to support HD input encoding experiments.
 
 import numpy as np
 from typing import Dict
+import hashlib
 
 class HierarchicalRNG:
     """
@@ -26,36 +27,28 @@ class HierarchicalRNG:
     def get_rng(self, session_id: int, v_th_std: float, g_std: float, trial_id: int,
                 component: str, time_step: int = 0, rate: float = 0.0,
                 hd_dim: int = 0, embed_dim: int = 0) -> np.random.Generator:
-        """Get RNG for specific component with parameter-dependent seeding.
-
-        Args:
-            session_id: Session ID for reproducibility across sessions
-            v_th_std: Threshold standard deviation
-            g_std: Weight standard deviation
-            trial_id: Trial ID (for trial-varying processes)
-            component: Component identifier string
-            time_step: Time step (for Poisson processes)
-            rate: Rate parameter (for Poisson processes)
-            hd_dim: HD intrinsic dimensionality (for encoding experiments, default 0)
-            embed_dim: HD embedding dimensionality (for encoding experiments, default 0)
-        """
 
         # Convert float parameters to reproducible integers
         v_th_int = int(v_th_std * 10000)
         g_int = int(g_std * 10000)
-        rate_int = int(rate * 1000000)  # Convert rate to integer (6 decimal precision)
+        rate_int = int(rate * 1000)
 
+        # Build deterministic seed string that includes all relevant parameters
         # TRIAL-VARYING: Include time_step and rate for Poisson processes
-        if component in ['initial_state', 'static_poisson', 'dynamic_poisson_spikes', 'hd_input_noise']:
-            seed_components = [self.base_seed, session_id, v_th_int, g_int, trial_id, time_step, rate_int, hd_dim, embed_dim]
+        # Use startswith() to catch 'hd_input_noise_3', 'hd_input_noise_4', etc.
+        if (component.startswith('hd_input_noise') or
+            component in ['initial_state', 'static_poisson', 'dynamic_poisson_spikes']):
+            seed_string = f"{self.base_seed}_{session_id}_{v_th_int}_{g_int}_{trial_id}_{time_step}_{rate_int}_{hd_dim}_{embed_dim}_{component}"
         else:
             # Structure-determining: Fixed across trials
-            seed_components = [self.base_seed, session_id, v_th_int, g_int, hd_dim, embed_dim]
+            seed_string = f"{self.base_seed}_{session_id}_{v_th_int}_{g_int}_{hd_dim}_{embed_dim}_{component}"
 
-        component_offset = abs(hash(component)) % 1000000
-        seed_components.append(component_offset)
+        # Hash the string to get a DETERMINISTIC seed
+        hash_obj = hashlib.sha256(seed_string.encode('utf-8'))
+        hash_int = int.from_bytes(hash_obj.digest()[:8], byteorder='big')
 
-        seed_sequence = np.random.SeedSequence(seed_components)
+        # Create SeedSequence from the hashed integer
+        seed_sequence = np.random.SeedSequence(hash_int)
         return np.random.default_rng(seed_sequence)
 
 

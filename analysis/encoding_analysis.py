@@ -16,7 +16,8 @@ from sklearn.decomposition import PCA
 from .common_utils import (
     spikes_to_matrix,
     compute_participation_ratio,
-    compute_effective_dimensionality
+    compute_effective_dimensionality,
+    apply_exponential_filter
 )
 
 # Import from different package (src/)
@@ -29,47 +30,8 @@ except ImportError:
     from rng_utils import get_rng
 
 
-def fft_convolution_with_padding(signal: np.ndarray, kernel: np.ndarray) -> np.ndarray:
-    """
-    Perform linear convolution using FFT with proper zero-padding.
-
-    Args:
-        signal: Input signal
-        kernel: Impulse response or kernel
-
-    Returns:
-        Linearly convolved signal
-    """
-    padded_length = len(signal) + len(kernel) - 1
-    padded_signal = np.pad(signal, (0, padded_length - len(signal)))
-    padded_kernel = np.pad(kernel, (0, padded_length - len(kernel)))
-
-    convolved = np.fft.ifft(np.fft.fft(padded_signal) * np.fft.fft(padded_kernel))
-
-    return np.real(convolved[:len(signal)])
 
 
-def filter_spikes_exp_kernel(spike_matrices: np.ndarray, kernel: np.ndarray) -> np.ndarray:
-    """
-    Filter spike matrices using an exponential kernel through convolution.
-
-    Args:
-        spike_matrices: Array of spike matrices with shape (n_trials, n_steps, n_neurons)
-        kernel: 1D array representing the exponential kernel
-
-    Returns:
-        Filtered spike matrices with the same shape as input
-    """
-    n_trials, n_steps, n_neurons = spike_matrices.shape
-
-    # Apply convolution to each neuron in each trial
-    filtered_spikes = np.array([
-        np.array([fft_convolution_with_padding(spike_matrices[i][:, j], kernel)
-                 for j in range(n_neurons)]).T
-        for i in range(n_trials)
-    ])
-
-    return filtered_spikes
 
 
 def compute_spike_time_jitter(spikes: List[List[Tuple[float, int]]],
@@ -251,13 +213,10 @@ class LinearDecoder:
 
         self.w = None
 
-        # Create exponential kernel
-        self.kernel = np.exp(-np.arange(0, 5 * tau, dt) / tau)
-
     def preprocess_data(self, spikes_trials_all: List[List[Tuple[float, int]]],
-                       n_neurons: int, duration: float) -> np.ndarray:
+                    n_neurons: int, duration: float) -> np.ndarray:
         """
-        Preprocess spike data: convert to matrices and apply exponential kernel.
+        Preprocess spike data: convert to matrices and apply exponential filter.
 
         Args:
             spikes_trials_all: List of spike time tuples for each trial
@@ -268,11 +227,21 @@ class LinearDecoder:
             Filtered spike matrices of shape (n_trials, n_steps, n_neurons)
         """
         n_steps = int(duration / self.dt)
+
+        # Convert spikes to matrices
         spike_matrices = np.array([
             spikes_to_matrix(trial_spikes, n_steps, n_neurons, self.dt)
             for trial_spikes in spikes_trials_all
         ])
-        return filter_spikes_exp_kernel(spike_matrices, self.kernel)
+
+        # Apply exponential filtering to each trial
+        # apply_exponential_filter expects (T, N) and returns (T, N)
+        filtered_trials = []
+        for trial_matrix in spike_matrices:
+            filtered = apply_exponential_filter(trial_matrix, self.tau, self.dt)
+            filtered_trials.append(filtered)
+
+        return np.array(filtered_trials)  # Shape: (n_trials, n_steps, n_neurons)
 
     def _ensure_2d_signal(self, signal: np.ndarray) -> np.ndarray:
         """Ensure the signal is a 2D array."""

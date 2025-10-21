@@ -2,8 +2,46 @@
 set -e  # stop on first error
 
 
-# 1. Run the encoding experiment and wait for it to finish
-./runners/run_encoding_experiment.sh --static_input_mode common_tonic --hd_input_mode common_tonic --n_hd 5 --v_th_std_min 1.0 --v_th_std_max 2.0 --n_v_th 2 --g_std_min 1.0 --g_std_max 2.0 --n_g 2 --input_rate_min 30 --input_rate_max 50 --n_input_rates 5 --nproc 50
-# ./runners/run_encoding_experiment.sh --static_input_mode common_tonic --hd_input_mode common_tonic --hd_dim_max 1 --embed_dim 1 --n_hd 1 --n_v_th 10 --n_g 10 --input_rate_min 30 --input_rate_max 50 --n_input_rates 6 --nproc 50
-# ./runners/run_spontaneous_experiment.sh --duration 2.0 --static_input_mode common_tonic --n_v_th 10 --n_g 10 --input_rate_min 10 --input_rate_max 50 --n_input_rates 11 --nproc 50
-# ./runners/run_stability_experiment.sh --static_input_mode common_tonic --n_v_th 10 --n_g 10 --input_rate_min 30 --input_rate_max 50 --n_input_rates 6 --nproc 50
+# ./runners/run_autoencoding_task.sh \
+#     --n_sessions 1 \
+#     --n_trials_per_pattern 100 --n_input_patterns 1 \
+#     --hd_dim_input_min 1 --hd_dim_input_max 5 --n_hd_dim_input 5 --embed_dim_input 5 \
+#     --static_input_mode common_tonic --hd_input_mode common_tonic \
+#     --n_v_th_std 1 --g_std_min 1.0 --g_std_max 2.0 --n_g_std 1 \
+#     --static_input_rate_min 30.0 --static_input_rate_max 50.0 --n_static_input_rates 1 \
+#     --n_processes 10
+#
+#
+#
+# ./runners/run_temporal_task.sh \
+#     --n_sessions 1 \
+#     --n_trials_per_pattern 100 --n_input_patterns 1 \
+#     --hd_dim_input_min 1 --hd_dim_input_max 5 --n_hd_dim_input 4 --embed_dim_input 5 \
+#     --hd_dim_output_min 1 --hd_dim_output_max 2 --n_hd_dim_output 1 --embed_dim_output 3 \
+#     --static_input_mode common_tonic --hd_input_mode common_tonic \
+#     --n_v_th_std 1 --g_std_min 1.0 --g_std_max 2.0 --n_g_std 1 \
+#     --static_input_rate_min 30.0 --static_input_rate_max 50.0 --n_static_input_rates 1 \
+#     --n_processes 10
+
+
+./runners/run_temporal_task.sh \
+    --n_sessions 5 \
+    --n_trials_per_pattern 100 --n_input_patterns 4 \
+    --hd_dim_input_min 1 --hd_dim_input_max 5 --n_hd_dim_input 4 --embed_dim_input 5 \
+    --hd_dim_output_min 1 --hd_dim_output_max 2 --n_hd_dim_output 1 --embed_dim_output 3 \
+    --static_input_mode common_tonic --hd_input_mode common_tonic \
+    --n_v_th_std 1 --g_std_min 1.0 --g_std_max 2.0 --n_g_std 1 \
+    --static_input_rate_min 30.0 --static_input_rate_max 50.0 --n_static_input_rates 1 \
+    --n_processes 10
+
+
+
+# ./runners/run_categorical_task.sh \
+#     --n_sessions 1 \
+#     --n_trials_per_pattern 100 --n_input_patterns 4 \
+#     --hd_dim_input_min 1 --hd_dim_input_max 5 --n_hd_dim_input 4 --embed_dim_input 5 \
+#     --static_input_mode common_tonic --hd_input_mode common_tonic \
+#     --n_v_th_std 1 --g_std_min 1.0 --g_std_max 2.0 --n_g_std 1 \
+#     --static_input_rate_min 30.0 --static_input_rate_max 50.0 --n_static_input_rates 1 \
+#     --n_processes 10
+

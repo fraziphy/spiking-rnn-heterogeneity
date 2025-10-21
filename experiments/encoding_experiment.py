@@ -1,7 +1,8 @@
-# experiments/encoding_experiment.py - Refactored with base class
+
+# experiments/encoding_experiment.py - Updated to use inputs subdirectory
 """
-Encoding capacity experiment: study how networks encode high-dimensional inputs
-with varying intrinsic dimensionality.
+Encoding capacity experiment: study how networks encode high-dimensional inputs.
+Updated to use inputs/ subdirectory for HD signal caching.
 """
 
 import numpy as np
@@ -26,11 +27,11 @@ except ImportError:
     project_root = os.path.dirname(current_dir)
     for subdir in ['src', 'analysis']:
         sys.path.insert(0, os.path.join(project_root, subdir))
-    from spiking_network import SpikingRNN
-    from hd_input import HDInputGenerator
-    from rng_utils import get_rng
-    from encoding_analysis import decode_hd_input
-    from statistics_utils import get_extreme_combinations, is_extreme_combo
+    from src.spiking_network import SpikingRNN  # FIXED
+    from src.hd_input import HDInputGenerator  # FIXED
+    from src.rng_utils import get_rng  # FIXED
+    from analysis.encoding_analysis import decode_hd_input
+    from analysis.statistics_utils import get_extreme_combinations, is_extreme_combo
 
 
 class EncodingExperiment(BaseExperiment):
@@ -61,19 +62,19 @@ class EncodingExperiment(BaseExperiment):
         self.hd_input_mode = hd_input_mode
         self.embed_dim = embed_dim
 
-        # Timing parameters - UPDATED TO 200ms transient
+        # Timing parameters
         self.transient_time = 200.0  # ms
         self.encoding_time = 300.0  # ms
         self.total_duration = self.transient_time + self.encoding_time
 
         # Number of trials
-        self.n_trials = 20
+        self.n_trials = 100
 
-        # HD input generator with caching
+        # HD input generator with caching in inputs/ subdirectory
         self.hd_generator = HDInputGenerator(
             embed_dim=embed_dim,
             dt=dt,
-            signal_cache_dir=signal_cache_dir
+            signal_cache_dir=os.path.join(signal_cache_dir, 'inputs')  # UPDATED
         )
 
     def run_single_trial(self, session_id: int, v_th_std: float, g_std: float,
@@ -104,7 +105,7 @@ class EncodingExperiment(BaseExperiment):
             'v_th_distribution': v_th_distribution,
             'static_input_strength': 10.0,
             'hd_connection_prob': 0.3,
-            'hd_input_strength': 1.0,
+            'hd_input_strength': 50.0,
             'readout_weight_scale': 1.0
         }
 

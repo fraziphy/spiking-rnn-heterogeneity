@@ -23,9 +23,9 @@ except ImportError:
     project_root = os.path.dirname(current_dir)
     for subdir in ['src', 'analysis']:
         sys.path.insert(0, os.path.join(project_root, subdir))
-    from spiking_network import SpikingRNN
-    from rng_utils import get_rng
-    from spontaneous_analysis import analyze_spontaneous_activity
+    from src.spiking_network import SpikingRNN  # FIXED: was 'from spiking_network'
+    from src.rng_utils import get_rng  # FIXED: was 'from rng_utils'
+    from analysis.spontaneous_analysis import analyze_spontaneous_activity
 
 
 class SpontaneousExperiment(BaseExperiment):

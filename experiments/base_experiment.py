@@ -26,6 +26,7 @@ class BaseExperiment(ABC):
         self.dt = dt
 
     @staticmethod
+    @staticmethod
     def create_parameter_grid(
         n_v_th_points: int = 10,
         n_g_points: int = 10,
@@ -33,26 +34,67 @@ class BaseExperiment(ABC):
         g_std_range: Tuple[float, float] = (0.0, 4.0),
         input_rate_range: Tuple[float, float] = (50.0, 1000.0),
         n_input_rates: int = 5,
-        n_hd_points: int = None,
-        hd_dim_range: Tuple[int, int] = None
+        n_hd_input_points: int = None,
+        hd_input_dim_range: Tuple[int, int] = None,
+        n_hd_output_points: int = None,
+        hd_output_dim_range: Tuple[int, int] = None
     ) -> Union[Tuple[np.ndarray, np.ndarray, np.ndarray],
-               Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]:
+            Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
+            Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]]:
         """
         Create parameter grids for experiments.
 
         Returns different tuples based on experiment type:
         - Spontaneous/Stability: (v_th_stds, g_stds, static_input_rates)
-        - Encoding: (v_th_stds, g_stds, hd_dims, static_input_rates)
+        - Encoding: (v_th_stds, g_stds, hd_input_dims, static_input_rates)
+        - Task (categorical): (v_th_stds, g_stds, hd_input_dims, static_input_rates)
+        - Task (temporal): (v_th_stds, g_stds, hd_input_dims, hd_output_dims, static_input_rates)
+
+        Args:
+            n_v_th_points: Number of threshold std points
+            n_g_points: Number of weight std points
+            v_th_std_range: (min, max) for threshold std
+            g_std_range: (min, max) for weight std
+            input_rate_range: (min, max) for static input rates
+            n_input_rates: Number of static input rate points
+            n_hd_input_points: Number of HD input dimension points (optional)
+            hd_input_dim_range: (min, max) for HD input dimensions (optional)
+            n_hd_output_points: Number of HD output dimension points (optional)
+            hd_output_dim_range: (min, max) for HD output dimensions (optional)
+
+        Returns:
+            Tuple of parameter arrays depending on experiment type
         """
+        # Create basic grids (always needed)
         v_th_stds = np.linspace(v_th_std_range[0], v_th_std_range[1], n_v_th_points)
         g_stds = np.linspace(g_std_range[0], g_std_range[1], n_g_points)
         static_input_rates = np.linspace(input_rate_range[0], input_rate_range[1], n_input_rates)
 
-        if n_hd_points is not None and hd_dim_range is not None:
-            hd_dims = np.linspace(hd_dim_range[0], hd_dim_range[1], n_hd_points, dtype=int)
-            return v_th_stds, g_stds, hd_dims, static_input_rates
+        # No HD dimensions (spontaneous/stability experiments)
+        if n_hd_input_points is None and n_hd_output_points is None:
+            return v_th_stds, g_stds, static_input_rates
 
-        return v_th_stds, g_stds, static_input_rates
+        # Only HD input dimensions (encoding/categorical task experiments)
+        if n_hd_input_points is not None and n_hd_output_points is None:
+            if hd_input_dim_range is None:
+                raise ValueError("hd_input_dim_range must be provided when n_hd_input_points is set")
+            hd_input_dims = np.linspace(hd_input_dim_range[0], hd_input_dim_range[1],
+                                        n_hd_input_points, dtype=int)
+            return v_th_stds, g_stds, hd_input_dims, static_input_rates
+
+        # Both HD input and output dimensions (temporal task experiments)
+        if n_hd_input_points is not None and n_hd_output_points is not None:
+            if hd_input_dim_range is None or hd_output_dim_range is None:
+                raise ValueError("Both hd_input_dim_range and hd_output_dim_range must be provided")
+            hd_input_dims = np.linspace(hd_input_dim_range[0], hd_input_dim_range[1],
+                                        n_hd_input_points, dtype=int)
+            hd_output_dims = np.linspace(hd_output_dim_range[0], hd_output_dim_range[1],
+                                        n_hd_output_points, dtype=int)
+            return v_th_stds, g_stds, hd_input_dims, hd_output_dims, static_input_rates
+
+        # Only HD output (invalid configuration)
+        if n_hd_output_points is not None and n_hd_input_points is None:
+            raise ValueError("n_hd_output_points requires n_hd_input_points to also be set")
 
     @staticmethod
     def compute_safe_mean(array: np.ndarray) -> float:

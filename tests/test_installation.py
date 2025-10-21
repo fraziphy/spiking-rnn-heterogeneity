@@ -38,7 +38,7 @@ def test_package_level_imports():
         # Test src package
         from src import (
             get_rng, HierarchicalRNG, LIFNeuron, Synapse,
-            StaticPoissonInput, HDDynamicInput, ReadoutLayer,
+            StaticPoissonInput, HDDynamicInput,
             HDInputGenerator, run_rate_rnn, make_embedding,
             SpikingRNN
         )
@@ -121,7 +121,8 @@ def test_common_utils_functionality():
         from analysis.common_utils import (
             spikes_to_binary, spikes_to_matrix,
             compute_participation_ratio, compute_effective_dimensionality,
-            compute_dimensionality_from_covariance
+            compute_dimensionality_from_covariance,
+            compute_dimensionality_svd
         )
 
         # Test spikes_to_binary
@@ -153,6 +154,14 @@ def test_common_utils_functionality():
                         'participation_ratio', 'total_variance']
         assert all(k in dim_metrics for k in required_keys)
         print(f"  ✓ dimensionality_from_covariance works")
+
+        # Test SVD-based dimensionality
+        data_svd = np.random.randn(50, 100)
+        dim_metrics_svd = compute_dimensionality_svd(data_svd, variance_threshold=0.95)
+        required_keys_svd = ['intrinsic_dimensionality', 'effective_dimensionality',
+                            'participation_ratio', 'total_variance', 'n_components']
+        assert all(k in dim_metrics_svd for k in required_keys_svd)
+        print(f"  ✓ dimensionality_svd works (faster than covariance)")
 
         return True
 
