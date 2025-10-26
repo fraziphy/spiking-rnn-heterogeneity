@@ -2,6 +2,7 @@
 """
 MPI-parallelized task-performance experiment runner.
 NEW: Sequential parameter combinations, parallel trials and CV.
+MODIFIED: New directory structure and filename format.
 """
 
 import numpy as np
@@ -72,9 +73,11 @@ def run_mpi_task_experiment(args):
         print(f"CV folds: {n_cv_folds}")
         print(f"CV iterations per rank: {n_cv_folds // size}")
 
-        # Setup directories
+        # Setup directories - FIXED: Don't add task_type again!
         if not os.path.isabs(output_dir):
             output_dir = os.path.join(os.path.abspath(output_dir), "data")
+        else:
+            output_dir = os.path.join(output_dir, "data")
         os.makedirs(output_dir, exist_ok=True)
 
         if not os.path.isabs(signal_cache_dir):
@@ -294,9 +297,6 @@ def run_mpi_task_experiment(args):
 
         gc.collect()
 
-    if rank == 0:
-        print(f"Step 6: Saving results...")
-
     # Only rank 0 compiles and saves results
     if rank == 0:
         print(f"Step 6: Saving results...")
@@ -318,13 +318,23 @@ def run_mpi_task_experiment(args):
             'n_cv_folds': n_cv_folds,
             'tau_syn': args.tau_syn,
             'decision_window': args.decision_window,
+            'embed_dim_input': args.embed_dim_input,
+            'embed_dim_output': args.embed_dim_output,
             **cv_results
         }
 
-        # Filename: one file per session per parameter combination
-        filename = (f"task_{task_type}_session_{session_id}_"
-                   f"vth_{v_th_std:.3f}_g_{g_std:.3f}_rate_{static_input_rate:.0f}_"
-                   f"hdin_{input_hd_dim}_hdout_{output_hd_dim}.pkl")
+        # NEW FILENAME FORMAT: keeping related info together
+        if task_type == 'temporal':
+            filename = (f"task_temporal_session_{session_id}_"
+                       f"vth_{v_th_std:.3f}_g_{g_std:.3f}_rate_{static_input_rate:.0f}_"
+                       f"hdin_{input_hd_dim}_embdin_{args.embed_dim_input}_"
+                       f"hdout_{output_hd_dim}_embdout_{args.embed_dim_output}_"
+                       f"npat_{n_input_patterns}.pkl")
+        elif task_type == 'categorical':
+            filename = (f"task_categorical_session_{session_id}_"
+                       f"vth_{v_th_std:.3f}_g_{g_std:.3f}_rate_{static_input_rate:.0f}_"
+                       f"hdin_{input_hd_dim}_embdin_{args.embed_dim_input}_"
+                       f"npat_{n_input_patterns}.pkl")
 
         output_file = os.path.join(output_dir, filename)
         save_results([result], output_file, use_data_subdir=False)

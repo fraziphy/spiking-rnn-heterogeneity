@@ -1,10 +1,10 @@
 #!/bin/bash
 #
 # Auto-encoding task experiment runner
-# Reconstructs INPUT from network response (output = input)
+# MODIFIED: New directory structure and filename format
 #
 
-set +e  # Explicitly disable exit-on-error (in case inherited from parent)
+set +e
 
 # Source shared utilities
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -14,7 +14,7 @@ source "${SCRIPT_DIR}/experiment_utils.sh"
 N_SESSIONS=10
 SESSION_START=0
 SESSION_END=-1
-N_PROCESSES=10  # Changed default to 10 for memory safety
+N_PROCESSES=10
 
 # Network
 N_NEURONS=1000
@@ -49,7 +49,7 @@ USE_DISTRIBUTED_CV=""
 
 # Task parameters
 STIMULUS_DURATION=300.0
-DECISION_WINDOW=50.0  # This variable is not used. It is only to keep the .sh scripts with similar structure
+DECISION_WINDOW=50.0
 LAMBDA_REG=0.001
 TAU_SYN=5.0
 DT=0.1
@@ -72,7 +72,7 @@ Execution:
   --n_sessions N                Sessions to run (default: 10)
   --session_start N             First session (default: 0)
   --session_end N               Last session (auto-calculated)
-  --n_processes N               MPI processes (default: 10, max safe: 10 for 251GB RAM)
+  --n_processes N               MPI processes (default: 10)
 
 Task:
   --n_input_patterns N          Input patterns (default: 10)
@@ -102,7 +102,7 @@ Network Modes:
   --static_input_mode MODE      independent|common_stochastic|common_tonic
   --hd_input_mode MODE          independent|common_stochastic|common_tonic
   --v_th_distribution DIST      normal|uniform (default: normal)
-  --use_distributed_cv          Use distributed CV (default: centralized for RAM)
+  --use_distributed_cv          Use distributed CV (default: centralized)
 
 Task Parameters:
   --stimulus_duration X         Duration ms (default: 300.0)
@@ -162,7 +162,7 @@ if [ $SESSION_END -eq -1 ]; then
     SESSION_END=$((SESSION_START + N_SESSIONS - 1))
 fi
 
-# Generate parameter arrays using Python linspace (handles N=1 case correctly)
+# Generate parameter arrays
 V_TH_STDS=($(python3 runners/linspace.py $V_TH_STD_MIN $V_TH_STD_MAX $N_V_TH_STD))
 G_STDS=($(python3 runners/linspace.py $G_STD_MIN $G_STD_MAX $N_G_STD))
 STATIC_RATES=($(python3 runners/linspace.py $STATIC_INPUT_RATE_MIN $STATIC_INPUT_RATE_MAX $N_STATIC_INPUT_RATES))
@@ -171,22 +171,10 @@ HD_DIMS_INPUT=($(python3 runners/linspace.py $HD_DIM_INPUT_MIN $HD_DIM_INPUT_MAX
 TOTAL_COMBOS=$((N_V_TH_STD * N_G_STD * N_STATIC_INPUT_RATES * N_HD_DIM_INPUT))
 
 log_section "AUTO-ENCODING TASK EXPERIMENT"
-log_message "MPI processes: $N_PROCESSES (each handles $((1000 / N_PROCESSES)) trials)"
-log_message "CV: 20-fold (centralized on rank 0 to save memory)"
+log_message "MPI processes: $N_PROCESSES"
 log_message "Sessions: ${SESSION_START} to ${SESSION_END}"
 log_message "Patterns: ${N_INPUT_PATTERNS}, Trials/pattern: ${N_TRIALS_PER_PATTERN}"
-log_message "Total trials per combo: $((N_INPUT_PATTERNS * N_TRIALS_PER_PATTERN))"
 log_message "Parameter grid: ${N_V_TH_STD}×${N_G_STD}×${N_HD_DIM_INPUT}×${N_STATIC_INPUT_RATES} = ${TOTAL_COMBOS} combinations"
-log_message "Total jobs per session: ${TOTAL_COMBOS} (sequential MPI sessions)"
-log_message "NOTE: Auto-encoding reconstructs INPUT (output=input)"
-
-# Memory check
-MEMORY_PER_PROCESS=24  # GB
-TOTAL_MEMORY_NEEDED=$((N_PROCESSES * MEMORY_PER_PROCESS))
-if [ $TOTAL_MEMORY_NEEDED -gt 240 ]; then
-    log_message "WARNING: ${N_PROCESSES} processes need ~${TOTAL_MEMORY_NEEDED}GB RAM"
-    log_message "         Your system has 251GB. Consider using fewer processes."
-fi
 
 # Setup directories
 setup_directories "$OUTPUT_DIR" "$LOG_DIR" "$SIGNAL_CACHE_DIR" || exit 1
@@ -200,7 +188,7 @@ REQUIRED_FILES=(
 verify_required_files REQUIRED_FILES || exit 1
 
 # Check dependencies
-check_python_dependencies "import numpy, sklearn, mpi4py" || exit 1
+check_python_dependencies "import numpy, scipy, sklearn, mpi4py" || exit 1
 check_mpi || exit 1
 
 # Validate modes
@@ -216,12 +204,12 @@ FAILED_SESSIONS=()
 OVERALL_START=$(date +%s)
 
 for SESSION_ID in $(seq ${SESSION_START} ${SESSION_END}); do
-    log_message "Starting auto-encoding session ${SESSION_ID}..."
+    log_message "Starting autoencoding session ${SESSION_ID}..."
     SESSION_START_TIME=$(date +%s)
     SESSION_COMPLETED_COMBOS=0
     SESSION_FAILED_COMBOS=0
 
-    # Loop over all parameter combinations (sequential MPI sessions)
+    # Loop over all parameter combinations
     COMBO_INDEX=0
     for STATIC_RATE in "${STATIC_RATES[@]}"; do
         for HD_IN in "${HD_DIMS_INPUT[@]}"; do
@@ -231,9 +219,9 @@ for SESSION_ID in $(seq ${SESSION_START} ${SESSION_END}); do
                     COMBO_INDEX=$((COMBO_INDEX + 1))
                     COMBO_START_TIME=$(date +%s)
 
-                    COMBO_LOG="${LOG_DIR}/session_${SESSION_ID}_vth_${V_TH}_g_${G}_rate_${STATIC_RATE}_hd_${HD_IN}.log"
+                    COMBO_LOG="${LOG_DIR}/session_${SESSION_ID}_vth_${V_TH}_g_${G}_rate_${STATIC_RATE}_hdin_${HD_IN}.log"
 
-                    log_message "  [${COMBO_INDEX}/${TOTAL_COMBOS}] v_th=${V_TH}, g=${G}, rate=${STATIC_RATE}, hd=${HD_IN}"
+                    log_message "  [${COMBO_INDEX}/${TOTAL_COMBOS}] v_th=${V_TH}, g=${G}, rate=${STATIC_RATE}, hd_in=${HD_IN}"
 
                     mpirun -n ${N_PROCESSES} python runners/mpi_autoencoding_runner.py \
                         --session_id ${SESSION_ID} \
@@ -262,7 +250,7 @@ for SESSION_ID in $(seq ${SESSION_START} ${SESSION_END}); do
                     if [ $? -eq 0 ]; then
                         ((SESSION_COMPLETED_COMBOS++))
                         COMBO_DURATION=$(($(date +%s) - COMBO_START_TIME))
-                        log_message "    ✓ Completed in ${COMBO_DURATION}s ($((COMBO_DURATION / 60))m $((COMBO_DURATION % 60))s)"
+                        log_message "    ✓ Completed in ${COMBO_DURATION}s"
                     else
                         ((SESSION_FAILED_COMBOS++))
                         log_message "    ✗ FAILED!"
@@ -278,27 +266,20 @@ for SESSION_ID in $(seq ${SESSION_START} ${SESSION_END}); do
     log_message ""
     if [ $SESSION_FAILED_COMBOS -eq 0 ]; then
         COMPLETED_SESSIONS+=(${SESSION_ID})
-        log_message "✓ Session ${SESSION_ID} completed: ${SESSION_COMPLETED_COMBOS}/${TOTAL_COMBOS} combinations"
-        log_message "  Duration: ${SESSION_DURATION}s ($((SESSION_DURATION / 60))m $((SESSION_DURATION % 60))s)"
+        log_message "✓ Session ${SESSION_ID} completed: ${SESSION_COMPLETED_COMBOS}/${TOTAL_COMBOS}"
     else
         FAILED_SESSIONS+=(${SESSION_ID})
-        log_message "✗ Session ${SESSION_ID} FAILED: ${SESSION_COMPLETED_COMBOS}/${TOTAL_COMBOS} successful, ${SESSION_FAILED_COMBOS} failed"
-        log_message "  Duration: ${SESSION_DURATION}s ($((SESSION_DURATION / 60))m $((SESSION_DURATION % 60))s)"
+        log_message "✗ Session ${SESSION_ID} FAILED: ${SESSION_COMPLETED_COMBOS}/${TOTAL_COMBOS} successful"
     fi
 done
 
-# Session averaging
+# Session averaging - MODIFIED for new file structure
 if [ "$AVERAGE_SESSIONS" = true ] && [ ${#COMPLETED_SESSIONS[@]} -gt 1 ]; then
     log_section "SESSION AVERAGING"
-    log_message "Averaging results across ${#COMPLETED_SESSIONS[@]} sessions..."
 
-    # Create averaging script
-    AVERAGING_SCRIPT=$(mktemp /tmp/average_autoencoding_sessions.XXXXXX.py)
-    cat > "$AVERAGING_SCRIPT" << 'EOF'
-import sys
-import os
-import glob
-import pickle
+    AVERAGING_SCRIPT=$(mktemp /tmp/average_autoencoding.XXXXXX.py)
+    cat > "$AVERAGING_SCRIPT" << 'EOFPYTHON'
+import sys, os, glob, pickle
 import numpy as np
 from collections import defaultdict
 
@@ -309,16 +290,16 @@ def load_results(filename):
     with open(filename, 'rb') as f:
         return pickle.load(f)
 
-# Get all result files
+# Get all result files from data/ subdirectory
 output_dir = sys.argv[1]
+data_dir = os.path.join(output_dir, "data")
 
-all_files = glob.glob(os.path.join(output_dir, "task_autoencoding_session_*.pkl"))
+all_files = glob.glob(os.path.join(data_dir, "task_autoencoding_session_*.pkl"))
 
 # Group by parameter combination
 combo_files = defaultdict(list)
 for filepath in all_files:
     basename = os.path.basename(filepath)
-    # Extract combo signature (everything after session_X_)
     parts = basename.split('_')
     session_idx = parts.index('session') + 1
     combo_sig = '_'.join(parts[session_idx+1:])
@@ -332,14 +313,10 @@ for combo_sig, files in combo_files.items():
         continue
 
     print(f"Averaging {combo_sig}: {len(files)} sessions")
-
-    # Load all sessions for this combo
     session_results = [load_results(f)[0] for f in files]
-
-    # Extract first result as template
     averaged = session_results[0].copy()
 
-    # Average CV metrics (temporal metrics)
+    # Average CV metrics
     test_rmse = [r['test_rmse_mean'] for r in session_results]
     test_r2 = [r['test_r2_mean'] for r in session_results]
     test_corr = [r['test_correlation_mean'] for r in session_results]
@@ -354,46 +331,21 @@ for combo_sig, files in combo_files.items():
     averaged['n_sessions_averaged'] = len(files)
     averaged['session_ids'] = [r['session_id'] for r in session_results]
 
-    # Save averaged result
+    # Save to PARENT directory
     output_file = os.path.join(output_dir, f"task_autoencoding_averaged_{combo_sig}")
     save_results([averaged], output_file, use_data_subdir=False)
 
 print("Averaging complete")
-EOF
+EOFPYTHON
 
-    python3 "$AVERAGING_SCRIPT" "${OUTPUT_DIR}/data"
+    python3 "$AVERAGING_SCRIPT" "${OUTPUT_DIR}"
     rm "$AVERAGING_SCRIPT"
 
-    log_message "✓ Session averaging completed"
+    log_message "✓ Session averaging completed - saved to ${OUTPUT_DIR}/"
 fi
 
 # Final summary
-log_message ""
 TOTAL_DURATION=$(($(date +%s) - OVERALL_START))
-HOURS=$((TOTAL_DURATION / 3600))
-MINS=$(((TOTAL_DURATION % 3600) / 60))
-SECS=$((TOTAL_DURATION % 60))
-
-log_section "EXPERIMENT COMPLETE"
-
-if [ ${#COMPLETED_SESSIONS[@]} -eq $((SESSION_END - SESSION_START + 1)) ]; then
-    log_message "✓ ALL SESSIONS COMPLETED SUCCESSFULLY"
-    log_message "  Sessions: ${SESSION_START} to ${SESSION_END}"
-    log_message "  Completed: ${#COMPLETED_SESSIONS[@]}/$((SESSION_END - SESSION_START + 1))"
-    log_message "  Total duration: ${HOURS}h ${MINS}m ${SECS}s"
-    log_message "  Results: ${OUTPUT_DIR}/data/"
-    exit 0
-elif [ ${#COMPLETED_SESSIONS[@]} -gt 0 ]; then
-    log_message "⚠ PARTIAL SUCCESS"
-    log_message "  Completed sessions: [${COMPLETED_SESSIONS[*]}]"
-    log_message "  Failed sessions: [${FAILED_SESSIONS[*]}]"
-    log_message "  Success rate: ${#COMPLETED_SESSIONS[@]}/$((SESSION_END - SESSION_START + 1))"
-    log_message "  Total duration: ${HOURS}h ${MINS}m ${SECS}s"
-    log_message "  Check logs in: ${LOG_DIR}/"
-    exit 2
-else
-    log_message "✗ ALL SESSIONS FAILED"
-    log_message "  Total duration: ${HOURS}h ${MINS}m ${SECS}s"
-    log_message "  Check logs in: ${LOG_DIR}/"
-    exit 1
-fi
+print_final_summary "autoencoding" "$TOTAL_DURATION" "${#COMPLETED_SESSIONS[@]}" "$((SESSION_END - SESSION_START + 1))" \
+    COMPLETED_SESSIONS FAILED_SESSIONS "$OUTPUT_DIR" "HD signals cached in: ${SIGNAL_CACHE_DIR}/"
+exit $?

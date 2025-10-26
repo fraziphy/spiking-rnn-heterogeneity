@@ -1,6 +1,7 @@
 #!/bin/bash
 #
 # Spontaneous activity experiment runner
+# MODIFIED: New directory structure
 #
 
 set -e
@@ -39,7 +40,7 @@ V_TH_DISTRIBUTION="normal"
 # Simulation
 DURATION=5.0  # seconds
 
-# Paths
+# Paths - MODIFIED
 OUTPUT_DIR="results/spontaneous"
 LOG_DIR="logs/spontaneous"
 
@@ -193,11 +194,81 @@ for SESSION_ID in $(seq ${SESSION_START} ${SESSION_END}); do
     fi
 done
 
-# Session averaging
+# Session averaging - MODIFIED for new structure
 if [ "$AVERAGE_SESSIONS" = true ] && [ ${#COMPLETED_SESSIONS[@]} -gt 1 ]; then
-    FILE_PATTERN="spontaneous_session_SESSION_ID_${SYNAPTIC_MODE}_${STATIC_INPUT_MODE}_${V_TH_DISTRIBUTION}_${DURATION}s.pkl"
-    OUTPUT_PATTERN="spontaneous_averaged_${SYNAPTIC_MODE}_${STATIC_INPUT_MODE}_${V_TH_DISTRIBUTION}_${DURATION}s_sessions_SESSION_IDS.pkl"
-    average_sessions "$OUTPUT_DIR" "spontaneous" "$FILE_PATTERN" "$OUTPUT_PATTERN" COMPLETED_SESSIONS
+    log_section "SESSION AVERAGING"
+
+    AVERAGING_SCRIPT=$(mktemp /tmp/average_spontaneous.XXXXXX.py)
+    cat > "$AVERAGING_SCRIPT" << 'EOFPYTHON'
+import sys, os, glob, pickle
+import numpy as np
+from collections import defaultdict
+
+sys.path.insert(0, os.getcwd())
+from experiments.experiment_utils import save_results
+
+def load_results(filename):
+    with open(filename, 'rb') as f:
+        return pickle.load(f)
+
+output_dir = sys.argv[1]
+data_dir = os.path.join(output_dir, "data")
+
+all_files = glob.glob(os.path.join(data_dir, "spontaneous_session_*.pkl"))
+
+# Group by parameter combination
+combo_files = defaultdict(list)
+for filepath in all_files:
+    basename = os.path.basename(filepath)
+    parts = basename.split('_')
+    session_idx = parts.index('session') + 1
+    combo_sig = '_'.join(parts[session_idx+1:])
+    combo_files[combo_sig].append(filepath)
+
+print(f"Found {len(combo_files)} unique parameter combinations")
+
+for combo_sig, files in combo_files.items():
+    if len(files) < 2:
+        continue
+
+    print(f"Averaging {combo_sig}: {len(files)} sessions")
+
+    all_results = []
+    for f in files:
+        all_results.extend(load_results(f))
+
+    # Group by parameter combination within file
+    param_groups = defaultdict(list)
+    for result in all_results:
+        key = (result['v_th_std'], result['g_std'], result['static_input_rate'])
+        param_groups[key].append(result)
+
+    averaged_results = []
+    for key, results in param_groups.items():
+        averaged = results[0].copy()
+
+        # Average metrics
+        for metric in ['mean_firing_rate_mean', 'cv_isi_mean', 'percent_silent_mean']:
+            if metric in results[0]:
+                values = [r[metric] for r in results]
+                averaged[metric] = float(np.mean(values))
+                averaged[f'{metric}_std_across_sessions'] = float(np.std(values))
+
+        averaged['n_sessions_averaged'] = len(results)
+        averaged['session_ids'] = [r['session_id'] for r in results]
+        averaged_results.append(averaged)
+
+    # Save to parent directory
+    output_file = os.path.join(output_dir, f"spontaneous_averaged_{combo_sig}")
+    save_results(averaged_results, output_file, use_data_subdir=False)
+
+print("Averaging complete")
+EOFPYTHON
+
+    python3 "$AVERAGING_SCRIPT" "${OUTPUT_DIR}"
+    rm "$AVERAGING_SCRIPT"
+
+    log_message "✓ Session averaging completed - saved to ${OUTPUT_DIR}/"
 fi
 
 # Final summary

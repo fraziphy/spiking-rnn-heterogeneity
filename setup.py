@@ -7,6 +7,13 @@ NEW in v6.0.0:
 - Pattern-based HD input generation with task-specific caching
 - Dimensionality analysis for auto-encoding experiments
 - Unified TaskPerformanceExperiment infrastructure
+- Sequential parameter combination processing with parallel trial/CV distribution
+- Distributed and centralized cross-validation modes
+
+Bug Fixes in v6.0.0:
+- Fixed directory path duplication in all MPI runners (task, autoencoding, spontaneous, stability, encoding)
+- Corrected output directory structure: results/{experiment}/data/ instead of results/{experiment}/{experiment}/data/
+- Fixed filename formats to include all relevant parameters (embedding dimensions, pattern counts)
 
 Refactored in v5.1.0:
 - Eliminated code duplication across experiments and analysis modules
@@ -102,12 +109,12 @@ setup(
             'spiking-rnn-test=tests.test_installation:main',
             'spiking-rnn-structure-test=tests.test_comprehensive_structure:run_all_comprehensive_tests',
             'spiking-rnn-encoding-test=tests.test_encoding_implementation:main',
-            'spiking-rnn-task-test=tests.test_task_performance:main',  # NEW in v6.0
+            'spiking-rnn-task-test=tests.test_task_performance:main',
             # Original experiments
             'spiking-rnn-spontaneous=runners.mpi_spontaneous_runner:main',
             'spiking-rnn-stability=runners.mpi_stability_runner:main',
             'spiking-rnn-encoding=runners.mpi_encoding_runner:main',
-            # NEW in v6.0: Task experiments
+            # Task experiments (v6.0)
             'spiking-rnn-task=runners.mpi_task_runner:main',
             'spiking-rnn-autoencoding=runners.mpi_autoencoding_runner:main',
         ],

@@ -127,8 +127,11 @@ def run_mpi_stability_experiment(args):
         print(f"  MPI processes: {size}")
         print(f"  Session ID: {session_id}")
 
+        # NEW DIRECTORY STRUCTURE
         if not os.path.isabs(output_dir):
             output_dir = os.path.join(os.path.abspath(output_dir), "data")
+        else:
+            output_dir = os.path.join(output_dir, "data")
         os.makedirs(output_dir, exist_ok=True)
         print(f"  Output directory: {output_dir}")
 

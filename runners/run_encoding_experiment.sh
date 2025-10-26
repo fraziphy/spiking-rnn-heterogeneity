@@ -1,6 +1,7 @@
 #!/bin/bash
 #
 # Encoding experiment runner
+# MODIFIED: New directory structure
 #
 
 set -e
@@ -43,7 +44,7 @@ STATIC_INPUT_MODE="independent"
 HD_INPUT_MODE="independent"
 V_TH_DISTRIBUTION="normal"
 
-# Paths
+# Paths - MODIFIED
 OUTPUT_DIR="results/encoding"
 SIGNAL_CACHE_DIR="hd_signals"
 LOG_DIR="logs/encoding"
@@ -64,7 +65,7 @@ Execution:
   --n_processes N               MPI processes (default: 50)
 
 Heterogeneity:
-  --v_th_std_min X              Min threshold std (default: 0.03)
+  --v_th_std_min X              Min threshold std (default: 0.0)
   --v_th_std_max X              Max threshold std (default: 3.0)
   --n_v_th_std N                Points (default: 5)
   --g_std_min X                 Min weight std (default: 0.03)
@@ -142,7 +143,6 @@ log_section "ENCODING EXPERIMENT"
 log_message "MPI processes: $N_PROCESSES"
 log_message "Sessions: ${SESSION_START} to ${SESSION_END}"
 log_message "Parameter grid: ${N_V_TH_STD}×${N_G_STD}×${N_HD_DIM_INPUT}×${N_STATIC_INPUT_RATES} = ${TOTAL_COMBOS} combinations"
-log_message "HD dim: ${HD_DIM_INPUT_MIN} to ${HD_DIM_INPUT_MAX}, Embed: ${EMBED_DIM_INPUT}"
 
 # Setup directories
 setup_directories "$OUTPUT_DIR" "$LOG_DIR" "$SIGNAL_CACHE_DIR" || exit 1
@@ -152,7 +152,6 @@ REQUIRED_FILES=(
     "runners/mpi_encoding_runner.py"
     "runners/mpi_utils.py"
     "experiments/encoding_experiment.py"
-    "analysis/encoding_analysis.py"
 )
 verify_required_files REQUIRED_FILES || exit 1
 
@@ -207,11 +206,83 @@ for SESSION_ID in $(seq ${SESSION_START} ${SESSION_END}); do
     fi
 done
 
-# Session averaging
+# Session averaging - MODIFIED for new structure
 if [ "$AVERAGE_SESSIONS" = true ] && [ ${#COMPLETED_SESSIONS[@]} -gt 1 ]; then
-    FILE_PATTERN="encoding_session_SESSION_ID_${SYNAPTIC_MODE}_${STATIC_INPUT_MODE}_${HD_INPUT_MODE}_${V_TH_DISTRIBUTION}_k${EMBED_DIM_INPUT}.pkl"
-    OUTPUT_PATTERN="encoding_averaged_${SYNAPTIC_MODE}_${STATIC_INPUT_MODE}_${HD_INPUT_MODE}_${V_TH_DISTRIBUTION}_k${EMBED_DIM_INPUT}_sessions_SESSION_IDS.pkl"
-    average_sessions "$OUTPUT_DIR" "encoding" "$FILE_PATTERN" "$OUTPUT_PATTERN" COMPLETED_SESSIONS
+    log_section "SESSION AVERAGING"
+
+    AVERAGING_SCRIPT=$(mktemp /tmp/average_encoding.XXXXXX.py)
+    cat > "$AVERAGING_SCRIPT" << 'EOFPYTHON'
+import sys, os, glob, pickle
+import numpy as np
+from collections import defaultdict
+
+sys.path.insert(0, os.getcwd())
+from experiments.experiment_utils import save_results
+
+def load_results(filename):
+    with open(filename, 'rb') as f:
+        return pickle.load(f)
+
+output_dir = sys.argv[1]
+data_dir = os.path.join(output_dir, "data")
+
+all_files = glob.glob(os.path.join(data_dir, "encoding_session_*.pkl"))
+
+# Group by parameter combination
+combo_files = defaultdict(list)
+for filepath in all_files:
+    basename = os.path.basename(filepath)
+    parts = basename.split('_')
+    session_idx = parts.index('session') + 1
+    combo_sig = '_'.join(parts[session_idx+1:])
+    combo_files[combo_sig].append(filepath)
+
+print(f"Found {len(combo_files)} unique parameter combinations")
+
+for combo_sig, files in combo_files.items():
+    if len(files) < 2:
+        continue
+
+    print(f"Averaging {combo_sig}: {len(files)} sessions")
+
+    all_results = []
+    for f in files:
+        all_results.extend(load_results(f))
+
+    # Group by parameter combination within file
+    param_groups = defaultdict(list)
+    for result in all_results:
+        key = (result['v_th_std'], result['g_std'], result['hd_dim'], result['static_input_rate'])
+        param_groups[key].append(result)
+
+    averaged_results = []
+    for key, results in param_groups.items():
+        averaged = results[0].copy()
+
+        # Average decoding metrics
+        test_rmse = [r['decoding']['test_rmse_mean'] for r in results]
+        test_r2 = [r['decoding']['test_r2_mean'] for r in results]
+
+        averaged['decoding']['test_rmse_mean'] = float(np.mean(test_rmse))
+        averaged['decoding']['test_rmse_std_across_sessions'] = float(np.std(test_rmse))
+        averaged['decoding']['test_r2_mean'] = float(np.mean(test_r2))
+        averaged['decoding']['test_r2_std_across_sessions'] = float(np.std(test_r2))
+
+        averaged['n_sessions_averaged'] = len(results)
+        averaged['session_ids'] = [r['session_id'] for r in results]
+        averaged_results.append(averaged)
+
+    # Save to parent directory
+    output_file = os.path.join(output_dir, f"encoding_averaged_{combo_sig}")
+    save_results(averaged_results, output_file, use_data_subdir=False)
+
+print("Averaging complete")
+EOFPYTHON
+
+    python3 "$AVERAGING_SCRIPT" "${OUTPUT_DIR}"
+    rm "$AVERAGING_SCRIPT"
+
+    log_message "✓ Session averaging completed - saved to ${OUTPUT_DIR}/"
 fi
 
 # Final summary

@@ -139,8 +139,11 @@ def run_mpi_encoding_experiment(args):
         print(f"  Session ID: {session_id}")
         print(f"  Embed dim: {embed_dim}")
 
+        # NEW DIRECTORY STRUCTURE
         if not os.path.isabs(output_dir):
             output_dir = os.path.join(os.path.abspath(output_dir), "data")
+        else:
+            output_dir = os.path.join(output_dir, "data")
         os.makedirs(output_dir, exist_ok=True)
 
         if not os.path.isabs(signal_cache_dir):
@@ -154,7 +157,7 @@ def run_mpi_encoding_experiment(args):
     signal_cache_dir = comm.bcast(signal_cache_dir if rank == 0 else None, root=0)
     comm.Barrier()
 
-    # Create parameter grids - simplified
+    # Create parameter grids
     v_th_stds, g_stds, hd_dims, static_input_rates = BaseExperiment.create_parameter_grid(
         n_v_th_points=args.n_v_th_std,
         n_g_points=args.n_g_std,

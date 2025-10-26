@@ -2,6 +2,7 @@
 """
 MPI-parallelized auto-encoding experiment runner.
 Same as temporal task but reconstructs INPUT instead of separate output.
+MODIFIED: Fixed directory path duplication
 """
 
 import numpy as np
@@ -72,9 +73,11 @@ def run_mpi_autoencoding_experiment(args):
         print(f"CV folds: {n_cv_folds}")
         print(f"CV iterations per rank: {n_cv_folds // size}")
 
-        # Setup directories
+        # Setup directories - FIXED: Don't add extra paths!
         if not os.path.isabs(output_dir):
             output_dir = os.path.join(os.path.abspath(output_dir), "data")
+        else:
+            output_dir = os.path.join(output_dir, "data")
         os.makedirs(output_dir, exist_ok=True)
 
         if not os.path.isabs(signal_cache_dir):
@@ -381,14 +384,16 @@ def run_mpi_autoencoding_experiment(args):
             'n_cv_folds': n_cv_folds,
             'tau_syn': args.tau_syn,
             'decision_window': args.decision_window,
-            'dimensionality_summary': dim_summary,  # <-- ADD THIS
+            'embed_dim_input': args.embed_dim_input,
+            'dimensionality_summary': dim_summary,
             **cv_results
         }
 
-        # Filename: one file per session per parameter combination
+        # NEW FILENAME FORMAT: hdin followed by embd, then npat
         filename = (f"task_autoencoding_session_{session_id}_"
                    f"vth_{v_th_std:.3f}_g_{g_std:.3f}_rate_{static_input_rate:.0f}_"
-                   f"hd_{input_hd_dim}.pkl")
+                   f"hdin_{input_hd_dim}_embd_{args.embed_dim_input}_"
+                   f"npat_{n_input_patterns}.pkl")
 
         output_file = os.path.join(output_dir, filename)
         save_results([result], output_file, use_data_subdir=False)
