@@ -235,7 +235,7 @@ def analyze_population_poisson_properties(spikes: List[Tuple[float, int]],
 def analyze_spontaneous_activity(spikes: List[Tuple[float, int]],
                                num_neurons: int,
                                duration: float,
-                               transient_time: float = 200.0) -> Dict[str, Any]:
+                               transient_time: float = 500.0) -> Dict[str, Any]:
     """
     Complete spontaneous activity analysis with transient removal and Poisson tests.
 

@@ -197,16 +197,26 @@ class SpikingRNN:
     def simulate_network_dynamics(self, session_id: int, v_th_std: float, g_std: float, trial_id: int,
                                  duration: float, static_input_rate: float = 0.0,
                                  perturbation_time: float = None,
-                                 perturbation_neuron: int = None) -> List[Tuple[float, int]]:
+                                 perturbation_neuron: int = None,
+                                 continue_from_state: bool = False) -> List[Tuple[float, int]]:
         """
         Run simulation for network stability study.
         Does NOT use readout synapses (more efficient).
+
+        Args:
+            continue_from_state: If True, skip reset to continue from restored state.
         """
-        self.reset_simulation(session_id, v_th_std, g_std, trial_id)
+        if not continue_from_state:
+            self.reset_simulation(session_id, v_th_std, g_std, trial_id)
+            start_step = 0
+        else:
+            # Calculate starting step from current_time
+            start_step = int(self.current_time / self.dt)
 
         n_steps = int(duration / self.dt)
 
         for step in range(n_steps):
+            actual_time_step = start_step + step
             # Check for perturbation
             if (perturbation_time is not None and
                 abs(self.current_time - perturbation_time) < self.dt/2):
@@ -217,7 +227,7 @@ class SpikingRNN:
             # readout_activity will be None (not computed)
             self.step(session_id, v_th_std, g_std, trial_id,
                      static_input_rate=static_input_rate,
-                     time_step=step)
+                     time_step=actual_time_step)
 
         return self.spike_times.copy()
 
@@ -349,3 +359,25 @@ class SpikingRNN:
         info.update({f'hd_input_{k}': v for k, v in hd_info.items()})
 
         return info
+
+    def save_state(self):
+        """Save current network state for later restoration."""
+        return {
+            'current_time': self.current_time,
+            'spike_times': self.spike_times.copy(),
+            'neuron_v_membrane': self.neurons.v_membrane.copy(),
+            'neuron_last_spike': self.neurons.last_spike_time.copy(),
+            'neuron_refractory': self.neurons.refractory_timer.copy(),
+            'recurrent_synaptic_current': self.recurrent_synapses.synaptic_current.copy(),
+            'static_synaptic_current': self.static_input_synapses.synaptic_current.copy()
+        }
+
+    def restore_state(self, state):
+        """Restore previously saved network state."""
+        self.current_time = state['current_time']
+        self.spike_times = state['spike_times'].copy()
+        self.neurons.v_membrane = state['neuron_v_membrane'].copy()
+        self.neurons.last_spike_time = state['neuron_last_spike'].copy()
+        self.neurons.refractory_timer = state['neuron_refractory'].copy()
+        self.recurrent_synapses.synaptic_current = state['recurrent_synaptic_current'].copy()
+        self.static_input_synapses.synaptic_current = state['static_synaptic_current'].copy()

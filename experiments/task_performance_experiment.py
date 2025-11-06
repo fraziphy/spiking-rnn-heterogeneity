@@ -10,6 +10,7 @@ import sys
 import time
 from typing import Dict, List, Any, Tuple
 from sklearn.model_selection import StratifiedKFold  # <-- ADD THIS HERE
+import gc
 
 # Import base class
 from .base_experiment import BaseExperiment
@@ -401,19 +402,42 @@ class TaskPerformanceExperiment(BaseExperiment):
             if self.task_type == 'categorical':
                 decision_window_steps = int(self.decision_window / self.dt)
 
-                train_metrics = evaluate_categorical_task(
-                    y_pred_train, y_train, decision_window_steps
-                )
+                # FIXED: Simple evaluation for training (no Bayesian overhead)
+                decision_window_steps = int(self.decision_window / self.dt)
+                y_pred_train_window = y_pred_train[:, -decision_window_steps:, :]
+                y_pred_train_avg = y_pred_train_window.mean(axis=1)
+                y_train_labels = np.argmax(y_train[:, 0, :], axis=1)
+                train_pred_labels = np.argmax(y_pred_train_avg, axis=1)
+                train_accuracy = float(np.mean(train_pred_labels == y_train_labels))
+
+                # Full Bayesian evaluation ONLY for test data
                 test_metrics = evaluate_categorical_task(
                     y_pred_test, y_test, decision_window_steps
                 )
 
+
                 local_fold_results.append({
                     'fold': cv_iter,
-                    'train_accuracy': train_metrics['accuracy'],
+                    'train_accuracy_timeaveraged': train_accuracy,
                     'test_accuracy': test_metrics['accuracy'],
                     'confusion_matrix': test_metrics['confusion_matrix'],
-                    'per_class_accuracy': test_metrics['per_class_accuracy']
+                    'per_class_accuracy': test_metrics['per_class_accuracy'],
+                    # NEW: Bayesian confidence metrics
+                    'test_mean_confidence': test_metrics['mean_confidence'],
+                    'test_mean_confidence_correct': test_metrics['mean_confidence_correct'],
+                    'test_mean_confidence_incorrect': test_metrics['mean_confidence_incorrect'],
+                    'test_mean_uncertainty': test_metrics['mean_uncertainty'],
+                    # NEW: Time-averaged comparison
+                    'test_accuracy_timeaveraged': test_metrics['accuracy_timeaveraged'],
+                    'confusion_matrix_timeaveraged': test_metrics['confusion_matrix_timeaveraged'],
+                    'per_class_accuracy_timeaveraged': test_metrics['per_class_accuracy_timeaveraged'],
+                    # Agreement metrics
+                    'test_methods_agreement_rate': test_metrics['methods_agreement_rate'],
+                    'test_methods_agree_count': test_metrics['methods_agree_count'],
+                    'test_agree_correct_count': test_metrics['agree_and_correct_count'],
+                    'test_disagree_bayesian_correct': test_metrics['disagree_bayesian_correct_count'],
+                    'test_disagree_timeaveraged_correct': test_metrics['disagree_timeaveraged_correct_count'],
+                    'test_disagree_both_wrong': test_metrics['disagree_both_wrong_count']
                 })
 
             else:  # temporal
@@ -429,6 +453,10 @@ class TaskPerformanceExperiment(BaseExperiment):
                     'test_r2': test_metrics['r2_mean'],
                     'test_correlation': test_metrics['correlation_mean']
                 })
+
+                # MEMORY FIX: Free memory after each fold
+                del X_train, X_test, y_pred_train, y_pred_test, W_readout
+                gc.collect()
 
         # Gather all results to rank 0
         all_fold_results = comm.gather(local_fold_results, root=0)
@@ -449,17 +477,63 @@ class TaskPerformanceExperiment(BaseExperiment):
 
             # Aggregate
             if self.task_type == 'categorical':
-                train_acc = [f['train_accuracy'] for f in fold_results]
+                train_acc = [f['train_accuracy_timeaveraged'] for f in fold_results]
                 test_acc = [f['test_accuracy'] for f in fold_results]
 
+                # NEW: Extract Bayesian metrics
+                test_confidence = [f['test_mean_confidence'] for f in fold_results]
+                test_confidence_correct = [f['test_mean_confidence_correct'] for f in fold_results]
+                test_confidence_incorrect = [f['test_mean_confidence_incorrect'] for f in fold_results]
+                test_uncertainty = [f['test_mean_uncertainty'] for f in fold_results]
+
+                # NEW: Extract time-averaged comparison
+                test_acc_timeaveraged = [f['test_accuracy_timeaveraged'] for f in fold_results]
+                agreement_rates = [f['test_methods_agreement_rate'] for f in fold_results]
+                disagree_bayes_correct = [f['test_disagree_bayesian_correct'] for f in fold_results]
+                disagree_tavg_correct = [f['test_disagree_timeaveraged_correct'] for f in fold_results]
+                disagree_both_wrong = [f['test_disagree_both_wrong'] for f in fold_results]
+                agree_counts = [f['test_methods_agree_count'] for f in fold_results]
+                agree_correct_counts = [f['test_agree_correct_count'] for f in fold_results]
+
                 return {
-                    'train_accuracy_mean': float(np.mean(train_acc)),
-                    'train_accuracy_std': float(np.std(train_acc)),
-                    'test_accuracy_mean': float(np.mean(test_acc)),
-                    'test_accuracy_std': float(np.std(test_acc)),
-                    'cv_accuracy_per_fold': test_acc,
-                    'cv_confusion_matrices': [f['confusion_matrix'] for f in fold_results],
-                    'cv_per_class_accuracy': [f['per_class_accuracy'] for f in fold_results],
+                    # Training performance (time-averaged only)
+                    'train_accuracy_timeaveraged_mean': float(np.mean(train_acc)),
+                    'train_accuracy_timeaveraged_std': float(np.std(train_acc)),
+
+                    # Test performance - Bayesian decoder (PRIMARY)
+                    'test_accuracy_bayesian_mean': float(np.mean(test_acc)),
+                    'test_accuracy_bayesian_std': float(np.std(test_acc)),
+                    'test_confidence_bayesian_mean': float(np.mean(test_confidence)),
+                    'test_confidence_bayesian_std': float(np.std(test_confidence)),
+                    'test_confidence_correct_bayesian_mean': float(np.nanmean(test_confidence_correct)),
+                    'test_confidence_correct_bayesian_std': float(np.nanstd(test_confidence_correct)),
+                    'test_confidence_incorrect_bayesian_mean': float(np.nanmean(test_confidence_incorrect)),
+                    'test_confidence_incorrect_bayesian_std': float(np.nanstd(test_confidence_incorrect)),
+                    'test_uncertainty_bayesian_mean': float(np.mean(test_uncertainty)),
+                    'test_uncertainty_bayesian_std': float(np.std(test_uncertainty)),
+
+                    # Test performance - Time-averaged decoder (COMPARISON)
+                    'test_accuracy_timeaveraged_mean': float(np.mean(test_acc_timeaveraged)),
+                    'test_accuracy_timeaveraged_std': float(np.std(test_acc_timeaveraged)),
+
+                    # Agreement between decoders
+                    'test_methods_agreement_rate_mean': float(np.mean(agreement_rates)),
+                    'test_methods_agreement_rate_std': float(np.std(agreement_rates)),
+                    'test_methods_agree_count_mean': float(np.mean(agree_counts)),
+                    'test_agree_correct_count_mean': float(np.mean(agree_correct_counts)),
+                    'test_disagree_bayesian_correct_mean': float(np.mean(disagree_bayes_correct)),
+                    'test_disagree_timeaveraged_correct_mean': float(np.mean(disagree_tavg_correct)),
+                    'test_disagree_both_wrong_mean': float(np.mean(disagree_both_wrong)),
+
+                    # Per-fold details
+                    'cv_accuracy_bayesian_per_fold': test_acc,
+                    'cv_accuracy_timeaveraged_per_fold': test_acc_timeaveraged,
+                    'cv_confusion_matrices_bayesian': [f['confusion_matrix'] for f in fold_results],
+                    'cv_confusion_matrices_timeaveraged': [f['confusion_matrix_timeaveraged'] for f in fold_results],
+                    'cv_per_class_accuracy_bayesian': [f['per_class_accuracy'] for f in fold_results],
+                    'cv_per_class_accuracy_timeaveraged': [f['per_class_accuracy_timeaveraged'] for f in fold_results],
+
+                    # Readout weights
                     'readout_weights': all_weights_flat
                 }
             else:  # temporal
@@ -564,19 +638,40 @@ class TaskPerformanceExperiment(BaseExperiment):
                 if self.task_type == 'categorical':
                     decision_window_steps = int(self.decision_window / self.dt)
 
-                    train_metrics = evaluate_categorical_task(
-                        y_pred_train, y_train, decision_window_steps
-                    )
+                    # FIXED: Simple evaluation for training
+                    y_pred_train_window = y_pred_train[:, -decision_window_steps:, :]
+                    y_pred_train_avg = y_pred_train_window.mean(axis=1)
+                    y_train_labels = np.argmax(y_train[:, 0, :], axis=1)
+                    train_pred_labels = np.argmax(y_pred_train_avg, axis=1)
+                    train_accuracy = float(np.mean(train_pred_labels == y_train_labels))
+
+                    # Full Bayesian evaluation ONLY for test data
                     test_metrics = evaluate_categorical_task(
                         y_pred_test, y_test, decision_window_steps
                     )
 
                     fold_results.append({
                         'fold': cv_iter,
-                        'train_accuracy': train_metrics['accuracy'],
+                        'train_accuracy_timeaveraged': train_accuracy,
                         'test_accuracy': test_metrics['accuracy'],
                         'confusion_matrix': test_metrics['confusion_matrix'],
-                        'per_class_accuracy': test_metrics['per_class_accuracy']
+                        'per_class_accuracy': test_metrics['per_class_accuracy'],
+                        # Bayesian confidence metrics
+                        'test_mean_confidence': test_metrics['mean_confidence'],
+                        'test_mean_confidence_correct': test_metrics['mean_confidence_correct'],
+                        'test_mean_confidence_incorrect': test_metrics['mean_confidence_incorrect'],
+                        'test_mean_uncertainty': test_metrics['mean_uncertainty'],
+                        # Time-averaged comparison
+                        'test_accuracy_timeaveraged': test_metrics['accuracy_timeaveraged'],
+                        'confusion_matrix_timeaveraged': test_metrics['confusion_matrix_timeaveraged'],
+                        'per_class_accuracy_timeaveraged': test_metrics['per_class_accuracy_timeaveraged'],
+                        # Agreement metrics
+                        'test_methods_agreement_rate': test_metrics['methods_agreement_rate'],
+                        'test_methods_agree_count': test_metrics['methods_agree_count'],
+                        'test_agree_correct_count': test_metrics['agree_and_correct_count'],
+                        'test_disagree_bayesian_correct': test_metrics['disagree_bayesian_correct_count'],
+                        'test_disagree_timeaveraged_correct': test_metrics['disagree_timeaveraged_correct_count'],
+                        'test_disagree_both_wrong': test_metrics['disagree_both_wrong_count']
                     })
 
                 else:  # temporal or auto_encoding
@@ -593,21 +688,75 @@ class TaskPerformanceExperiment(BaseExperiment):
                         'test_correlation': test_metrics['correlation_mean']
                     })
 
+                # MEMORY FIX: Free memory after each fold (works for both categorical and temporal)
+                del X_train, X_test, y_pred_train, y_pred_test, W_readout
+                gc.collect()
+
             # Aggregate results
             if self.task_type == 'categorical':
-                train_acc = [f['train_accuracy'] for f in fold_results]
-                test_acc = [f['test_accuracy'] for f in fold_results]
+                # Extract all metrics across folds
+                train_acc_tavg = [f['train_accuracy_timeaveraged'] for f in fold_results]
+
+                # Bayesian decoder (primary method)
+                test_acc_bayesian = [f['test_accuracy'] for f in fold_results]
+                test_conf = [f['test_mean_confidence'] for f in fold_results]
+                test_conf_correct = [f['test_mean_confidence_correct'] for f in fold_results]
+                test_conf_incorrect = [f['test_mean_confidence_incorrect'] for f in fold_results]
+                test_uncertainty = [f['test_mean_uncertainty'] for f in fold_results]
+
+                # Time-averaged decoder (comparison method)
+                test_acc_tavg = [f['test_accuracy_timeaveraged'] for f in fold_results]
+
+                # Agreement between methods
+                agreement_rates = [f['test_methods_agreement_rate'] for f in fold_results]
+                agree_counts = [f['test_methods_agree_count'] for f in fold_results]
+                agree_correct_counts = [f['test_agree_correct_count'] for f in fold_results]
+                disagree_bayes_correct = [f['test_disagree_bayesian_correct'] for f in fold_results]
+                disagree_tavg_correct = [f['test_disagree_timeaveraged_correct'] for f in fold_results]
+                disagree_both_wrong = [f['test_disagree_both_wrong'] for f in fold_results]
 
                 return {
-                    'train_accuracy_mean': float(np.mean(train_acc)),
-                    'train_accuracy_std': float(np.std(train_acc)),
-                    'test_accuracy_mean': float(np.mean(test_acc)),
-                    'test_accuracy_std': float(np.std(test_acc)),
-                    'cv_accuracy_per_fold': test_acc,
-                    'cv_confusion_matrices': [f['confusion_matrix'] for f in fold_results],
-                    'cv_per_class_accuracy': [f['per_class_accuracy'] for f in fold_results],
+                    # Training performance (time-averaged only)
+                    'train_accuracy_timeaveraged_mean': float(np.mean(train_acc_tavg)),
+                    'train_accuracy_timeaveraged_std': float(np.std(train_acc_tavg)),
+
+                    # Test performance - Bayesian decoder (PRIMARY)
+                    'test_accuracy_bayesian_mean': float(np.mean(test_acc_bayesian)),
+                    'test_accuracy_bayesian_std': float(np.std(test_acc_bayesian)),
+                    'test_confidence_bayesian_mean': float(np.mean(test_conf)),
+                    'test_confidence_bayesian_std': float(np.std(test_conf)),
+                    'test_confidence_correct_bayesian_mean': float(np.nanmean(test_conf_correct)),
+                    'test_confidence_correct_bayesian_std': float(np.nanstd(test_conf_correct)),
+                    'test_confidence_incorrect_bayesian_mean': float(np.nanmean(test_conf_incorrect)),
+                    'test_confidence_incorrect_bayesian_std': float(np.nanstd(test_conf_incorrect)),
+                    'test_uncertainty_bayesian_mean': float(np.mean(test_uncertainty)),
+                    'test_uncertainty_bayesian_std': float(np.std(test_uncertainty)),
+
+                    # Test performance - Time-averaged decoder (COMPARISON)
+                    'test_accuracy_timeaveraged_mean': float(np.mean(test_acc_tavg)),
+                    'test_accuracy_timeaveraged_std': float(np.std(test_acc_tavg)),
+
+                    # Agreement between decoders
+                    'test_methods_agreement_rate_mean': float(np.mean(agreement_rates)),
+                    'test_methods_agreement_rate_std': float(np.std(agreement_rates)),
+                    'test_methods_agree_count_mean': float(np.mean(agree_counts)),
+                    'test_agree_correct_count_mean': float(np.mean(agree_correct_counts)),
+                    'test_disagree_bayesian_correct_mean': float(np.mean(disagree_bayes_correct)),
+                    'test_disagree_timeaveraged_correct_mean': float(np.mean(disagree_tavg_correct)),
+                    'test_disagree_both_wrong_mean': float(np.mean(disagree_both_wrong)),
+
+                    # Per-fold details
+                    'cv_accuracy_bayesian_per_fold': test_acc_bayesian,
+                    'cv_accuracy_timeaveraged_per_fold': test_acc_tavg,
+                    'cv_confusion_matrices_bayesian': [f['confusion_matrix'] for f in fold_results],
+                    'cv_confusion_matrices_timeaveraged': [f['confusion_matrix_timeaveraged'] for f in fold_results],
+                    'cv_per_class_accuracy_bayesian': [f['per_class_accuracy'] for f in fold_results],
+                    'cv_per_class_accuracy_timeaveraged': [f['per_class_accuracy_timeaveraged'] for f in fold_results],
+
+                    # Readout weights
                     'readout_weights': all_weights
                 }
+
             else:  # temporal or auto_encoding
                 train_rmse = [f['train_rmse'] for f in fold_results]
                 test_rmse = [f['test_rmse'] for f in fold_results]

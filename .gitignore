@@ -1,0 +1,26 @@
+# Data files (too large for GitHub)
+data_curation/*.pkl
+results/**/*.pkl
+hd_signals/**/*.pkl
+
+# Log files
+*.log
+sweep/logs_*/
+sweep/*.txt.backup
+sweep/*_joblog.txt
+
+# Temporary files
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+# Data files (too large for GitHub)
+data_curation/*.pkl
+results/**/*.pkl
+hd_signals/**/*.pkl
+
+# Log files
+*.log
+sweep/logs_*/
+sweep/*.txt.backup
+sweep/*_joblog.txt

@@ -1,6 +1,7 @@
 # experiments/stability_experiment.py - Refactored with base class
 """
 Network stability experiment with full-simulation LZ analysis and settling time.
+MODIFIED: Pre-perturbation time changed from 200ms to 500ms (total duration 800ms).
 """
 
 import numpy as np
@@ -22,8 +23,8 @@ except ImportError:
     project_root = os.path.dirname(current_dir)
     for subdir in ['src', 'analysis']:
         sys.path.insert(0, os.path.join(project_root, subdir))
-    from src.spiking_network import SpikingRNN  # FIXED
-    from src.rng_utils import get_rng  # FIXED
+    from src.spiking_network import SpikingRNN
+    from src.rng_utils import get_rng
     from analysis.stability_analysis import analyze_perturbation_response
 
 
@@ -37,11 +38,11 @@ class StabilityExperiment(BaseExperiment):
         self.synaptic_mode = synaptic_mode
         self.static_input_mode = static_input_mode
 
-        # Timing parameters - perturbation_time IS the transient (200ms)
-        self.pre_perturbation_time = 200.0  # UPDATED
-        self.post_perturbation_time = 300.0
-        self.total_duration = self.pre_perturbation_time + self.post_perturbation_time
-        self.perturbation_time = self.pre_perturbation_time
+        # Timing parameters - MODIFIED: 500ms pre-perturbation (was 200ms)
+        self.pre_perturbation_time = 500.0  # ms
+        self.post_perturbation_time = 300.0  # ms
+        self.total_duration = self.pre_perturbation_time + self.post_perturbation_time  # 800ms
+        self.perturbation_time = self.pre_perturbation_time  # Perturbation at 500ms
         self.n_perturbation_trials = 100
 
     def get_perturbation_neurons(self, session_id: int, v_th_std: float, g_std: float) -> np.ndarray:
@@ -53,15 +54,23 @@ class StabilityExperiment(BaseExperiment):
     def run_single_perturbation(self, session_id: int, v_th_std: float, g_std: float, trial_id: int,
                               v_th_distribution: str, perturbation_neuron_idx: int,
                               static_input_rate: float = 200.0) -> Dict[str, Any]:
-        """Run single perturbation with random structure per parameter combination."""
+        """
+        Run single perturbation with OPTIMIZED simulation.
 
-        # Create identical networks
-        network_control = SpikingRNN(self.n_neurons, dt=self.dt,
-                                     synaptic_mode=self.synaptic_mode,
-                                     static_input_mode=self.static_input_mode)
-        network_perturbed = SpikingRNN(self.n_neurons, dt=self.dt,
-                                       synaptic_mode=self.synaptic_mode,
-                                       static_input_mode=self.static_input_mode)
+        Strategy:
+        1. Simulate one network 0→500ms (transient)
+        2. Save state at 500ms
+        3. Create control & perturbed from saved state
+        4. Control: 500→800ms (no perturbation)
+        5. Perturbed: 500→800ms (auxiliary spike at t=500ms)
+
+        Saves ~40% computation time by avoiding duplicate 0→500ms simulation!
+        """
+
+        # Create single network for transient simulation
+        network = SpikingRNN(self.n_neurons, dt=self.dt,
+                            synaptic_mode=self.synaptic_mode,
+                            static_input_mode=self.static_input_mode)
 
         network_params = {
             'v_th_distribution': v_th_distribution,
@@ -69,9 +78,7 @@ class StabilityExperiment(BaseExperiment):
             'readout_weight_scale': 1.0
         }
 
-        # Initialize both networks with identical structure
-        for network in [network_control, network_perturbed]:
-            network.initialize_network(session_id, v_th_std, g_std, **network_params)
+        network.initialize_network(session_id, v_th_std, g_std, **network_params)
 
         # Get perturbation neuron
         perturbation_neurons = self.get_perturbation_neurons(session_id, v_th_std, g_std)
@@ -79,53 +86,105 @@ class StabilityExperiment(BaseExperiment):
         safe_idx = perturbation_neuron_idx % available_neurons
         perturbation_neuron = int(perturbation_neurons[safe_idx])
 
-        # Run control simulation
+        # PHASE 1: Simulate transient period (0→500ms) ONCE
+        spikes_transient = network.simulate_network_dynamics(
+            session_id=session_id,
+            v_th_std=v_th_std,
+            g_std=g_std,
+            trial_id=trial_id,
+            duration=self.pre_perturbation_time,  # 500ms
+            static_input_rate=static_input_rate
+        )
+
+        # Save state at 500ms
+        state_at_500ms = network.save_state()
+
+        # PHASE 2a: Control network - continue from 500ms to 800ms (no perturbation)
+        network_control = SpikingRNN(self.n_neurons, dt=self.dt,
+                                     synaptic_mode=self.synaptic_mode,
+                                     static_input_mode=self.static_input_mode)
+        network_control.initialize_network(session_id, v_th_std, g_std, **network_params)
+        network_control.restore_state(state_at_500ms)
+
         spikes_control = network_control.simulate_network_dynamics(
             session_id=session_id,
             v_th_std=v_th_std,
             g_std=g_std,
             trial_id=trial_id,
-            duration=self.total_duration,
-            static_input_rate=static_input_rate
+            duration=self.post_perturbation_time,  # 300ms
+            static_input_rate=static_input_rate,
+            continue_from_state=True  # Continue from restored state at 500ms
         )
 
-        # Run perturbed simulation
+        del network  # Free transient network
+        del network_control  # Free control network
+
+        # PHASE 2b: Perturbed network - continue from 500ms with perturbation at t=0 (=500ms absolute)
+        network_perturbed = SpikingRNN(self.n_neurons, dt=self.dt,
+                                       synaptic_mode=self.synaptic_mode,
+                                       static_input_mode=self.static_input_mode)
+        network_perturbed.initialize_network(session_id, v_th_std, g_std, **network_params)
+        network_perturbed.restore_state(state_at_500ms)
+
         spikes_perturbed = network_perturbed.simulate_network_dynamics(
             session_id=session_id,
             v_th_std=v_th_std,
             g_std=g_std,
             trial_id=trial_id,
-            duration=self.total_duration,
+            duration=self.post_perturbation_time,  # 300ms
             static_input_rate=static_input_rate,
-            perturbation_time=self.perturbation_time,
-            perturbation_neuron=perturbation_neuron
+            perturbation_time=state_at_500ms['current_time'],  # Perturbation at restored time (500ms)
+            perturbation_neuron=perturbation_neuron,
+            continue_from_state=True  # Continue from restored state at 500ms
         )
 
-        # Stability analysis
-        analysis_results = analyze_perturbation_response(
+        del network_perturbed  # Free perturbed network
+
+        # Analyze perturbation response (stability)
+        stability_analysis = analyze_perturbation_response(
             spikes_control=spikes_control,
             spikes_perturbed=spikes_perturbed,
-            num_neurons=self.n_neurons,
-            perturbation_time=self.perturbation_time,
-            simulation_end=self.total_duration,
+            perturbation_time=self.perturbation_time,  # 500ms absolute
             perturbed_neuron=perturbation_neuron,
+            num_neurons=self.n_neurons,
+            simulation_end=self.total_duration,
             dt=self.dt
         )
 
-        analysis_results['perturbation_neuron'] = perturbation_neuron
-        analysis_results['perturbation_neuron_idx'] = perturbation_neuron_idx
+        # Analyze spontaneous activity on control network's post-transient period
+        try:
+            from analysis.spontaneous_analysis import analyze_spontaneous_activity
+        except ImportError:
+            sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'analysis'))
+            from analysis.spontaneous_analysis import analyze_spontaneous_activity
 
-        return analysis_results
+        spontaneous_analysis = analyze_spontaneous_activity(
+            spikes=spikes_control,
+            num_neurons=self.n_neurons,
+            duration=self.total_duration,
+            transient_time=self.pre_perturbation_time  # 500ms transient
+        )
+
+        # Flatten spontaneous analysis (it returns nested dicts)
+        spontaneous_flat = {
+            **spontaneous_analysis['firing_stats'],
+            'dimensionality': spontaneous_analysis['dimensionality_metrics'],
+            'cv_isi': spontaneous_analysis['poisson_analysis']['population_statistics']['mean_cv_isi'],
+            'fano_factor': spontaneous_analysis['poisson_analysis']['population_statistics']['mean_fano_factor']
+        }
+
+        # Merge both analyses
+        result = {**stability_analysis, **spontaneous_flat}
+
+        return result
 
     def run_parameter_combination(self, session_id: int, v_th_std: float, g_std: float,
                                 v_th_distribution: str = "normal",
                                 static_input_rate: float = 200.0) -> Dict[str, Any]:
-        """Run parameter combination with stability analysis."""
+        """Run stability analysis for parameter combination."""
         start_time = time.time()
 
         trial_results = []
-        perturbation_neuron_indices = list(range(self.n_perturbation_trials))
-
         for trial_idx in range(self.n_perturbation_trials):
             trial_result = self.run_single_perturbation(
                 session_id=session_id,
@@ -133,7 +192,7 @@ class StabilityExperiment(BaseExperiment):
                 g_std=g_std,
                 trial_id=trial_idx + 1,
                 v_th_distribution=v_th_distribution,
-                perturbation_neuron_idx=perturbation_neuron_indices[trial_idx],
+                perturbation_neuron_idx=trial_idx,
                 static_input_rate=static_input_rate
             )
             trial_results.append(trial_result)
@@ -142,10 +201,6 @@ class StabilityExperiment(BaseExperiment):
         arrays = self.extract_trial_arrays(trial_results)
         stats = self.compute_all_statistics(arrays)
 
-        # Additional computed statistics
-        additional_stats = self._compute_additional_statistics(trial_results)
-
-        # Compile results
         results = {
             'session_id': session_id,
             'v_th_std': v_th_std,
@@ -154,74 +209,78 @@ class StabilityExperiment(BaseExperiment):
             'static_input_rate': static_input_rate,
             'synaptic_mode': self.synaptic_mode,
             'static_input_mode': self.static_input_mode,
-            **arrays,
-            **stats,
-            **additional_stats,
+            'perturbation_time': self.perturbation_time,
             'n_trials': len(trial_results),
             'computation_time': time.time() - start_time,
-            'perturbation_neurons': [r['perturbation_neuron'] for r in trial_results]
+            **stats
         }
 
         return results
 
     def extract_trial_arrays(self, trial_results: List[Dict]) -> Dict[str, np.ndarray]:
-        """Extract arrays from trial results (required by base class)."""
-        arrays = {}
+        """Extract arrays from trial results (stability + spontaneous)."""
 
-        # LZ complexity measures
-        arrays['lz_spatial_patterns_values'] = np.array([r['lz_spatial_patterns'] for r in trial_results])
-        arrays['lz_column_wise_values'] = np.array([r['lz_column_wise'] for r in trial_results])
+        return {
+            # Stability metrics
+            'lz_spatial_patterns': np.array([r['lz_spatial_patterns'] for r in trial_results]),
+            'lz_column_wise': np.array([r['lz_column_wise'] for r in trial_results]),
+            'settling_time_ms': np.array([r['settling_time_ms'] for r in trial_results]),
+            'kistler_delta_2.0ms': np.array([r['kistler_delta_2.0ms'] for r in trial_results]),
+            'gamma_window_2.0ms': np.array([r['gamma_window_2.0ms'] for r in trial_results]),
 
-        # Shannon entropies
-        arrays['shannon_entropy_symbols_values'] = np.array([r['shannon_entropy_symbols'] for r in trial_results])
-        arrays['shannon_entropy_spikes_values'] = np.array([r['shannon_entropy_spikes'] for r in trial_results])
+            # Spontaneous metrics from control network
+            'mean_firing_rate': np.array([r['mean_firing_rate'] for r in trial_results]),
+            'percent_silent': np.array([r['percent_silent'] for r in trial_results]),
+            'cv_isi': np.array([r['cv_isi'] for r in trial_results]),
+            'fano_factor': np.array([r['fano_factor'] for r in trial_results]),
 
-        # Pattern statistics
-        arrays['unique_patterns_count_values'] = np.array([r['unique_patterns_count'] for r in trial_results])
-        arrays['post_pert_symbol_sum_values'] = np.array([r['post_pert_symbol_sum'] for r in trial_results])
-        arrays['total_spike_differences_values'] = np.array([r['total_spike_differences'] for r in trial_results])
+            # Dimensionality - effective dimensionality
+            'dimensionality_2ms': np.array([r['dimensionality']['bin_2.0ms']['effective_dimensionality'] for r in trial_results]),
+            'dimensionality_5ms': np.array([r['dimensionality']['bin_5.0ms']['effective_dimensionality'] for r in trial_results]),
+            'dimensionality_20ms': np.array([r['dimensionality']['bin_20.0ms']['effective_dimensionality'] for r in trial_results]),
 
-        # Settling time
-        arrays['settling_time_ms_values'] = np.array([r['settling_time_ms'] for r in trial_results])
+            # NEW: Participation ratio
+            'participation_ratio_2ms': np.array([r['dimensionality']['bin_2.0ms']['participation_ratio'] for r in trial_results]),
+            'participation_ratio_5ms': np.array([r['dimensionality']['bin_5.0ms']['participation_ratio'] for r in trial_results]),
+            'participation_ratio_20ms': np.array([r['dimensionality']['bin_20.0ms']['participation_ratio'] for r in trial_results]),
 
-        # Coincidence measures (includes 0.1ms)
-        arrays['kistler_delta_0.1ms_values'] = np.array([r['kistler_delta_0.1ms'] for r in trial_results])
-        arrays['kistler_delta_2.0ms_values'] = np.array([r['kistler_delta_2.0ms'] for r in trial_results])
-        arrays['kistler_delta_5.0ms_values'] = np.array([r['kistler_delta_5.0ms'] for r in trial_results])
-        arrays['gamma_window_0.1ms_values'] = np.array([r['gamma_window_0.1ms'] for r in trial_results])
-        arrays['gamma_window_2.0ms_values'] = np.array([r['gamma_window_2.0ms'] for r in trial_results])
-        arrays['gamma_window_5.0ms_values'] = np.array([r['gamma_window_5.0ms'] for r in trial_results])
+            # NEW: Intrinsic dimensionality (cumulative variance threshold)
+            'intrinsic_dim_2ms': np.array([r['dimensionality']['bin_2.0ms']['intrinsic_dimensionality'] for r in trial_results]),
+            'intrinsic_dim_5ms': np.array([r['dimensionality']['bin_5.0ms']['intrinsic_dimensionality'] for r in trial_results]),
+            'intrinsic_dim_20ms': np.array([r['dimensionality']['bin_20.0ms']['intrinsic_dimensionality'] for r in trial_results]),
+        }
 
-        return arrays
+    def compute_all_statistics(self, arrays: Dict[str, np.ndarray]) -> Dict[str, float]:
+        """Compute summary statistics for all metrics (override base method)."""
+        stats = {}
 
-    def _compute_additional_statistics(self, trial_results: List[Dict]) -> Dict[str, Any]:
-        """Compute additional statistics for stability."""
-        additional = {}
+        for key, values in arrays.items():
+            # Remove NaN values
+            valid_values = values[~np.isnan(values)]
 
-        # Settling time statistics
-        settling_times = [r.get('settling_time_ms', np.nan) for r in trial_results]
-        settled_count = sum(1 for st in settling_times if not np.isnan(st))
+            if len(valid_values) > 0:
+                stats[f'{key}_mean'] = float(np.mean(valid_values))
+                stats[f'{key}_std'] = float(np.std(valid_values))
+                stats[f'{key}_median'] = float(np.median(valid_values))
+                stats[f'{key}_min'] = float(np.min(valid_values))
+                stats[f'{key}_max'] = float(np.max(valid_values))
+            else:
+                stats[f'{key}_mean'] = np.nan
+                stats[f'{key}_std'] = np.nan
+                stats[f'{key}_median'] = np.nan
+                stats[f'{key}_min'] = np.nan
+                stats[f'{key}_max'] = np.nan
 
-        additional['settled_fraction'] = settled_count / len(settling_times) if settling_times else 0.0
-        additional['settled_count'] = settled_count
+        return stats
 
-        if settled_count > 0:
-            valid_times = [st for st in settling_times if not np.isnan(st)]
-            additional['settling_time_median'] = float(np.median(valid_times))
-        else:
-            additional['settling_time_median'] = np.nan
 
-        return additional
-
-    def run_full_experiment(self, session_id: int, v_th_stds: np.ndarray,
-                          g_stds: np.ndarray, v_th_distribution: str = "normal",
+    def run_full_experiment(self, session_id: int, v_th_stds: np.ndarray, g_stds: np.ndarray,
+                          v_th_distribution: str = "normal",
                           static_input_rates: np.ndarray = None) -> List[Dict[str, Any]]:
-        """Run full stability experiment with randomized job distribution."""
+        """Run full stability experiment."""
         if static_input_rates is None:
-            static_input_rates = np.array([50.0, 100.0, 200.0, 500.0, 1000.0]) if self.synaptic_mode == "filter" \
-                                 else np.array([50.0, 100.0, 200.0, 500.0])
+            static_input_rates = np.array([200.0])
 
-        # Use base class method for parameter combinations
         all_combinations = self.create_parameter_combinations(
             session_id=session_id,
             v_th_stds=v_th_stds,
@@ -234,7 +293,7 @@ class StabilityExperiment(BaseExperiment):
 
         results = []
         for i, combo in enumerate(all_combinations):
-            print(f"[{i+1}/{len(all_combinations)}]: v_th={combo['v_th_std']:.3f}, g={combo['g_std']:.3f}")
+            print(f"[{i+1}/{len(all_combinations)}]: v_th={combo['v_th_std']:.3f}, g={combo['g_std']:.3f}, rate={combo['static_input_rate']:.0f}")
 
             result = self.run_parameter_combination(
                 session_id=combo['session_id'],
@@ -247,5 +306,5 @@ class StabilityExperiment(BaseExperiment):
             result['original_combination_index'] = combo['combo_idx']
             results.append(result)
 
-        print(f"Stability experiment completed")
+        print(f"Stability experiment completed: {len(results)} combinations")
         return results

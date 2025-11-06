@@ -1,8 +1,8 @@
-
 # experiments/encoding_experiment.py - Updated to use inputs subdirectory
 """
 Encoding capacity experiment: study how networks encode high-dimensional inputs.
 Updated to use inputs/ subdirectory for HD signal caching.
+MODIFIED: Transient time changed from 200ms to 500ms.
 """
 
 import numpy as np
@@ -62,10 +62,10 @@ class EncodingExperiment(BaseExperiment):
         self.hd_input_mode = hd_input_mode
         self.embed_dim = embed_dim
 
-        # Timing parameters
-        self.transient_time = 200.0  # ms
+        # Timing parameters - MODIFIED: 500ms transient (was 200ms)
+        self.transient_time = 500.0  # ms
         self.encoding_time = 300.0  # ms
-        self.total_duration = self.transient_time + self.encoding_time
+        self.total_duration = self.transient_time + self.encoding_time  # 800ms total
 
         # Number of trials
         self.n_trials = 100
@@ -124,7 +124,8 @@ class EncodingExperiment(BaseExperiment):
             trial_id=trial_id,
             hd_dim=hd_dim,
             noise_std=hd_noise_std,
-            rate_scale=hd_rate_scale
+            rate_scale=hd_rate_scale,
+            static_input_rate=static_input_rate
         )
 
         # Run encoding simulation
@@ -173,7 +174,7 @@ class EncodingExperiment(BaseExperiment):
         """
         start_time = time.time()
 
-        # Initialize HD generator base input (cached)
+        # Initialize HD generator base input (cached) - still 300ms signal
         self.hd_generator.initialize_base_input(
             session_id=session_id,
             hd_dim=hd_dim,

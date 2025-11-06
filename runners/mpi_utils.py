@@ -2,11 +2,37 @@
 """
 Common utilities for MPI-parallelized experiments.
 Includes work distribution, system monitoring, and recovery mechanisms.
+
+IMPORTANT: Adjust thresholds based on YOUR system's normal operating conditions!
 """
 
 import time
+import os
 from typing import Tuple
 from mpi4py import MPI
+
+
+# ============================================================================
+# CONFIGURABLE THRESHOLDS - ADJUST THESE FOR YOUR SYSTEM!
+# ============================================================================
+
+# Temperature threshold (°C)
+# - Check your system's normal temp: Run `sensors` or check with psutil
+# - Set this 5-10°C ABOVE your normal maximum
+# - Example: Normal max = 92°C → Set to 100°C
+TEMP_THRESHOLD = float(os.getenv('TEMP_THRESHOLD', '100'))  # Default: 100°C
+
+# CPU threshold (%)
+# - Triggers when CPU usage exceeds this
+# - 98% is usually fine (allows full utilization)
+CPU_THRESHOLD = float(os.getenv('CPU_THRESHOLD', '98'))  # Default: 98%
+
+# Memory threshold (%)
+# - Triggers when RAM usage exceeds this
+# - 95% is usually safe (leaves 5% buffer)
+MEMORY_THRESHOLD = float(os.getenv('MEMORY_THRESHOLD', '95'))  # Default: 95%
+
+# ============================================================================
 
 
 def distribute_work_for_rank(total_jobs: int, rank: int, size: int) -> Tuple[int, int]:
@@ -50,7 +76,12 @@ def distribute_work(total_jobs: int, comm: MPI.Comm) -> Tuple[int, int]:
 
 def monitor_system_health() -> Tuple[bool, str]:
     """
-    Monitor system health with relaxed thresholds.
+    Monitor system health with CONFIGURABLE thresholds.
+    
+    Thresholds can be set via environment variables or by editing this file:
+    - TEMP_THRESHOLD: Temperature threshold in °C (default: 100)
+    - CPU_THRESHOLD: CPU usage threshold in % (default: 98)
+    - MEMORY_THRESHOLD: Memory usage threshold in % (default: 95)
 
     Returns:
         Tuple of (is_healthy, status_message)
@@ -75,14 +106,14 @@ def monitor_system_health() -> Tuple[bool, str]:
         memory = psutil.virtual_memory()
         memory_percent = memory.percent
 
-        # Relaxed thresholds
+        # Check against configurable thresholds
         critical_issues = []
-        if temp_available and max_temp > 90:
-            critical_issues.append(f"Temperature {max_temp:.1f}°C")
-        if cpu_percent > 98:
-            critical_issues.append(f"CPU {cpu_percent:.1f}%")
-        if memory_percent > 95:
-            critical_issues.append(f"Memory {memory_percent:.1f}%")
+        if temp_available and max_temp > TEMP_THRESHOLD:
+            critical_issues.append(f"Temperature {max_temp:.1f}°C > {TEMP_THRESHOLD:.0f}°C")
+        if cpu_percent > CPU_THRESHOLD:
+            critical_issues.append(f"CPU {cpu_percent:.1f}% > {CPU_THRESHOLD:.0f}%")
+        if memory_percent > MEMORY_THRESHOLD:
+            critical_issues.append(f"Memory {memory_percent:.1f}% > {MEMORY_THRESHOLD:.0f}%")
 
         if critical_issues:
             return False, f"CRITICAL: {'; '.join(critical_issues)}"
@@ -93,7 +124,7 @@ def monitor_system_health() -> Tuple[bool, str]:
             return True, "HEALTHY - " + " | ".join(status_parts)
 
     except ImportError:
-        return True, "Health monitoring unavailable"
+        return True, "Health monitoring unavailable (psutil not installed)"
     except Exception as e:
         return True, f"Health monitoring error: {str(e)}"
 
@@ -104,7 +135,7 @@ def recovery_break(rank: int, duration: int = 300, reason: str = "system_stress"
 
     Args:
         rank: Rank ID
-        duration: Break duration in seconds
+        duration: Break duration in seconds (default: 300 = 5 min)
         reason: Reason for break
     """
     print(f"[Rank {rank}] RECOVERY BREAK: {reason} ({duration//60} min)")
@@ -113,11 +144,12 @@ def recovery_break(rank: int, duration: int = 300, reason: str = "system_stress"
     while time.time() - start_time < duration:
         elapsed = time.time() - start_time
         if int(elapsed) % 60 == 0:
-            print(f"[Rank {rank}] Break: {elapsed//60}/{duration//60} min")
+            remaining = duration - elapsed
+            print(f"[Rank {rank}] Break: {int(elapsed//60)}/{duration//60} min remaining: {int(remaining//60)} min")
 
         healthy, status = monitor_system_health()
         if healthy and "HEALTHY" in status:
-            print(f"[Rank {rank}] System recovered early")
+            print(f"[Rank {rank}] System recovered early - resuming work")
             break
 
         time.sleep(30)
@@ -158,3 +190,21 @@ def estimate_computation_time(total_combinations: int, size: int,
         Estimated time in hours
     """
     return (total_combinations * time_per_combo * trials_per_combo) / (size * 3600)
+
+
+def print_threshold_info():
+    """Print current threshold configuration."""
+    print("="*70)
+    print("SYSTEM HEALTH MONITORING - CURRENT THRESHOLDS")
+    print("="*70)
+    print(f"🌡️  Temperature: > {TEMP_THRESHOLD:.0f}°C")
+    print(f"💻 CPU Usage:   > {CPU_THRESHOLD:.0f}%")
+    print(f"🧠 Memory Usage: > {MEMORY_THRESHOLD:.0f}%")
+    print()
+    print("To change thresholds:")
+    print("  1. Edit TEMP_THRESHOLD, CPU_THRESHOLD, MEMORY_THRESHOLD in mpi_utils.py")
+    print("  2. Or set environment variables before running:")
+    print(f"     export TEMP_THRESHOLD=105")
+    print(f"     export CPU_THRESHOLD=98")
+    print(f"     export MEMORY_THRESHOLD=95")
+    print("="*70)
