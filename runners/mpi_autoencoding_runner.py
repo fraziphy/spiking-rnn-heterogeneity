@@ -103,6 +103,7 @@ def run_mpi_autoencoding_experiment(args):
         synaptic_mode=synaptic_mode,
         static_input_mode=static_input_mode,
         hd_input_mode=hd_input_mode,
+        hd_connection_mode=args.hd_connection_mode,
         signal_cache_dir=signal_cache_dir,
         decision_window=args.decision_window,
         stimulus_duration=args.stimulus_duration,
@@ -367,6 +368,13 @@ def run_mpi_autoencoding_experiment(args):
                 'n_trials': len(pr_values)
             }
 
+        # Compute input empirical dimensionality
+        from analysis.common_utils import compute_empirical_dimensionality
+        
+        # Autoencoding has only 1 input pattern
+        input_pattern = input_patterns[0]
+        input_empirical_dim = compute_empirical_dimensionality(input_pattern)
+
         result = {
             'session_id': session_id,
             'v_th_std': v_th_std,
@@ -379,6 +387,7 @@ def run_mpi_autoencoding_experiment(args):
             'synaptic_mode': synaptic_mode,
             'static_input_mode': static_input_mode,
             'hd_input_mode': hd_input_mode,
+            'hd_connection_mode': args.hd_connection_mode,
             'n_input_patterns': n_input_patterns,
             'n_trials_per_pattern': n_trials_per_pattern,
             'n_cv_folds': n_cv_folds,
@@ -386,6 +395,8 @@ def run_mpi_autoencoding_experiment(args):
             'decision_window': args.decision_window,
             'embed_dim_input': args.embed_dim_input,
             'dimensionality_summary': dim_summary,
+            # NEW: Input empirical dimensionality
+            'input_empirical_dim': input_empirical_dim,
             **cv_results
         }
 
@@ -427,6 +438,9 @@ if __name__ == "__main__":
                        choices=["independent", "common_stochastic", "common_tonic"])
     parser.add_argument("--hd_input_mode", type=str, default="independent",
                        choices=["independent", "common_stochastic", "common_tonic"])
+    parser.add_argument("--hd_connection_mode", type=str, default="overlapping",
+                       choices=["overlapping", "partitioned"],
+                       help="HD connection mode: overlapping (30%% random) or partitioned (equal division)")
     parser.add_argument("--v_th_distribution", type=str, default="normal", choices=["normal", "uniform"])
     parser.add_argument("--use_distributed_cv", action="store_true",
                    help="Use distributed CV (default: centralized to save RAM)")

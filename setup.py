@@ -1,19 +1,37 @@
 # setup.py
 """
-Setup configuration for Spiking RNN Heterogeneity Framework v6.0.0
+Setup configuration for Spiking RNN Heterogeneity Framework v6.2.0
+
+NEW in v6.2.0:
+- HD Connection Modes: overlapping (30% random, ~9% overlap) vs partitioned (equal division, 0% overlap)
+- Empirical Dimensionality Tracking: participation ratio for input/output patterns and reconstructed outputs
+- Enhanced result organization: results separated by connection mode in subdirectories
+- Improved numerical stability: robust handling of k=1 (single dimension) edge cases
+- Extended sweep infrastructure: connection mode flag support in all sweep scripts
+
+NEW in v6.1.0:
+- Sweep infrastructure reorganization: moved to sweep/ directory for better organization
+- Enhanced run_sweep_engine.sh with resume support for system reboots
+- Improved logging and job tracking with GNU parallel integration
+- Better separation: runners/ for single jobs, sweep/ for batch orchestration
 
 NEW in v6.0.0:
 - Reservoir computing tasks: categorical classification, temporal transformation, auto-encoding
 - Pattern-based HD input generation with task-specific caching
-- Dimensionality analysis for auto-encoding experiments
-- Unified TaskPerformanceExperiment infrastructure
+- Dimensionality analysis for auto-encoding experiments (multiple time scales)
+- Unified TaskPerformanceExperiment infrastructure (90% code sharing across tasks)
 - Sequential parameter combination processing with parallel trial/CV distribution
-- Distributed and centralized cross-validation modes
+- Distributed and centralized cross-validation modes for memory management
+
+Bug Fixes in v6.2.0:
+- Fixed syntax error in task_performance_experiment.py (function outside try-except block)
+- Added robust k=1 edge case handling in compute_empirical_dimensionality
+- Improved test file imports for flexible execution (direct run + pytest)
 
 Bug Fixes in v6.0.0:
 - Fixed directory path duplication in all MPI runners (task, autoencoding, spontaneous, stability, encoding)
 - Corrected output directory structure: results/{experiment}/data/ instead of results/{experiment}/{experiment}/data/
-- Fixed filename formats to include all relevant parameters (embedding dimensions, pattern counts)
+- Fixed filename formats to include all relevant parameters (embedding dimensions, pattern counts, connection modes)
 
 Refactored in v5.1.0:
 - Eliminated code duplication across experiments and analysis modules
@@ -31,7 +49,8 @@ def read_readme():
             return f.read()
     except FileNotFoundError:
         return ("Framework for studying spontaneous activity, network stability, HD encoding, "
-                "and reservoir computing tasks in heterogeneous spiking neural networks")
+                "and reservoir computing tasks in heterogeneous spiking neural networks with "
+                "configurable HD connection modes and dimensionality tracking")
 
 def read_requirements():
     requirements_path = os.path.join(os.path.dirname(__file__), 'requirements.txt')
@@ -55,8 +74,8 @@ def read_requirements():
 
 setup(
     name="spiking-rnn-heterogeneity",
-    version="6.0.0",
-    description="Reservoir computing tasks with refactored framework: categorical, temporal, and auto-encoding experiments",
+    version="6.2.0",
+    description="HD connection modes and empirical dimensionality tracking for reservoir computing tasks",
     long_description=read_readme(),
     long_description_content_type="text/markdown",
     author="Computational Neuroscience Research Group",
@@ -68,6 +87,7 @@ setup(
     package_data={
         '': ['*.txt', '*.md', '*.sh'],
         'runners': ['*.sh', '*.py'],
+        'sweep': ['*.sh', '*.py'],
         'tests': ['*.py'],
         'results': ['*.pkl', '*.json'],
         'hd_signals': ['*.pkl'],
@@ -114,7 +134,7 @@ setup(
             'spiking-rnn-spontaneous=runners.mpi_spontaneous_runner:main',
             'spiking-rnn-stability=runners.mpi_stability_runner:main',
             'spiking-rnn-encoding=runners.mpi_encoding_runner:main',
-            # Task experiments (v6.0)
+            # Task experiments (v6.0+)
             'spiking-rnn-task=runners.mpi_task_runner:main',
             'spiking-rnn-autoencoding=runners.mpi_autoencoding_runner:main',
         ],
@@ -141,11 +161,14 @@ setup(
         "categorical classification",
         "temporal transformation",
         "auto-encoding",
+        "HD connection modes",
+        "dimensionality tracking",
+        "participation ratio",
+        "overlapping connectivity",
+        "partitioned connectivity",
         "spontaneous activity",
         "network stability",
         "HD encoding",
-        "dimensionality analysis",
-        "refactored code",
         "computational neuroscience",
     ],
 

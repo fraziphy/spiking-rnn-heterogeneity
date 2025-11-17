@@ -27,9 +27,23 @@ G_VALUES=(1.0)       # Weight heterogeneity
 RATE_VALUES=(30)       # Static input rates
 EMBED_DIM_INPUT=(1 2 3 4 5)  # Input embedding dimensions
 
+
+
+
+
+N_SESSIONS=1
+EMBED_DIM_INPUT=(2)  # Input embedding dimensions
+
+
+
+
+
+
+
 STATIC_INPUT_MODE="common_tonic"
 HD_INPUT_MODE="common_tonic"
 SYNAPTIC_MODE="filter"
+HD_CONNECTION_MODE="overlapping"  # "overlapping" or "partitioned"
 # Generate jobs (from sweeps directory)
 python3 "$SCRIPT_DIR/generate_jobs.py" \
     --task "$TASK_TYPE" \
@@ -42,6 +56,7 @@ python3 "$SCRIPT_DIR/generate_jobs.py" \
     --static_input_mode "$STATIC_INPUT_MODE" \
     --hd_input_mode "$HD_INPUT_MODE" \
     --synaptic_mode "$SYNAPTIC_MODE" \
+    --hd_connection_mode "$HD_CONNECTION_MODE" \
     --output "$SCRIPT_DIR/jobs_categorical.txt"
 
 if [ $? -ne 0 ]; then

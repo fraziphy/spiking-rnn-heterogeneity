@@ -27,7 +27,8 @@ try:
     from src.spiking_network import SpikingRNN
     from src.hd_input import HDInputGenerator
     from src.rng_utils import get_rng
-    from analysis.common_utils import spikes_to_matrix
+    from analysis.common_utils import spikes_to_matrix, compute_empirical_dimensionality
+
 except ImportError:
     current_dir = os.path.dirname(__file__)
     project_root = os.path.dirname(current_dir)
@@ -36,7 +37,27 @@ except ImportError:
     from spiking_network import SpikingRNN
     from hd_input import HDInputGenerator
     from rng_utils import get_rng
-    from common_utils import spikes_to_matrix
+    from common_utils import spikes_to_matrix, compute_empirical_dimensionality
+
+
+def compute_pattern_dimensionalities(patterns: Dict[int, np.ndarray]) -> List[float]:
+    """
+    Compute empirical dimensionality for each pattern.
+
+    Args:
+        patterns: Dictionary mapping pattern_id to pattern array (n_timesteps, n_features)
+
+    Returns:
+        List of dimensionalities, one per pattern
+    """
+
+    dims = []
+    for pattern_id in sorted(patterns.keys()):
+        pattern = patterns[pattern_id]
+        dim = compute_empirical_dimensionality(pattern)
+        dims.append(dim)
+
+    return dims
 
 class TaskPerformanceExperiment(BaseExperiment):
     """
@@ -58,6 +79,7 @@ class TaskPerformanceExperiment(BaseExperiment):
                 synaptic_mode: str = "filter",
                 static_input_mode: str = "independent",
                 hd_input_mode: str = "independent",
+                hd_connection_mode: str = "overlapping",
                 signal_cache_dir: str = "hd_signals",
                 stimulus_duration: float = 300.0,
                 n_trials_per_pattern: int = 100,
@@ -84,6 +106,7 @@ class TaskPerformanceExperiment(BaseExperiment):
         self.synaptic_mode = synaptic_mode
         self.static_input_mode = static_input_mode
         self.hd_input_mode = hd_input_mode
+        self.hd_connection_mode = hd_connection_mode
 
         # Timing
         self.transient_time = 200.0
@@ -191,6 +214,7 @@ class TaskPerformanceExperiment(BaseExperiment):
             synaptic_mode=self.synaptic_mode,
             static_input_mode=self.static_input_mode,
             hd_input_mode=self.hd_input_mode,
+            hd_connection_mode=self.hd_connection_mode,
             n_hd_channels=self.input_dim_embedding,
             use_readout_synapses=False
         )
@@ -444,6 +468,9 @@ class TaskPerformanceExperiment(BaseExperiment):
                 train_metrics = evaluate_temporal_task(y_pred_train, y_train)
                 test_metrics = evaluate_temporal_task(y_pred_test, y_test)
 
+                # Get test pattern IDs for this fold
+                test_pattern_ids = pattern_ids[test_idx]
+
                 local_fold_results.append({
                     'fold': cv_iter,
                     'train_rmse': train_metrics['rmse_mean'],
@@ -451,7 +478,9 @@ class TaskPerformanceExperiment(BaseExperiment):
                     'train_correlation': train_metrics['correlation_mean'],
                     'test_rmse': test_metrics['rmse_mean'],
                     'test_r2': test_metrics['r2_mean'],
-                    'test_correlation': test_metrics['correlation_mean']
+                    'test_correlation': test_metrics['correlation_mean'],
+                    'test_predictions': y_pred_test,  # Store for dimensionality computation
+                    'test_pattern_ids': test_pattern_ids  # Store pattern IDs
                 })
 
                 # MEMORY FIX: Free memory after each fold
@@ -537,12 +566,41 @@ class TaskPerformanceExperiment(BaseExperiment):
                     'readout_weights': all_weights_flat
                 }
             else:  # temporal
+                from analysis.common_utils import compute_empirical_dimensionality
+                
                 train_rmse = [f['train_rmse'] for f in fold_results]
                 test_rmse = [f['test_rmse'] for f in fold_results]
                 train_r2 = [f['train_r2'] for f in fold_results]
                 test_r2 = [f['test_r2'] for f in fold_results]
                 train_corr = [f['train_correlation'] for f in fold_results]
                 test_corr = [f['test_correlation'] for f in fold_results]
+
+                # Compute reconstructed output dimensionality per pattern
+                # Collect all test predictions grouped by pattern_id
+                reconstructed_dims_per_pattern = {}
+                
+                for fold in fold_results:
+                    test_preds = fold['test_predictions']  # shape (n_test, n_timesteps, n_features)
+                    test_pids = fold['test_pattern_ids']   # shape (n_test,)
+                    
+                    for i, pid in enumerate(test_pids):
+                        if pid not in reconstructed_dims_per_pattern:
+                            reconstructed_dims_per_pattern[pid] = []
+                        
+                        # Compute dimensionality for this test trial
+                        recon = test_preds[i]  # shape (n_timesteps, n_features)
+                        dim = compute_empirical_dimensionality(recon)
+                        reconstructed_dims_per_pattern[pid].append(dim)
+                
+                # Compute mean and std per pattern
+                n_patterns = len(reconstructed_dims_per_pattern)
+                recon_dim_means = []
+                recon_dim_stds = []
+                
+                for pid in sorted(reconstructed_dims_per_pattern.keys()):
+                    dims = reconstructed_dims_per_pattern[pid]
+                    recon_dim_means.append(float(np.mean(dims)))
+                    recon_dim_stds.append(float(np.std(dims)))
 
                 return {
                     'train_rmse_mean': float(np.mean(train_rmse)),
@@ -560,7 +618,10 @@ class TaskPerformanceExperiment(BaseExperiment):
                     'cv_rmse_per_fold': test_rmse,
                     'cv_r2_per_fold': test_r2,
                     'cv_correlation_per_fold': test_corr,
-                    'readout_weights': all_weights_flat
+                    'readout_weights': all_weights_flat,
+                    # NEW: Reconstructed output dimensionality per pattern
+                    'reconstructed_output_empirical_dim_means': recon_dim_means,
+                    'reconstructed_output_empirical_dim_stds': recon_dim_stds
                 }
         else:
             return {}
@@ -678,6 +739,9 @@ class TaskPerformanceExperiment(BaseExperiment):
                     train_metrics = evaluate_temporal_task(y_pred_train, y_train)
                     test_metrics = evaluate_temporal_task(y_pred_test, y_test)
 
+                    # Get test pattern IDs for this fold
+                    test_pattern_ids = pattern_ids[test_idx]
+
                     fold_results.append({
                         'fold': cv_iter,
                         'train_rmse': train_metrics['rmse_mean'],
@@ -685,7 +749,9 @@ class TaskPerformanceExperiment(BaseExperiment):
                         'train_correlation': train_metrics['correlation_mean'],
                         'test_rmse': test_metrics['rmse_mean'],
                         'test_r2': test_metrics['r2_mean'],
-                        'test_correlation': test_metrics['correlation_mean']
+                        'test_correlation': test_metrics['correlation_mean'],
+                        'test_predictions': y_pred_test,  # Store for dimensionality computation
+                        'test_pattern_ids': test_pattern_ids  # Store pattern IDs
                     })
 
                 # MEMORY FIX: Free memory after each fold (works for both categorical and temporal)
@@ -758,12 +824,39 @@ class TaskPerformanceExperiment(BaseExperiment):
                 }
 
             else:  # temporal or auto_encoding
+                from analysis.common_utils import compute_empirical_dimensionality
+                
                 train_rmse = [f['train_rmse'] for f in fold_results]
                 test_rmse = [f['test_rmse'] for f in fold_results]
                 train_r2 = [f['train_r2'] for f in fold_results]
                 test_r2 = [f['test_r2'] for f in fold_results]
                 train_corr = [f['train_correlation'] for f in fold_results]
                 test_corr = [f['test_correlation'] for f in fold_results]
+
+                # Compute reconstructed output dimensionality per pattern
+                reconstructed_dims_per_pattern = {}
+                
+                for fold in fold_results:
+                    test_preds = fold['test_predictions']  # shape (n_test, n_timesteps, n_features)
+                    test_pids = fold['test_pattern_ids']   # shape (n_test,)
+                    
+                    for i, pid in enumerate(test_pids):
+                        if pid not in reconstructed_dims_per_pattern:
+                            reconstructed_dims_per_pattern[pid] = []
+                        
+                        # Compute dimensionality for this test trial
+                        recon = test_preds[i]  # shape (n_timesteps, n_features)
+                        dim = compute_empirical_dimensionality(recon)
+                        reconstructed_dims_per_pattern[pid].append(dim)
+                
+                # Compute mean and std per pattern
+                recon_dim_means = []
+                recon_dim_stds = []
+                
+                for pid in sorted(reconstructed_dims_per_pattern.keys()):
+                    dims = reconstructed_dims_per_pattern[pid]
+                    recon_dim_means.append(float(np.mean(dims)))
+                    recon_dim_stds.append(float(np.std(dims)))
 
                 return {
                     'train_rmse_mean': float(np.mean(train_rmse)),
@@ -781,7 +874,10 @@ class TaskPerformanceExperiment(BaseExperiment):
                     'cv_rmse_per_fold': test_rmse,
                     'cv_r2_per_fold': test_r2,
                     'cv_correlation_per_fold': test_corr,
-                    'readout_weights': all_weights
+                    'readout_weights': all_weights,
+                    # NEW: Reconstructed output dimensionality per pattern
+                    'reconstructed_output_empirical_dim_means': recon_dim_means,
+                    'reconstructed_output_empirical_dim_stds': recon_dim_stds
                 }
         else:
             # Other ranks just wait

@@ -220,12 +220,16 @@ class StaticPoissonInput:
 class HDDynamicInput:
     """
     High-dimensional dynamic input for encoding experiments.
-    Each of k channels connects to random 30% of RNN neurons.
-    Supports three modes: independent, common_stochastic, common_tonic.
+    Supports two connectivity modes:
+    - "overlapping": Each channel connects to random 30% of neurons (9% overlap)
+    - "partitioned": Neurons divided equally among channels (no overlap)
+    
+    Also supports three input modes: independent, common_stochastic, common_tonic.
     """
 
     def __init__(self, n_neurons: int, n_channels: int = 10, dt: float = 0.1,
-                 hd_input_mode: str = "independent"):
+                 hd_input_mode: str = "independent",
+                 hd_connection_mode: str = "overlapping"):
         """
         Initialize HD dynamic input.
 
@@ -234,6 +238,7 @@ class HDDynamicInput:
             n_channels: Number of HD input channels (embedding dimensionality k)
             dt: Time step (ms)
             hd_input_mode: "independent", "common_stochastic", or "common_tonic"
+            hd_connection_mode: "overlapping" (30% random) or "partitioned" (equal division)
         """
         self.n_neurons = n_neurons
         self.n_channels = n_channels
@@ -243,6 +248,10 @@ class HDDynamicInput:
             raise ValueError(f"hd_input_mode must be 'independent', 'common_stochastic', or 'common_tonic', got '{hd_input_mode}'")
         self.hd_input_mode = hd_input_mode
 
+        if hd_connection_mode not in ['overlapping', 'partitioned']:
+            raise ValueError(f"hd_connection_mode must be 'overlapping' or 'partitioned', got '{hd_connection_mode}'")
+        self.hd_connection_mode = hd_connection_mode
+
         # Connectivity matrix: which neurons receive which channels
         self.connectivity_matrix = None  # shape (n_neurons, n_channels), boolean
         self.input_strength = None
@@ -251,22 +260,49 @@ class HDDynamicInput:
                                connection_prob: float = 0.3,
                                input_strength: float = 1.0):
         """
-        Initialize connectivity: each channel connects to random 30% of neurons.
+        Initialize connectivity based on hd_connection_mode.
         Fixed per session/hd_dim/embed_dim combination.
+
+        Two modes:
+        - "overlapping": Each channel connects to random connection_prob of neurons
+        - "partitioned": Neurons divided equally among channels (no overlap)
 
         Args:
             session_id: Session ID
             hd_dim: Intrinsic dimensionality (affects seed)
             embed_dim: Embedding dimensionality (affects seed)
-            connection_prob: Connection probability per channel (default 0.3)
+            connection_prob: Connection probability per channel (used only for overlapping mode)
             input_strength: Input strength multiplier
         """
         # Get RNG for connectivity (fixed per session/hd_dim/embed_dim)
         rng = get_rng(session_id, 0.0, 0.0, 0, 'hd_input_connectivity',
                      hd_dim=hd_dim, embed_dim=embed_dim)
 
-        # Generate connectivity matrix: each column is a channel
-        self.connectivity_matrix = rng.random((self.n_neurons, self.n_channels)) < connection_prob
+        # Initialize connectivity matrix
+        self.connectivity_matrix = np.zeros((self.n_neurons, self.n_channels), dtype=bool)
+
+        if self.hd_connection_mode == "overlapping":
+            # Original mode: Each channel connects to random connection_prob of neurons
+            self.connectivity_matrix = rng.random((self.n_neurons, self.n_channels)) < connection_prob
+
+        elif self.hd_connection_mode == "partitioned":
+            # New mode: Divide neurons equally among channels (no overlap)
+            neurons_per_channel = self.n_neurons // self.n_channels
+            
+            # Create neuron indices and shuffle them deterministically
+            all_neuron_indices = np.arange(self.n_neurons)
+            rng.shuffle(all_neuron_indices)
+            
+            # Assign neurons to channels
+            for ch_idx in range(self.n_channels):
+                start_idx = ch_idx * neurons_per_channel
+                end_idx = start_idx + neurons_per_channel
+                
+                # Assign this partition to this channel
+                assigned_neurons = all_neuron_indices[start_idx:end_idx]
+                self.connectivity_matrix[assigned_neurons, ch_idx] = True
+            
+            # Remaining neurons (if n_neurons % n_channels != 0) do not receive HD input
 
         self.input_strength = input_strength
 
@@ -351,14 +387,19 @@ class HDDynamicInput:
                 overlap = np.sum(self.connectivity_matrix[:, i] & self.connectivity_matrix[:, j])
                 n_overlaps.append(overlap)
 
+        # Count neurons not receiving any HD input
+        neurons_with_no_input = np.sum(channels_per_neuron == 0)
+
         return {
             'n_channels': self.n_channels,
             'n_neurons': self.n_neurons,
             'hd_input_mode': self.hd_input_mode,
+            'hd_connection_mode': self.hd_connection_mode,
             'neurons_per_channel_mean': float(np.mean(neurons_per_channel)),
             'neurons_per_channel_std': float(np.std(neurons_per_channel)),
             'channels_per_neuron_mean': float(np.mean(channels_per_neuron)),
             'channels_per_neuron_std': float(np.std(channels_per_neuron)),
+            'neurons_with_no_hd_input': int(neurons_with_no_input),
             'pairwise_overlap_mean': float(np.mean(n_overlaps)) if n_overlaps else 0.0,
             'pairwise_overlap_std': float(np.std(n_overlaps)) if n_overlaps else 0.0,
             'total_connections': int(np.sum(self.connectivity_matrix)),

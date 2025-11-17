@@ -1,6 +1,7 @@
-# Core dependencies for Spiking RNN Heterogeneity Framework v6.0.0
-# NEW: Reservoir computing tasks (categorical, temporal, auto-encoding)
-# Refactored: Unified utilities, eliminated code duplication
+# Core dependencies for Spiking RNN Heterogeneity Framework v6.2.0
+# NEW in v6.2: HD connection modes (overlapping/partitioned) + dimensionality tracking
+# NEW in v6.0: Reservoir computing tasks (categorical, temporal, auto-encoding)
+# Refactored in v5.1: Unified utilities, eliminated code duplication
 
 # Numerical computing
 numpy>=1.20.0

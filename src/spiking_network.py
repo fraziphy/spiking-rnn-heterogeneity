@@ -18,11 +18,13 @@ class SpikingRNN:
     def __init__(self, n_neurons: int = 1000, n_readout_neurons: int = 10, dt: float = 0.1,
                  synaptic_mode: str = "filter", static_input_mode: str = "independent",
                  hd_input_mode: str = "independent", n_hd_channels: int = 10,
+                 hd_connection_mode: str = "overlapping",
                  use_readout_synapses: bool = False):
         """
         Initialize spiking RNN with conditional readout.
 
         Args:
+            hd_connection_mode: "overlapping" (30% random) or "partitioned" (equal division)
             use_readout_synapses: If True, initialize and update readout synapses
                                   (only needed for task experiments)
         """
@@ -33,6 +35,7 @@ class SpikingRNN:
         self.static_input_mode = static_input_mode
         self.hd_input_mode = hd_input_mode
         self.n_hd_channels = n_hd_channels
+        self.hd_connection_mode = hd_connection_mode
         self.use_readout_synapses = use_readout_synapses
 
         # Initialize neurons
@@ -53,7 +56,7 @@ class SpikingRNN:
 
         # Initialize input generators (generate events, NOT filtered)
         self.static_input = StaticPoissonInput(n_neurons, dt, static_input_mode)
-        self.hd_input = HDDynamicInput(n_neurons, n_hd_channels, dt, hd_input_mode)
+        self.hd_input = HDDynamicInput(n_neurons, n_hd_channels, dt, hd_input_mode, hd_connection_mode)
 
         # Simulation state
         self.current_time = 0.0
@@ -338,7 +341,8 @@ class SpikingRNN:
             'dt': self.dt,
             'synaptic_mode': self.synaptic_mode,
             'static_input_mode': self.static_input_mode,
-            'hd_input_mode': self.hd_input_mode
+            'hd_input_mode': self.hd_input_mode,
+            'hd_connection_mode': self.hd_connection_mode
         }
 
         # Add threshold statistics

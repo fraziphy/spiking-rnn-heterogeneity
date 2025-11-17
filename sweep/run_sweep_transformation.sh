@@ -31,6 +31,19 @@ EMBED_DIM_OUTPUT=(1 2 3 4 5) # Output embedding dimensions (for temporal)
 STATIC_INPUT_MODE="common_tonic"
 HD_INPUT_MODE="common_tonic"
 SYNAPTIC_MODE="filter"
+HD_CONNECTION_MODE="overlapping"  # "overlapping" or "partitioned"
+
+
+
+
+
+
+N_SESSIONS=1
+EMBED_DIM_INPUT=(1)  # Input embedding dimensions
+EMBED_DIM_OUTPUT=(2)
+
+
+
 
 # Generate jobs (from sweeps directory)
 python3 "$SCRIPT_DIR/generate_jobs.py" \
@@ -45,6 +58,7 @@ python3 "$SCRIPT_DIR/generate_jobs.py" \
     --static_input_mode "$STATIC_INPUT_MODE" \
     --hd_input_mode "$HD_INPUT_MODE" \
     --synaptic_mode "$SYNAPTIC_MODE" \
+    --hd_connection_mode "$HD_CONNECTION_MODE" \
     --output "$SCRIPT_DIR/jobs_transformation.txt"
 
 if [ $? -ne 0 ]; then

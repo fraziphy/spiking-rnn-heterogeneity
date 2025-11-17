@@ -41,6 +41,7 @@ class EncodingExperiment(BaseExperiment):
                  synaptic_mode: str = "filter",
                  static_input_mode: str = "independent",
                  hd_input_mode: str = "independent",
+                 hd_connection_mode: str = "overlapping",
                  embed_dim: int = 10,
                  signal_cache_dir: str = "hd_signals"):
         """
@@ -52,6 +53,7 @@ class EncodingExperiment(BaseExperiment):
             synaptic_mode: "pulse" or "filter"
             static_input_mode: Static background mode
             hd_input_mode: HD input mode
+            hd_connection_mode: "overlapping" (30% random) or "partitioned" (equal division)
             embed_dim: HD embedding dimensionality
             signal_cache_dir: Directory for HD signal caching
         """
@@ -60,6 +62,7 @@ class EncodingExperiment(BaseExperiment):
         self.synaptic_mode = synaptic_mode
         self.static_input_mode = static_input_mode
         self.hd_input_mode = hd_input_mode
+        self.hd_connection_mode = hd_connection_mode
         self.embed_dim = embed_dim
 
         # Timing parameters - MODIFIED: 500ms transient (was 200ms)
@@ -97,6 +100,7 @@ class EncodingExperiment(BaseExperiment):
             synaptic_mode=self.synaptic_mode,
             static_input_mode=self.static_input_mode,
             hd_input_mode=self.hd_input_mode,
+            hd_connection_mode=self.hd_connection_mode,
             n_hd_channels=self.embed_dim
         )
 
@@ -281,6 +285,7 @@ class EncodingExperiment(BaseExperiment):
             'synaptic_mode': self.synaptic_mode,
             'static_input_mode': self.static_input_mode,
             'hd_input_mode': self.hd_input_mode,
+            'hd_connection_mode': self.hd_connection_mode,
 
             # Basic statistics
             'n_spikes_mean': float(np.mean(n_spikes_array)),

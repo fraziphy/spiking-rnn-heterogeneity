@@ -8,6 +8,56 @@ import numpy as np
 from typing import List, Tuple, Dict, Any
 
 
+def compute_empirical_dimensionality(data: np.ndarray) -> float:
+    """
+    Compute empirical dimensionality using participation ratio.
+    
+    Args:
+        data: Data matrix of shape (n_samples, n_features)
+              e.g., (n_timesteps, n_channels) for temporal signals
+    
+    Returns:
+        Participation ratio: (sum(eigenvalues))^2 / sum(eigenvalues^2)
+        - Returns 1.0 for k=1 (single feature)
+        - Returns 0.0 for empty data or invalid input
+    
+    Example:
+        >>> Y_base = np.random.randn(3000, 5)  # 3000 timesteps, 5 channels
+        >>> dim = compute_empirical_dimensionality(Y_base)
+        >>> 
+        >>> Y_single = np.random.randn(3000, 1)  # Single channel
+        >>> dim = compute_empirical_dimensionality(Y_single)  # Returns 1.0
+    """
+    # Handle edge cases
+    if data.size == 0:
+        return 0.0
+    
+    n_features = data.shape[1] if data.ndim > 1 else 1
+    
+    # Special case: k=1 (single feature)
+    # Participation ratio is always 1.0 (all variance in one dimension)
+    if n_features == 1:
+        return 1.0
+    
+    try:
+        # Compute covariance matrix (features in columns)
+        eig = np.linalg.eigvalsh(np.cov(data, rowvar=False))
+        
+        # Remove negative eigenvalues (numerical errors)
+        eig = eig[eig > 1e-10]
+        
+        if len(eig) == 0:
+            return 0.0
+        
+        # Participation ratio
+        part_ratio = (np.sum(eig) ** 2) / np.sum(eig ** 2)
+        
+        return float(part_ratio)
+    
+    except (np.linalg.LinAlgError, ValueError):
+        return 0.0
+
+
 def spikes_to_binary(spikes: List[Tuple[float, int]], num_neurons: int,
                     duration: float, bin_size: float) -> np.ndarray:
     """

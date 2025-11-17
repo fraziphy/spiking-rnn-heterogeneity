@@ -45,6 +45,9 @@ parser.add_argument('--static_input_mode', type=str, default=None,
                     help='Static input mode: independent, common_stochastic, common_tonic')
 parser.add_argument('--hd_input_mode', type=str, default=None,
                     help='HD input mode: independent, common_tonic (task experiments only)')
+parser.add_argument('--hd_connection_mode', type=str, default=None,
+                    choices=[None, 'overlapping', 'partitioned'],
+                    help='HD connection mode: overlapping (30%% random) or partitioned (equal division)')
 
 # Task-specific parameters
 parser.add_argument('--embed_dim_input', nargs='+', type=int, default=[1, 2, 3, 4, 5],
@@ -105,17 +108,24 @@ if TASK_TYPE in ["categorical", "temporal", "autoencoding"]:
     elif TASK_TYPE == "autoencoding":
         embed_dim_output_all = embed_dim_input_all
 
+    # Determine HD connection mode (default: overlapping for backward compatibility)
+    hd_connection_mode = args.hd_connection_mode if args.hd_connection_mode else 'overlapping'
+    
+    # Adjust output directory based on connection mode
+    mode_suffix = f"_{hd_connection_mode}" if hd_connection_mode != "overlapping" else ""
+
     FIXED_PARAMS = {
         'n_input_patterns': n_input_patterns,
         'n_neurons': 1000,
         'n_trials_per_pattern': 100,
-        'output_dir': f'results/{TASK_TYPE}_sweep',
+        'output_dir': f'results/{TASK_TYPE}_sweep{mode_suffix}',
         'signal_cache_dir': f'hd_signals/{TASK_TYPE}_sweep',
         'stimulus_duration': 300.0,
         'decision_window': 300.0,
         'synaptic_mode': args.synaptic_mode if args.synaptic_mode else 'filter',
         'static_input_mode': args.static_input_mode if args.static_input_mode else 'common_tonic',
         'hd_input_mode': args.hd_input_mode if args.hd_input_mode else 'common_tonic',
+        'hd_connection_mode': hd_connection_mode,
         'v_th_distribution': 'normal',
         'lambda_reg': 0.001,
         'tau_syn': 5.0,

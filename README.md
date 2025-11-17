@@ -1,431 +1,295 @@
-# Spiking RNN Heterogeneity Study
+# Spiking RNN Heterogeneity Framework v6.2.0
 
-**Version:** 6.1.0  
-**Status:** Production-ready infrastructure with sweep/ reorganization  
-**Next:** v6.2.0 will add partitioned HD connection mode
+[![Python Version](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![MPI Support](https://img.shields.io/badge/MPI-supported-orange.svg)](https://www.mpi-forum.org/)
 
----
+A comprehensive computational framework for investigating the effects of neural heterogeneity on spontaneous activity, network stability, high-dimensional (HD) encoding, and reservoir computing tasks in recurrent spiking neural networks.
 
-## Project Overview
+## 🆕 What's New in v6.2.0
 
-This project investigates how heterogeneity in spiking recurrent neural networks affects spontaneous dynamics, stability, encoding capacity, and task performance. The framework implements a biologically-inspired leaky integrate-and-fire (LIF) network with direct parameter heterogeneity and comprehensive reproducibility guarantees.
+### Major Features
+- **🔗 HD Connection Modes**: Two modes for controlling HD input connectivity
+  - **Overlapping** (default): 30% random connectivity, ~9% overlap between channels
+  - **Partitioned**: Equal neuron division, zero overlap between channels
+  - Removes confound between dimensionality and connectivity structure
+  - Flag-based selection: `--hd_connection_mode overlapping|partitioned`
 
-### Six Experiment Types
+- **📊 Empirical Dimensionality Tracking**: Automatic participation ratio computation
+  - **Input/Output Patterns**: Track intrinsic dimensionality of HD signals
+  - **Reconstructed Outputs**: Measure network's effective output dimensionality
+  - **Per-Pattern Analysis**: Mean and std across test trials
+  - Applies to all task experiments (categorical, temporal, autoencoding)
 
-1. **Spontaneous Activity** - Baseline dynamics without external input
-2. **Network Stability** - Response to perturbations  
-3. **Encoding Capacity** - High-dimensional input representation
-4. **Categorical Classification** - Pattern recognition (reservoir computing)
-5. **Temporal Transformation** - Temporal pattern mapping (reservoir computing)
-6. **Auto-encoding** - Input reconstruction with dimensionality analysis
+### Infrastructure Improvements
+- Enhanced parameter tracking in result files
+- Improved numerical stability for edge cases (k=1 handling)
+- Organized results by HD connection mode in separate directories
+- Extended sweep scripts with connection mode support
 
----
+### Bug Fixes
+- Fixed syntax error in `task_performance_experiment.py` (function placement)
+- Robust handling of k=1 (single dimension) edge cases
+- Improved test file imports for flexible execution
 
-## Project Structure (v6.1.0)
+## 📋 Table of Contents
+
+- [Features](#features)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Experiments](#experiments)
+- [Directory Structure](#directory-structure)
+- [Usage Examples](#usage-examples)
+- [Configuration](#configuration)
+- [Results & Analysis](#results--analysis)
+- [Version History](#version-history)
+- [Citation](#citation)
+
+## ✨ Features
+
+### Core Capabilities
+- **Heterogeneity Modeling**: Threshold (v_th) and synaptic weight (g) variability
+- **Multiple Input Modes**: Independent, common stochastic, common tonic inputs
+- **HD Connection Modes**: Overlapping (30% random) or partitioned (equal division) ⭐ NEW
+- **Synaptic Dynamics**: Pulse-based or filtered (exponential) transmission
+- **Dimensionality Analysis**: Participation ratio for all HD patterns ⭐ NEW
+- **MPI Parallelization**: Efficient distributed computing for large parameter sweeps
+- **Automated Workflows**: Shell scripts for complete experiment pipelines
+
+### Experiment Types
+
+#### 1. **Spontaneous Activity** 
+Analyze baseline network dynamics without structured input
+- Firing rate statistics (mean, CV of ISI)
+- Silent neuron detection
+- Activity pattern characterization
+
+#### 2. **Network Stability**
+Measure attractor dynamics and settling behavior
+- Lempel-Ziv complexity (spatial patterns, column-wise)
+- Settling time analysis
+- Trajectory convergence metrics
+
+#### 3. **HD Encoding**
+Evaluate continuous signal representation capacity
+- Linear decoding (ridge regression)
+- Dimensionality scaling analysis
+- Cross-validation performance metrics
+
+#### 4. **Categorical Classification** (v6.0+)
+Multi-class pattern discrimination
+- N-way classification with Bayesian decoder (primary) + time-averaged decoder (comparison)
+- Pattern-based HD input generation with configurable connection modes ⭐ NEW
+- Confidence and uncertainty metrics
+- CV accuracy, confusion matrices, per-class performance
+- Input dimensionality tracking ⭐ NEW
+
+#### 5. **Temporal Transformation** (v6.0+)
+Time-dependent signal mapping
+- Continuous output trajectory decoding
+- HD input → HD output transformation with connection mode control ⭐ NEW
+- RMSE, R², and correlation metrics
+- Input/output/reconstructed dimensionality tracking ⭐ NEW
+
+#### 6. **Auto-Encoding** (v6.0+)
+Input reconstruction and dimensionality characterization
+- Self-supervised learning (input = output)
+- Dimensionality metrics across different time scales
+- Input and reconstructed output dimensionality analysis ⭐ NEW
+- Network capacity characterization
+
+## 🚀 Installation
+
+### Prerequisites
+```bash
+# Python 3.8 or higher
+python --version
+
+# MPI implementation (OpenMPI or MPICH)
+mpirun --version
+```
+
+### Option 1: pip install (recommended)
+```bash
+# Clone repository
+git clone https://github.com/yourusername/spiking-rnn-heterogeneity.git
+cd spiking-rnn-heterogeneity
+
+# Install with all dependencies
+pip install -e ".[all]"
+
+# Verify installation
+spiking-rnn-test
+```
+
+### Option 2: Manual setup
+```bash
+# Clone repository
+git clone https://github.com/yourusername/spiking-rnn-heterogeneity.git
+cd spiking-rnn-heterogeneity
+
+# Install core dependencies
+pip install -r requirements.txt
+
+# Verify MPI
+python -c "from mpi4py import MPI; print(f'MPI working: {MPI.COMM_WORLD.Get_size()} process(es)')"
+```
+
+## 🎯 Quick Start
+
+### Test Installation
+```bash
+# Run comprehensive structure test
+spiking-rnn-structure-test
+
+# Test HD connection modes ⭐ NEW
+python tests/test_hd_connection_modes.py
+
+# Test dimensionality computation ⭐ NEW
+python tests/test_dimensionality_edge_cases.py
+```
+
+### Run Parameter Sweeps with Connection Modes ⭐ NEW
+```bash
+# Make sweep scripts executable
+chmod +x sweep/*.sh
+
+nohup ./sweep/run_sweep_categorical.sh > pipeline_categorical.log 2>&1 & disown
+
+# Run categorical sweep with partitioned mode
+HD_CONNECTION_MODE="partitioned" \
+EMBED_DIM_INPUT=(2 4 6 8) \
+N_PATTERNS=4 \
+./sweep/run_sweep_categorical.sh
+
+# Results organized by mode:
+# results/categorical_sweep/partitioned/data/
+```
+
+## 📂 Directory Structure
 
 ```
 spiking-rnn-heterogeneity/
-├── src/                          # Core neural network modules
-│   ├── lif_neuron.py            # LIF neuron model
-│   ├── synaptic_model.py        # Synapses + input generators
-│   ├── spiking_network.py       # Network integration
-│   ├── hd_input.py              # High-dimensional input generation
-│   └── rng_utils.py             # Hierarchical RNG system
-│
-├── experiments/                  # Experiment classes
-│   ├── base_experiment.py       # Shared utilities
-│   ├── spontaneous_experiment.py
-│   ├── stability_experiment.py
-│   ├── encoding_experiment.py
-│   ├── task_performance_experiment.py  # Categorical/temporal/autoencoding
-│   └── experiment_utils.py      # Readout training & evaluation
-│
-├── analysis/                     # Analysis utilities
-│   ├── common_utils.py          # Shared analysis functions
-│   ├── spontaneous_analysis.py
-│   ├── stability_analysis.py
-│   ├── encoding_analysis.py
-│   └── statistics_utils.py
-│
-├── runners/                      # Single-job MPI runners
-│   ├── mpi_spontaneous_runner.py
-│   ├── mpi_stability_runner.py
-│   ├── mpi_encoding_runner.py
-│   ├── mpi_task_runner.py       # Categorical + temporal
-│   ├── mpi_autoencoding_runner.py
-│   ├── mpi_utils.py             # Shared MPI utilities
-│   └── run_*_experiment.sh      # Individual experiment launchers
-│
-├── sweep/                        # NEW: Batch sweep orchestration
-│   ├── generate_jobs.py         # Parameter grid generation
-│   ├── run_sweep_engine.sh      # Common sweep execution with resume
-│   ├── run_sweep_spontaneous.sh
-│   ├── run_sweep_stability.sh
+├── src/                        # Core network implementation
+│   ├── synaptic_model.py       # HD connection modes ⭐ NEW
+│   ├── spiking_network.py
+│   └── ...
+├── experiments/
+│   ├── task_performance_experiment.py  # Dimensionality tracking ⭐ NEW
+│   └── ...
+├── analysis/
+│   ├── common_utils.py         # Participation ratio computation ⭐ NEW
+│   └── ...
+├── sweep/                      # Sweep orchestration
+│   ├── generate_jobs.py        # Connection mode support ⭐ NEW
 │   ├── run_sweep_categorical.sh
-│   ├── run_sweep_transformation.sh  # Temporal task
-│   ├── run_sweep_autoencoding.sh
-│   ├── check_system_thresholds.py   # System monitoring config
-│   └── logs_*/                  # Sweep execution logs
-│
-├── results/                      # Experimental results
-│   ├── spontaneous_sweep/data/
-│   ├── stability_sweep/data/
-│   ├── encoding_sweep/data/
-│   ├── categorical_sweep/data/
-│   ├── temporal_sweep/data/
-│   └── autoencoding_sweep/data/
-│
-├── hd_signals/                   # Cached HD input patterns
-│   ├── categorical_sweep/
-│   ├── temporal_sweep/
-│   └── autoencoding_sweep/
-│
-├── tests/                        # Comprehensive test suite
-│   ├── test_installation.py
-│   ├── test_comprehensive_structure.py
-│   ├── test_encoding_implementation.py
-│   └── test_task_performance.py
-│
-├── plots/                        # Figure generation scripts
-│   ├── plot_main_figure_1.py
-│   ├── plot_main_figure_2.py
-│   ├── plot_supplementary_figure_1.py
-│   └── plot_supplementary_figure_2.py
-│
-├── data_curation/                # Data processing for analysis
-│   ├── data_curation_network_dynamics.py
-│   └── data_curation_network_encoding.py
-│
-├── setup.py                      # Package installation
-├── requirements.txt              # Dependencies
-└── README.md                     # This file
+│   ├── run_sweep_transformation.sh
+│   └── run_sweep_autoencoding.sh
+├── tests/
+│   ├── test_hd_connection_modes.py      ⭐ NEW
+│   └── test_dimensionality_edge_cases.py ⭐ NEW
+└── results/                    # Results by mode ⭐ NEW
+    ├── categorical_sweep/
+    │   ├── overlapping/data/
+    │   └── partitioned/data/
+    ├── temporal_sweep/
+    │   ├── overlapping/data/
+    │   └── partitioned/data/
+    └── autoencoding_sweep/
+        ├── overlapping/data/
+        └── partitioned/data/
 ```
 
----
-
-## Key Features (v6.1.0)
-
-### HD Input Connectivity
-**Current Implementation:** Overlapping mode
-- Each HD channel connects to random 30% of neurons
-- Natural overlap between channels (~9%)
-- Used in all encoding and task experiments
-
-**Coming in v6.2.0:** Partitioned mode option
-- Equal division of neurons across channels
-- Zero overlap (each neuron receives exactly one feature)
-- Removes confound between dimensionality and connectivity
-
-### Infrastructure Improvements
-✅ **Sweep directory reorganization** - Better separation of concerns  
-✅ **Resume support** - Handle system reboots gracefully  
-✅ **System health monitoring** - Configurable thresholds  
-✅ **Enhanced logging** - Per-experiment log directories  
-✅ **GNU parallel integration** - Efficient job distribution  
-
-### Reproducibility Guarantees
-- **Network structure** ⊥ (session_id, v_th_std, g_std)
-- **Trial dynamics** ⊥ trial_id
-- **HD patterns** ⊥ (session_id, hd_dim, embed_dim, pattern_id)
-- **Trial noise** ⊥ all parameters
-- Deterministic RNG with hierarchical seeding
-
----
-
-## Installation
-
-```bash
-# Clone repository
-git clone <repository-url>
-cd spiking-rnn-heterogeneity
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Install package
-pip install -e .
-
-# Run tests
-pytest tests/
-```
-
-### Dependencies
-- Python 3.8+
-- NumPy, SciPy, scikit-learn
-- MPI4Py (for parallel execution)
-- matplotlib, seaborn (for plotting)
-
----
-
-## Quick Start
-
-### Running Single Experiments
-
-```bash
-# Spontaneous activity
-cd runners
-./run_spontaneous_experiment.sh
-
-# Network stability
-./run_stability_experiment.sh
-
-# Encoding capacity
-./run_encoding_experiment.sh
-
-# Categorical task
-./run_categorical_task.sh
-
-# Temporal task
-./run_temporal_task.sh
-
-# Auto-encoding
-./run_autoencoding_task.sh
-```
-
-### Running Parameter Sweeps
-
-```bash
-cd sweep
-
-# Edit parameters in sweep script (e.g., run_sweep_categorical.sh)
-V_TH_VALUES=(0 0.5 1.0)
-G_VALUES=(0.5 1.0 1.5)
-# ... etc
-
-# Run sweep
-./run_sweep_categorical.sh
-
-# Resume after interruption (automatic)
-./run_sweep_categorical.sh  # Detects existing joblog and resumes
-```
-
----
-
-## Experiment Details
-
-### 1. Spontaneous Activity
-**Purpose:** Baseline network dynamics  
-**Duration:** 800ms (500ms transient + 300ms analysis)  
-**Measures:** Firing rates, silence, ISI statistics, dimensionality
-
-### 2. Network Stability  
-**Purpose:** Perturbation response  
-**Protocol:** 500ms baseline → auxiliary spike → 300ms recovery  
-**Measures:** Settling time, coincidence factors, entropy
-
-### 3. Encoding Capacity
-**Purpose:** HD input representation  
-**Input:** d-dimensional signal embedded in k-dimensional space  
-**Duration:** 500ms transient + 300ms encoding  
-**Measures:** Decoding accuracy (RMSE, R², correlation), dimensionality
-
-### 4. Categorical Classification
-**Purpose:** Pattern recognition (reservoir computing)  
-**Input:** n patterns (default: 4)  
-**Output:** Class labels (1-hot encoding)  
-**Measures:** Accuracy, F1-score, confusion matrix
-
-### 5. Temporal Transformation
-**Purpose:** Temporal pattern mapping (reservoir computing)  
-**Input:** d_in-dimensional temporal patterns  
-**Output:** d_out-dimensional target trajectories  
-**Measures:** RMSE, R², correlation per dimension
-
-### 6. Auto-encoding
-**Purpose:** Input reconstruction with dimensionality analysis  
-**Input:** d-dimensional patterns  
-**Output:** Same d-dimensional patterns (reconstruction)  
-**Measures:** RMSE, R², dimensionality at multiple timescales (2ms/10ms/20ms)
-
----
-
-## Parameter Sweeps
-
-All sweeps use `sweep/generate_jobs.py` and `sweep/run_sweep_engine.sh` for consistent execution.
-
-### Common Parameters
-- `v_th_std`: Threshold heterogeneity (e.g., 0, 0.5, 1.0)
-- `g_std`: Weight heterogeneity (e.g., 0.5, 1.0, 1.5)
-- `static_input_rate`: Background input rate (e.g., 20, 30, 40 Hz)
-
-### Task-Specific Parameters
-- `embed_dim_input`: Input embedding dimension (1-5)
-- `embed_dim_output`: Output embedding dimension (1-5, temporal only)
-- `n_patterns`: Number of patterns (categorical: 4, temporal: 2, autoencoding: 1)
-
-### Sweep Features
-- **Automatic job generation** from parameter grids
-- **Resume support** via joblog tracking
-- **Progress milestones** (25%, 50%, 75%, 100%)
-- **System health monitoring** with configurable thresholds
-- **Parallel execution** with GNU parallel
-
----
-
-## Results Organization
-
-### Directory Structure
-```
-results/
-├── {experiment}_sweep/
-│   └── data/
-│       └── {experiment}_session_{id}_vth_{v}_g_{g}_*.pkl
-```
-
-### Result File Contents
-Each `.pkl` file contains:
-- **Parameters:** session_id, v_th_std, g_std, etc.
-- **Network info:** connectivity stats, threshold distributions
-- **Experiment metrics:** task-specific performance measures
-- **Metadata:** computation time, number of trials
-
-### HD Signal Caching
-Deterministically generated patterns cached in:
-```
-hd_signals/
-├── {experiment}_sweep/
-│   └── hd_signal_session_{id}_hd_{d}_k_{k}_pattern_{p}.pkl
-```
-
----
-
-## System Configuration
-
-### MPI Configuration
-```bash
-# Example: 20 cores for sweep
-export OMP_NUM_THREADS=1
-mpirun -n 20 python runners/mpi_task_runner.py ...
-```
-
-### Health Monitoring
-Configure thresholds in `sweep/check_system_thresholds.py` or via environment:
-```bash
-export TEMP_THRESHOLD=100      # °C
-export CPU_THRESHOLD=98        # %
-export MEMORY_THRESHOLD=95     # %
-```
-
-### Resume Support
-Sweeps automatically resume from last successful job:
-```bash
-# Run sweep
-./sweep/run_sweep_categorical.sh
-
-# System reboots...
-
-# Resume automatically
-./sweep/run_sweep_categorical.sh  # Picks up where it left off
-```
-
----
-
-## Testing
-
-```bash
-# Run all tests
-pytest tests/
-
-# Specific test suites
-pytest tests/test_installation.py           # Installation check
-pytest tests/test_comprehensive_structure.py # Network structure
-pytest tests/test_encoding_implementation.py # Encoding experiments
-pytest tests/test_task_performance.py       # Task experiments
-```
-
-**Current Status:** 50+ tests passing ✅
-
----
-
-## Version History
-
-### v6.1.0 (Current - Infrastructure Consolidation)
-- Reorganized sweep infrastructure (dedicated sweep/ directory)
-- Enhanced run_sweep_engine.sh with resume support
-- Added system health monitoring configuration
-- Improved logging and job tracking
-- All 6 experiment types stable and production-ready
-
-### v6.0.0 (Task-Performance Experiments)
-- Added categorical classification
-- Added temporal transformation
-- Added auto-encoding with dimensionality analysis
-- Unified TaskPerformanceExperiment infrastructure
-- Pattern-based HD input generation
-- Fixed directory path duplication bug
-
-### v5.1.0 (Encoding Capacity)
-- Encoding experiment with HD inputs
-- HD input generator with caching
-- Decoding analysis infrastructure
-
-### v5.0.0 (Network Stability)
-- Stability experiment with perturbation analysis
-- Settling time and coincidence factor metrics
-
-### v4.0.0 (Spontaneous Activity)
-- Spontaneous activity experiment
-- Comprehensive firing rate and ISI analysis
-
----
-
-## Roadmap
-
-### v6.2.0 (Next - HD Connection Modes)
-- [ ] Add partitioned HD connection mode
-- [ ] Flag-based mode selection (--hd_connection_mode)
-- [ ] Automatic result organization by mode
-- [ ] Backward compatible (overlapping as default)
-- [ ] Documentation and testing
-
-### Future
-- [ ] Additional task types (delay tasks, working memory)
-- [ ] Enhanced visualization tools
-- [ ] Performance optimization for large-scale sweeps
-- [ ] Analysis pipelines for publication figures
-
----
-
-## Citation
-
-If you use this code in your research, please cite:
-
-```bibtex
-@software{spiking_rnn_heterogeneity_2025,
-  title = {Spiking RNN Heterogeneity Study},
-  author = {[Your Name]},
-  year = {2025},
-  version = {6.1.0},
-  url = {[repository-url]}
+## 📊 Results & Analysis
+
+### New Fields in v6.2.0 ⭐
+
+#### All Task Experiments
+```python
+result = {
+    'hd_connection_mode': 'partitioned',  # or 'overlapping'
+    # ... existing fields ...
 }
 ```
 
+#### Categorical Task
+```python
+result = {
+    'input_empirical_dims': [4.2, 3.9, 4.1, 4.0],  # Per pattern
+    # ... existing fields ...
+}
+```
+
+#### Temporal Task
+```python
+result = {
+    'input_empirical_dims': [5.1, 4.9],  # Per input pattern
+    'output_empirical_dims': [3.2, 3.0],  # Per output pattern
+    'reconstructed_output_empirical_dim_means': [2.9, 2.8],  # Per pattern
+    'reconstructed_output_empirical_dim_stds': [0.3, 0.4],  # Per pattern
+    # ... existing fields ...
+}
+```
+
+#### Auto-Encoding Task
+```python
+result = {
+    'input_empirical_dim': 4.5,  # Single value (n_patterns=1)
+    'reconstructed_output_empirical_dim_means': [4.1],  # Single-element list
+    'reconstructed_output_empirical_dim_stds': [0.3],  # Single-element list
+    # ... existing fields ...
+}
+```
+
+### Loading and Comparing Results
+
+```python
+import pickle
+import glob
+
+# Load categorical result
+with open('results/categorical_sweep/partitioned/data/task_categorical_*.pkl', 'rb') as f:
+    result = pickle.load(f)[0]
+    print(f"Mode: {result['hd_connection_mode']}")
+    print(f"Input dims: {result['input_empirical_dims']}")
+    print(f"Accuracy: {result['test_accuracy_bayesian_mean']:.3f}")
+
+# Compare overlapping vs partitioned
+overlapping_files = glob.glob('results/categorical_sweep/overlapping/data/*.pkl')
+partitioned_files = glob.glob('results/categorical_sweep/partitioned/data/*.pkl')
+
+# Analyze dimensionality scaling...
+```
+
+## 📜 Version History
+
+- **v6.2.0** (Nov 2025): HD connection modes + empirical dimensionality tracking
+- **v6.1.0** (Nov 2025): Infrastructure consolidation - sweep/ directory organization
+- **v6.0.0** (Oct 2025): Reservoir computing tasks (categorical, temporal, auto-encoding)
+- **v5.1.0**: Refactored codebase - eliminated duplication
+- **v5.0.0**: HD encoding experiment
+- **v4.0.0**: Network stability analysis
+- **v3.0.0**: Spontaneous activity baseline
+
+## 📚 Citation
+
+```bibtex
+@software{spiking_rnn_heterogeneity_2024,
+  title={Spiking RNN Heterogeneity Framework},
+  author={Computational Neuroscience Research Group},
+  year={2024},
+  version={6.2.0},
+  url={https://github.com/yourusername/spiking-rnn-heterogeneity},
+  note={HD connection modes and dimensionality tracking}
+}
+```
+
+## 📝 License
+
+MIT License - see [LICENSE](LICENSE) file for details.
+
 ---
 
-## License
-
-[Your License Here]
-
----
-
-## Contact
-
-For questions or issues:
-- Open an issue on GitHub
-- Email: [your-email]
-
----
-
-## Acknowledgments
-
-Built with:
-- MPI4Py for parallel computing
-- NumPy/SciPy for numerical computation
-- scikit-learn for machine learning utilities
-- GNU Parallel for job orchestration
-
----
-
-**Last Updated:** November 2025  
-**Maintainer:** [Your Name]  
-**Status:** ✅ Production-ready, actively maintained
+**Version**: 6.2.0  
+**Release Date**: November 2025  
+**Status**: Production/Stable

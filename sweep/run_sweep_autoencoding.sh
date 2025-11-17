@@ -29,6 +29,14 @@ EMBED_DIM_INPUT=(1 2 3 4 5)  # Embedding dimensions (input=output for autoencodi
 STATIC_INPUT_MODE="common_tonic"
 HD_INPUT_MODE="common_tonic"
 SYNAPTIC_MODE="filter"
+HD_CONNECTION_MODE="overlapping"  # "overlapping" or "partitioned"
+
+
+N_SESSIONS=1
+EMBED_DIM_INPUT=(2)  # Input embedding dimensions
+
+
+
 
 # Generate jobs (n_patterns automatically set to 1 for autoencoding)
 python3 "$SCRIPT_DIR/generate_jobs.py" \
@@ -41,6 +49,7 @@ python3 "$SCRIPT_DIR/generate_jobs.py" \
     --static_input_mode "$STATIC_INPUT_MODE" \
     --hd_input_mode "$HD_INPUT_MODE" \
     --synaptic_mode "$SYNAPTIC_MODE" \
+    --hd_connection_mode "$HD_CONNECTION_MODE" \
     --output "$SCRIPT_DIR/jobs_autoencoding.txt"
 
 if [ $? -ne 0 ]; then

@@ -244,6 +244,7 @@ run_and_log_job() {
     local v_th=$(echo "$cmd" | grep -oP '(?<=--v_th_std )[0-9.]+' || echo "?")
     local g=$(echo "$cmd" | grep -oP '(?<=--g_std )[0-9.]+' || echo "?")
     local rate=$(echo "$cmd" | grep -oP '(?<=--static_input_rate )[0-9.]+' || echo "?")
+    local hd_mode=$(echo "$cmd" | grep -oP '(?<=--hd_connection_mode )\w+' || echo "?")
 
     # Redirect output to clean log files
     local job_log_dir="${LOGDIR}/job_${job_num}"
@@ -265,6 +266,9 @@ run_and_log_job() {
         fi
         if [ "$v_th" != "?" ]; then
             params="${params} | v_th=${v_th} g=${g} rate=${rate}"
+        fi
+        if [ "$hd_mode" != "?" ]; then
+            params="${params} | mode=${hd_mode}"
         fi
         log_message "✓ Job ${job_num}/${TOTAL_JOBS} done | ${params} | ${duration_min}m"
     else
