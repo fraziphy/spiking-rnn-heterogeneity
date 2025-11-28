@@ -565,23 +565,57 @@ def test_base_experiment_functionality():
     try:
         from experiments.base_experiment import BaseExperiment
 
-        # Test parameter grid creation (simple - for spontaneous/stability)
+        # Test 1: Simple parameter grid (spontaneous/stability)
         v_th, g, rates = BaseExperiment.create_parameter_grid(
-            n_v_th_points=3, n_g_points=3, n_input_rates=2
+            n_v_th_points=3, n_g_points=3, n_input_rates=2,
+            v_th_std_range=(0.0, 2.0), g_std_range=(0.0, 2.0),
+            input_rate_range=(50.0, 100.0)
         )
         assert len(v_th) == 3 and len(g) == 3 and len(rates) == 2
-        print("  ✓ Parameter grid creation (simple)")
+        assert v_th[0] == 0.0 and v_th[-1] == 2.0  # Check actual values
+        assert rates[0] == 50.0 and rates[-1] == 100.0
+        print("  ✓ Parameter grid creation (simple) - values correct")
 
-        # Test with HD INPUT dimensions (NEW API - for encoding/task experiments)
+        # Test 2: With HD input dimensions (encoding/categorical)
         v_th, g, hd_dims, rates = BaseExperiment.create_parameter_grid(
-            n_v_th_points=3,
-            n_g_points=3,
-            n_input_rates=2,
-            n_hd_input_points=4,  # NEW API
-            hd_input_dim_range=(1, 10)  # NEW API
+            n_v_th_points=3, n_g_points=3, n_input_rates=2,
+            n_hd_input_points=4, hd_input_dim_range=(1, 10)
         )
         assert len(hd_dims) == 4
-        print("  ✓ Parameter grid with HD input dimensions")
+        assert hd_dims[0] == 1 and hd_dims[-1] == 10  # Check actual values
+        print("  ✓ Parameter grid with HD input dimensions - values correct")
+
+        # Test 3: With HD input AND output dimensions (temporal task)
+        v_th, g, hd_in, hd_out, rates = BaseExperiment.create_parameter_grid(
+            n_v_th_points=2, n_g_points=2, n_input_rates=2,
+            n_hd_input_points=3, hd_input_dim_range=(1, 5),
+            n_hd_output_points=3, hd_output_dim_range=(2, 8)
+        )
+        assert len(hd_in) == 3 and len(hd_out) == 3
+        assert hd_in[0] == 1 and hd_out[-1] == 8
+        print("  ✓ Parameter grid with HD input AND output dimensions - values correct")
+
+        # Test 4: Error handling - missing hd_input_dim_range
+        try:
+            BaseExperiment.create_parameter_grid(
+                n_v_th_points=3, n_g_points=3, n_input_rates=2,
+                n_hd_input_points=4  # Missing hd_input_dim_range!
+            )
+            print("  ✗ Should have raised ValueError for missing hd_input_dim_range")
+            return False
+        except ValueError:
+            print("  ✓ Correctly raises error when hd_input_dim_range missing")
+
+        # Test 5: Error handling - hd_output without hd_input
+        try:
+            BaseExperiment.create_parameter_grid(
+                n_v_th_points=3, n_g_points=3, n_input_rates=2,
+                n_hd_output_points=3, hd_output_dim_range=(1, 5)  # No input!
+            )
+            print("  ✗ Should have raised ValueError for output without input")
+            return False
+        except ValueError:
+            print("  ✓ Correctly raises error when hd_output without hd_input")
 
         return True
 
@@ -598,22 +632,26 @@ def test_experiment_inheritance():
 
     try:
         from experiments import (
-            SpontaneousExperiment, StabilityExperiment, EncodingExperiment
+            StabilityExperiment, TaskPerformanceExperiment
         )
         from experiments.base_experiment import BaseExperiment
 
         # Check inheritance
-        assert issubclass(SpontaneousExperiment, BaseExperiment)
         assert issubclass(StabilityExperiment, BaseExperiment)
-        assert issubclass(EncodingExperiment, BaseExperiment)
+        assert issubclass(TaskPerformanceExperiment, BaseExperiment)
         print("  ✓ All experiments inherit from BaseExperiment")
 
         # Test that they all have required methods
-        spont = SpontaneousExperiment(n_neurons=10)
-        stab = StabilityExperiment(n_neurons=10)
-        enc = EncodingExperiment(n_neurons=10, embed_dim=5)
+        stab = StabilityExperiment(n_neurons=10, use_cached_transients=False)
+        task = TaskPerformanceExperiment(
+            task_type='categorical',
+            n_neurons=10,
+            n_input_patterns=2,
+            input_dim_intrinsic=2,
+            input_dim_embedding=5
+        )
 
-        for exp in [spont, stab, enc]:
+        for exp in [stab, task]:
             assert hasattr(exp, 'extract_trial_arrays')
             assert hasattr(exp, 'compute_all_statistics')
             assert hasattr(exp, 'create_parameter_combinations')

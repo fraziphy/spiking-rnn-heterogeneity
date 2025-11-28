@@ -1,15 +1,16 @@
 # experiments/task_performance_experiment.py
 """
 Unified task-performance experiment: categorical classification and temporal transformation.
-NEW: Methods for distributed trial simulation and CV training.
+MODIFIED: Can load cached evoked spikes instead of simulating.
 """
 
 import numpy as np
 import os
 import sys
 import time
+import pickle
 from typing import Dict, List, Any, Tuple
-from sklearn.model_selection import StratifiedKFold  # <-- ADD THIS HERE
+from sklearn.model_selection import StratifiedKFold
 import gc
 
 # Import base class
@@ -22,13 +23,11 @@ from .experiment_utils import (
     evaluate_temporal_task
 )
 
-# Import with flexible handling
 try:
     from src.spiking_network import SpikingRNN
     from src.hd_input import HDInputGenerator
     from src.rng_utils import get_rng
     from analysis.common_utils import spikes_to_matrix, compute_empirical_dimensionality
-
 except ImportError:
     current_dir = os.path.dirname(__file__)
     project_root = os.path.dirname(current_dir)
@@ -50,164 +49,163 @@ def compute_pattern_dimensionalities(patterns: Dict[int, np.ndarray]) -> List[fl
     Returns:
         List of dimensionalities, one per pattern
     """
-
     dims = []
     for pattern_id in sorted(patterns.keys()):
         pattern = patterns[pattern_id]
         dim = compute_empirical_dimensionality(pattern)
         dims.append(dim)
-
     return dims
+
 
 class TaskPerformanceExperiment(BaseExperiment):
     """
     Unified task experiment: categorical classification or temporal transformation.
-    NEW: Supports distributed trial simulation and CV training.
+    MODIFIED: Supports loading cached evoked spikes instead of simulating.
     """
 
-    def __init__(self,
-                task_type: str = 'categorical',
-                n_neurons: int = 1000,
-                n_input_patterns: int = 4,
-                input_dim_intrinsic: int = 5,
-                input_dim_embedding: int = 10,
-                output_dim_intrinsic: int = 1,
-                output_dim_embedding: int = 1,
-                dt: float = 0.1,
-                tau_syn: float = 5.0,
-                decision_window: float = 50.0,
-                synaptic_mode: str = "filter",
-                static_input_mode: str = "independent",
-                hd_input_mode: str = "independent",
-                hd_connection_mode: str = "overlapping",
-                signal_cache_dir: str = "hd_signals",
-                stimulus_duration: float = 300.0,
-                n_trials_per_pattern: int = 100,
-                lambda_reg: float = 1e-3,
-                use_distributed_cv: bool = False):
-        """Initialize task-performance experiment."""
+    def __init__(self, task_type: str, n_neurons: int = 1000,
+                 n_input_patterns: int = 10,
+                 input_dim_intrinsic: int = 3, input_dim_embedding: int = 10,
+                 output_dim_intrinsic: int = 3, output_dim_embedding: int = 10,
+                 dt: float = 0.1, tau_syn: float = 5.0,
+                 synaptic_mode: str = "filter",
+                 static_input_mode: str = "independent",
+                 hd_input_mode: str = "independent",
+                 hd_connection_mode: str = "overlapping",
+                 signal_cache_dir: str = "hd_signals",
+                 decision_window: float = 50.0,
+                 stimulus_duration: float = 300.0,
+                 n_trials_per_pattern: int = 100,
+                 lambda_reg: float = 1e-3,
+                 use_distributed_cv: bool = False):
+        """
+        Initialize task performance experiment.
+
+        Args:
+            task_type: 'categorical' or 'temporal'
+            n_neurons: Number of neurons
+            n_input_patterns: Number of input patterns
+            input_dim_intrinsic: Intrinsic dimensionality of input HD space
+            input_dim_embedding: Embedding dimension for input
+            output_dim_intrinsic: Intrinsic dimensionality of output HD space
+            output_dim_embedding: Embedding dimension for output
+            dt: Time step (ms)
+            tau_syn: Synaptic filter time constant (ms)
+            synaptic_mode: Synaptic dynamics mode
+            static_input_mode: Static input mode
+            hd_input_mode: HD input mode
+            hd_connection_mode: 'overlapping' or 'partitioned'
+            signal_cache_dir: Directory with pre-generated HD signals
+            decision_window: Window for decision in categorical task (ms)
+            stimulus_duration: Duration of stimulus (ms)
+            n_trials_per_pattern: Number of trials per pattern
+            lambda_reg: Ridge regression regularization
+            use_distributed_cv: Use distributed cross-validation
+        """
         super().__init__(n_neurons, dt)
 
-        if task_type not in ['categorical', 'temporal']:
-            raise ValueError(f"task_type must be 'categorical' or 'temporal', got '{task_type}'")
+        if task_type not in ['categorical', 'temporal', 'autoencoding']:  # ADD autoencoding
+            raise ValueError("task_type must be 'categorical', 'temporal', or 'autoencoding'")
+
 
         self.task_type = task_type
         self.n_input_patterns = n_input_patterns
-
-        # Input configuration
         self.input_dim_intrinsic = input_dim_intrinsic
         self.input_dim_embedding = input_dim_embedding
-
-        # Output configuration
         self.output_dim_intrinsic = output_dim_intrinsic
         self.output_dim_embedding = output_dim_embedding
-
-        # Network modes
+        self.tau_syn = tau_syn
         self.synaptic_mode = synaptic_mode
         self.static_input_mode = static_input_mode
         self.hd_input_mode = hd_input_mode
         self.hd_connection_mode = hd_connection_mode
-
-        # Timing
-        self.transient_time = 200.0
-        self.stimulus_duration = stimulus_duration
-        self.total_duration = self.transient_time + self.stimulus_duration
+        self.signal_cache_dir = signal_cache_dir
         self.decision_window = decision_window
-
-        # Synaptic filtering
-        self.tau_syn = tau_syn
-
-        # Training configuration
+        self.stimulus_duration = stimulus_duration
+        self.transient_time = 0.0  # No transient when using cached spikes
+        self.total_duration = self.stimulus_duration
         self.n_trials_per_pattern = n_trials_per_pattern
         self.lambda_reg = lambda_reg
-
         self.use_distributed_cv = use_distributed_cv
 
-        # Input generator
+        # Initialize HD input generator
         self.input_generator = HDInputGenerator(
             embed_dim=input_dim_embedding,
             dt=dt,
-            signal_cache_dir=os.path.join(signal_cache_dir, 'inputs')
+            signal_cache_dir=signal_cache_dir,
+            signal_type='hd_input'
         )
 
-        # Output generator (temporal only)
+        # Output generator
         if task_type == 'temporal':
+            # Transformation: use separate hd_output signals
             self.output_generator = HDInputGenerator(
                 embed_dim=output_dim_embedding,
                 dt=dt,
-                signal_cache_dir=os.path.join(signal_cache_dir, 'outputs')
+                signal_cache_dir=signal_cache_dir,
+                signal_type='hd_output'
             )
         else:
-            self.output_generator = None
+            self.output_generator = None  # No generator for categorical/autoencoding
 
-    def generate_output_patterns(self, session_id: int) -> Dict[int, np.ndarray]:
-        """Generate output patterns for each class."""
-        output_patterns = {}
-
-        # Calculate timesteps based on stimulus_duration
-        n_timesteps = int(self.stimulus_duration / self.dt)
-
-        if self.task_type == 'categorical':
-            # Categorical: constant one-hot vectors
-            for pattern_id in range(self.n_input_patterns):
-                one_hot = np.zeros(self.n_input_patterns)
-                one_hot[pattern_id] = 1.0
-                output_patterns[pattern_id] = np.tile(one_hot, (n_timesteps, 1))
-
-        elif self.task_type == 'temporal':
-            # Temporal: time-varying outputs from separate HD generator
-            rate_rnn_duration = 200.0 + self.stimulus_duration
-
-            for pattern_id in range(self.n_input_patterns):
-                output_pattern_id = pattern_id + 100
-
-                self.output_generator.initialize_base_input(
-                    session_id=session_id,
-                    hd_dim=self.output_dim_intrinsic,
-                    pattern_id=output_pattern_id,
-                    rate_rnn_params={
-                        'n_neurons': 1000,
-                        'T': rate_rnn_duration,
-                        'g': 2.0
-                    }
-                )
-
-                output_patterns[pattern_id] = self.output_generator.Y_base.copy()
-
-        return output_patterns
-
-    # NEW METHOD: Initialize and get all patterns at once
-    def initialize_and_get_patterns(self, session_id: int, hd_dim: int,
-                                   n_patterns: int) -> Dict[int, np.ndarray]:
+    def load_cached_trial_spikes(self, session_id: int, v_th_std: float,
+                                g_std: float, static_rate: float,
+                                pattern_id: int,
+                                hd_connection_mode: str,
+                                spike_cache_dir: str = "results/cached_spikes") -> List[List[Tuple[float, int]]]:
         """
-        Initialize and return all input patterns.
-        Used for distributed execution where all ranks need same patterns.
+        Load pre-cached evoked spikes for ALL trials of a pattern.
+        Args:
+            session_id: Session identifier
+            v_th_std: Threshold heterogeneity std
+            g_std: Weight heterogeneity std
+            static_rate: Static input rate (Hz)
+            pattern_id: Pattern identifier
+            hd_connection_mode: 'overlapping' or 'partitioned'
+            spike_cache_dir: Directory with cached spike files
+        Returns:
+            List of 100 trials, each trial is a list of (time, neuron_id) spike tuples
         """
-        patterns = {}
+        filename = os.path.join(spike_cache_dir, hd_connection_mode,
+            f"session_{session_id}_g_{g_std:.3f}_vth_{v_th_std:.3f}_"
+            f"rate_{static_rate:.1f}_h_{self.input_dim_intrinsic}_"
+            f"d_{self.input_dim_embedding}_pattern_{pattern_id}_spikes.pkl")
 
-        for pattern_id in range(n_patterns):
-            self.input_generator.initialize_base_input(
-                session_id=session_id,
-                hd_dim=hd_dim,
-                pattern_id=pattern_id,
-                rate_rnn_params={
-                    'n_neurons': 1000,
-                    'T': 200.0 + self.stimulus_duration,
-                    'g': 2.0
-                }
-            )
-            patterns[pattern_id] = self.input_generator.Y_base.copy()
+        # ADD DEBUG
+        if not hasattr(self, '_debug_printed'):
+            print(f"   DEBUG: Cache lookup: {filename}")
+            print(f"   DEBUG: File exists: {os.path.exists(filename)}")
+            self._debug_printed = True
 
-        return patterns
+        with open(filename, 'rb') as f:
+            cache_data = pickle.load(f)
+
+        # Return ALL 100 trials for this pattern
+        return cache_data['trial_spikes']
 
     def run_single_trial(self, session_id: int, v_th_std: float, g_std: float,
                         trial_id: int, pattern_id: int,
                         noisy_input_pattern: np.ndarray,
-                        static_input_rate: float = 200.0,
-                        v_th_distribution: str = "normal") -> Dict[str, Any]:
-        """Run single trial: network processes noisy input, collect RNN spikes."""
+                        static_input_rate: float,
+                        v_th_distribution: str) -> Dict[str, Any]:
+        """
+        Run single trial by simulating network response to HD input.
+        NOTE: This method is only used when use_cached_spikes=False.
 
-        # Create network WITHOUT readout synapses (offline training)
+        Args:
+            session_id: Session identifier
+            v_th_std: Threshold heterogeneity std
+            g_std: Weight heterogeneity std
+            trial_id: Trial identifier
+            pattern_id: Pattern identifier
+            noisy_input_pattern: Noisy HD input pattern
+            static_input_rate: Static input rate (Hz)
+            v_th_distribution: Threshold distribution type
+
+        Returns:
+            Dictionary with pattern_id, trial_id, and spike_times
+        """
+        # Create network
         network = SpikingRNN(
             n_neurons=self.n_neurons,
             dt=self.dt,
@@ -215,8 +213,7 @@ class TaskPerformanceExperiment(BaseExperiment):
             static_input_mode=self.static_input_mode,
             hd_input_mode=self.hd_input_mode,
             hd_connection_mode=self.hd_connection_mode,
-            n_hd_channels=self.input_dim_embedding,
-            use_readout_synapses=False
+            n_hd_channels=self.input_dim_embedding
         )
 
         # Initialize network
@@ -226,702 +223,340 @@ class TaskPerformanceExperiment(BaseExperiment):
             g_std=g_std,
             v_th_distribution=v_th_distribution,
             hd_dim=self.input_dim_intrinsic,
-            embed_dim=self.input_dim_embedding,
-            static_input_strength=10.0,
-            hd_connection_prob=0.3,
-            hd_input_strength=50.0
+            embed_dim=self.input_dim_embedding
         )
 
-        # Run simulation (returns spike times only)
-        spike_times, _ = network.simulate_encoding_task(
+        # Run simulation (no transient when simulating fresh)
+        spike_times = network.simulate(
             session_id=session_id,
             v_th_std=v_th_std,
             g_std=g_std,
             trial_id=trial_id,
-            duration=self.total_duration,
+            duration=self.stimulus_duration,
             hd_input_patterns=noisy_input_pattern,
             hd_dim=self.input_dim_intrinsic,
             embed_dim=self.input_dim_embedding,
             static_input_rate=static_input_rate,
-            transient_time=self.transient_time
+            transient_time=0.0,
+            continue_from_state=False
         )
-
-        # Extract spikes during stimulus period only
-        stimulus_spikes = [(t - self.transient_time, nid)
-                          for t, nid in spike_times
-                          if t >= self.transient_time]
 
         return {
             'pattern_id': pattern_id,
-            'trial_id': trial_id,
-            'spike_times': stimulus_spikes
+            'trial_id': trial_id % self.n_trials_per_pattern,
+            'spike_times': spike_times
         }
 
-    # NEW METHOD: Simulate trials in parallel (distributed across ranks)
-    def simulate_trials_parallel(self, session_id: int, v_th_std: float, g_std: float,
-                                v_th_distribution: str, static_input_rate: float,
+    def simulate_trials_parallel(self, session_id: int, v_th_std: float,
+                                g_std: float, v_th_distribution: str,
+                                static_input_rate: float,
                                 my_trial_indices: List[int],
                                 input_patterns: Dict[int, np.ndarray],
-                                rank: int) -> List[Dict[str, Any]]:
-        """Simulate assigned trials on this rank."""
+                                rank: int,
+                                use_cached_spikes: bool = True,
+                                hd_connection_mode: str = "overlapping",
+                                spike_cache_dir: str = "results/cached_spikes") -> List[Dict[str, Any]]:
+        """
+        Simulate or load cached spikes for assigned trials.
+        Args:
+            session_id: Session identifier
+            v_th_std: Threshold heterogeneity std
+            g_std: Weight heterogeneity std
+            v_th_distribution: Threshold distribution type
+            static_input_rate: Static input rate (Hz)
+            my_trial_indices: List of global trial indices for this rank
+            input_patterns: Dictionary of input patterns
+            rank: MPI rank
+            use_cached_spikes: If True, load from cache; if False, simulate
+            hd_connection_mode: 'overlapping' or 'partitioned'
+            spike_cache_dir: Directory with cached spike files
+        Returns:
+            List of trial result dictionaries
+        """
         local_results = []
 
+        # Memory-efficient caching: track current pattern
+        pattern_spike_cache = {}
+        current_pattern_id = None
+
         for i, trial_idx in enumerate(my_trial_indices):
-            # Decode trial index to pattern_id and trial_within_pattern
             pattern_id = trial_idx // self.n_trials_per_pattern
             trial_within_pattern = trial_idx % self.n_trials_per_pattern
 
-            # Generate noisy input for this trial
-            base_pattern = input_patterns[pattern_id]
+            if use_cached_spikes:
+                # LOAD CACHED SPIKES
+                if rank == 0 and i == 0:  # Print once
+                    print(f"   DEBUG: Attempting to load cached spikes from {spike_cache_dir}/{hd_connection_mode}/")
 
-            # Add noise (trial-specific)
-            rng = get_rng(session_id, v_th_std, g_std, trial_idx,
-                        f'hd_input_noise_{pattern_id}',
-                        rate=static_input_rate,  # ADD THIS
-                        hd_dim=self.input_dim_intrinsic,
-                        embed_dim=self.input_dim_embedding)
+                # Check if we moved to a new pattern
+                if pattern_id != current_pattern_id:
+                    # Delete old pattern data to free memory
+                    if current_pattern_id is not None and current_pattern_id in pattern_spike_cache:
+                        del pattern_spike_cache[current_pattern_id]
+                        gc.collect()
 
-            noise = rng.normal(0, 0.5, base_pattern.shape)
-            noisy_input = base_pattern + noise
-            noisy_input = noisy_input - np.min(noisy_input)
-            noisy_input = noisy_input * 1.0  # rate_scale
+                    # Load new pattern if not already loaded
+                    if pattern_id not in pattern_spike_cache:
+                        all_trials_for_pattern = self.load_cached_trial_spikes(
+                            session_id, v_th_std, g_std, static_input_rate,
+                            pattern_id, hd_connection_mode, spike_cache_dir
+                        )
+                        pattern_spike_cache[pattern_id] = all_trials_for_pattern
 
-            # Run trial
-            trial_result = self.run_single_trial(
-                session_id=session_id,
-                v_th_std=v_th_std,
-                g_std=g_std,
-                trial_id=trial_idx,
-                pattern_id=pattern_id,
-                noisy_input_pattern=noisy_input,
-                static_input_rate=static_input_rate,
-                v_th_distribution=v_th_distribution
-            )
+                    current_pattern_id = pattern_id
 
-            trial_result['global_trial_idx'] = trial_idx
+                # Extract the specific trial
+                spike_times = pattern_spike_cache[pattern_id][trial_within_pattern]
+
+                trial_result = {
+                    'pattern_id': pattern_id,
+                    'trial_id': trial_within_pattern,
+                    'global_trial_idx': trial_idx,
+                    'spike_times': spike_times
+                }
+            else:
+                # SIMULATE FRESH
+                base_pattern = input_patterns[pattern_id]
+                rng = get_rng(session_id, v_th_std, g_std, trial_idx,
+                            f'hd_input_noise_{pattern_id}',
+                            rate=static_input_rate,
+                            hd_dim=self.input_dim_intrinsic,
+                            embed_dim=self.input_dim_embedding)
+                noise = rng.normal(0, 0.5, base_pattern.shape)
+                noisy_input = base_pattern + noise
+                noisy_input = noisy_input - np.min(noisy_input)
+                noisy_input = noisy_input * 1.0  # rate_scale
+                trial_result = self.run_single_trial(
+                    session_id, v_th_std, g_std, trial_idx, pattern_id,
+                    noisy_input, static_input_rate, v_th_distribution)
+                trial_result['global_trial_idx'] = trial_idx
+
             local_results.append(trial_result)
 
             if (i + 1) % 20 == 0:
                 print(f"   Rank {rank}: completed {i+1}/{len(my_trial_indices)} trials")
 
+        # Clean up cached data after loop
+        if use_cached_spikes:
+            pattern_spike_cache.clear()
+            del pattern_spike_cache
+            gc.collect()
+
         return local_results
 
-    # NEW METHOD: Convert spike times to traces (done locally on each rank)
+    def generate_output_patterns(self, session_id: int) -> Dict[int, np.ndarray]:
+        """Generate output patterns for each task type."""
+        output_patterns = {}
+        n_timesteps = int(self.stimulus_duration / self.dt)
+
+        if self.task_type == 'categorical':
+            # Create one-hot vectors
+            for pattern_id in range(self.n_input_patterns):
+                one_hot = np.zeros(self.n_input_patterns)
+                one_hot[pattern_id] = 1.0
+                output_patterns[pattern_id] = np.tile(one_hot, (n_timesteps, 1))
+        elif self.task_type == 'temporal':
+            # Load hd_output signals
+            for pattern_id in range(self.n_input_patterns):
+                self.output_generator.initialize_base_input(
+                    session_id=session_id,
+                    hd_dim=self.output_dim_intrinsic,
+                    pattern_id=pattern_id
+                )
+                output_patterns[pattern_id] = self.output_generator.Y_base.copy()
+        elif self.task_type == 'autoencoding':
+            raise ValueError("Autoencoding uses input_patterns in runner")
+
+        return output_patterns
+
     def convert_spikes_to_traces(self, all_trial_results: List[Dict[str, Any]],
                                  output_patterns: Dict[int, np.ndarray],
-                                 n_patterns: int, n_trials_per_pattern: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+                                 n_patterns: int,
+                                 n_trials_per_pattern: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
-        Convert spike times to filtered traces.
-        Each rank does this independently after receiving all spike times.
+        Convert spike times to filtered traces for training.
+
+        Args:
+            all_trial_results: List of all trial results
+            output_patterns: Output patterns (for temporal) or input patterns (for categorical)
+            n_patterns: Number of patterns
+            n_trials_per_pattern: Number of trials per pattern
 
         Returns:
-            traces_all: (n_trials, n_timesteps, n_neurons)
-            ground_truth_all: (n_trials, n_timesteps, n_outputs)
-            pattern_ids: (n_trials,)
+            Tuple of (traces_all, ground_truth_all, pattern_ids)
         """
-        # Sort by global trial index
-        all_trial_results_sorted = sorted(all_trial_results, key=lambda x: x['global_trial_idx'])
-
+        n_trials = len(all_trial_results)
         n_timesteps = int(self.stimulus_duration / self.dt)
-        n_trials = len(all_trial_results_sorted)
 
-        traces_list = []
-        ground_truth_list = []
-        pattern_ids_list = []
 
-        for trial_result in all_trial_results_sorted:
-            # Convert spikes to matrix
+        traces_all = np.zeros((n_trials, n_timesteps, self.n_neurons))
+
+        if self.task_type == 'categorical':
+            ground_truth_all = np.zeros((n_trials, n_timesteps, n_patterns))
+        else:  # temporal
+            ground_truth_all = np.zeros((n_trials, n_timesteps, self.output_dim_embedding))
+
+        pattern_ids = np.zeros(n_trials, dtype=int)
+
+        for idx, trial_result in enumerate(all_trial_results):
+            pattern_id = trial_result['pattern_id']
+            spike_times = trial_result['spike_times']
+            pattern_ids[idx] = pattern_id
+
+            # Convert spikes to binary matrix
             spike_matrix = spikes_to_matrix(
-                trial_result['spike_times'],
-                n_timesteps,
-                self.n_neurons,
-                self.dt
+                spike_times,      # spike_list
+                n_timesteps,      # n_steps (number of time bins)
+                self.n_neurons,   # n_neurons
+                self.dt           # step_size
             )
 
-            # Apply exponential filtering
-            traces = apply_exponential_filter(spike_matrix, self.tau_syn, self.dt)
-            traces_list.append(traces)
+            # Apply exponential filter
+            filtered_trace = apply_exponential_filter(spike_matrix, self.tau_syn, self.dt)
+            traces_all[idx] = filtered_trace
 
-            # Get ground truth
-            pattern_id = trial_result['pattern_id']
-            ground_truth = output_patterns[pattern_id]
-            ground_truth_list.append(ground_truth)
-            pattern_ids_list.append(pattern_id)
-
-        traces_all = np.array(traces_list)
-        ground_truth_all = np.array(ground_truth_list)
-        pattern_ids = np.array(pattern_ids_list)
+            # Ground truth
+            if self.task_type == 'categorical':
+                ground_truth_all[idx, :, pattern_id] = 1.0
+            else:  # temporal
+                output_pattern = output_patterns[pattern_id]
+                n_steps = min(n_timesteps, len(output_pattern))
+                ground_truth_all[idx, :n_steps, :] = output_pattern[:n_steps]
 
         return traces_all, ground_truth_all, pattern_ids
 
-    # NEW METHOD: Distributed CV training
-    def cross_validate_distributed(self, traces_all: np.ndarray,
-                                ground_truth_all: np.ndarray,
-                                pattern_ids: np.ndarray,
-                                session_id: int,
-                                n_folds: int,
-                                rank: int,
-                                size: int,
-                                comm) -> Dict[str, Any]:
+
+
+    def cross_validate(self, traces_all: np.ndarray, ground_truth_all: np.ndarray,
+                    pattern_ids: np.ndarray, session_id: int, n_folds: int,
+                    rank: int, size: int, comm: Any) -> Dict[str, Any]:
         """
-        Perform stratified K-fold CV with distributed training.
+        Perform cross-validation (centralized on rank 0).
 
-        Each rank does n_folds/size CV iterations.
+        Args:
+            traces_all: Filtered traces (n_trials, n_timesteps, n_neurons)
+            ground_truth_all: Ground truth (n_trials, n_timesteps, n_outputs)
+            pattern_ids: Pattern labels for each trial
+            session_id: Session identifier for RNG
+            n_folds: Number of CV folds
+            rank: MPI rank
+            size: MPI size
+            comm: MPI communicator
+
+        Returns:
+            Dictionary with CV results
         """
-        # Check that n_folds divides evenly by size
-        if n_folds % size != 0:
-            if rank == 0:
-                print(f"WARNING: n_folds ({n_folds}) not divisible by size ({size})")
-                print(f"         Some ranks will do more work than others")
+        if rank != 0:
+            return {}
 
-        # Determine which CV iterations this rank handles
-        cv_per_rank = n_folds // size
-        remainder = n_folds % size
+        n_trials = len(traces_all)
 
-        if rank < remainder:
-            my_cv_start = rank * (cv_per_rank + 1)
-            my_cv_count = cv_per_rank + 1
-        else:
-            my_cv_start = rank * cv_per_rank + remainder
-            my_cv_count = cv_per_rank
+        # K-fold split
+        rng = get_rng(session_id, 0, 0, 0, 'cv_split')
+        skf = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=int(rng.integers(0, 1000000)))
 
-        my_cv_iterations = list(range(my_cv_start, my_cv_start + my_cv_count))
+        fold_results = []
 
-        print(f"   Rank {rank}: CV iterations {my_cv_iterations}")
-
-        # Get RNG for CV splits (same across all ranks for consistency)
-        rng_cv = get_rng(session_id, 0.0, 0.0, 0,
-                        f'task_{self.task_type}_cv_splits',
-                        hd_dim=self.input_dim_intrinsic,
-                        embed_dim=self.input_dim_embedding)
-
-        cv_seed = int(rng_cv.integers(0, 2**31 - 1))
-
-        # Create stratified folds (same across all ranks)
-        skf = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=cv_seed)
-        fold_splits = list(skf.split(traces_all, pattern_ids))
-
-        # Each rank processes its assigned CV iterations
-        local_fold_results = []
-        local_weights = []
-
-        for cv_iter in my_cv_iterations:
-            train_idx, test_idx = fold_splits[cv_iter]
-
-            # Split data
+        for fold_idx, (train_idx, test_idx) in enumerate(skf.split(np.zeros(n_trials), pattern_ids)):
             X_train = traces_all[train_idx]
+            Y_train = ground_truth_all[train_idx]
             X_test = traces_all[test_idx]
-            y_train = ground_truth_all[train_idx]
-            y_test = ground_truth_all[test_idx]
+            Y_test = ground_truth_all[test_idx]
 
             # Train readout
-            W_readout = train_task_readout(X_train, y_train, self.lambda_reg)
-            local_weights.append(W_readout.copy())
+            W = train_task_readout(X_train, Y_train, self.lambda_reg)
 
             # Predict
-            y_pred_train = predict_task_readout(X_train, W_readout)
-            y_pred_test = predict_task_readout(X_test, W_readout)
+            Y_train_pred = predict_task_readout(X_train, W)
+            Y_test_pred = predict_task_readout(X_test, W)
 
-            # Evaluate based on task type
+            # Evaluate
             if self.task_type == 'categorical':
                 decision_window_steps = int(self.decision_window / self.dt)
+                train_metrics = evaluate_categorical_task(Y_train_pred, Y_train, decision_window_steps)
+                test_metrics = evaluate_categorical_task(Y_test_pred, Y_test, decision_window_steps)
 
-                # FIXED: Simple evaluation for training (no Bayesian overhead)
-                decision_window_steps = int(self.decision_window / self.dt)
-                y_pred_train_window = y_pred_train[:, -decision_window_steps:, :]
-                y_pred_train_avg = y_pred_train_window.mean(axis=1)
-                y_train_labels = np.argmax(y_train[:, 0, :], axis=1)
-                train_pred_labels = np.argmax(y_pred_train_avg, axis=1)
-                train_accuracy = float(np.mean(train_pred_labels == y_train_labels))
-
-                # Full Bayesian evaluation ONLY for test data
-                test_metrics = evaluate_categorical_task(
-                    y_pred_test, y_test, decision_window_steps
-                )
-
-
-                local_fold_results.append({
-                    'fold': cv_iter,
-                    'train_accuracy_timeaveraged': train_accuracy,
+                fold_results.append({
+                    'train_accuracy': train_metrics['accuracy'],
+                    'train_accuracy_timeaveraged': train_metrics['accuracy_timeaveraged'],
                     'test_accuracy': test_metrics['accuracy'],
-                    'confusion_matrix': test_metrics['confusion_matrix'],
-                    'per_class_accuracy': test_metrics['per_class_accuracy'],
-                    # NEW: Bayesian confidence metrics
-                    'test_mean_confidence': test_metrics['mean_confidence'],
-                    'test_mean_confidence_correct': test_metrics['mean_confidence_correct'],
-                    'test_mean_confidence_incorrect': test_metrics['mean_confidence_incorrect'],
-                    'test_mean_uncertainty': test_metrics['mean_uncertainty'],
-                    # NEW: Time-averaged comparison
                     'test_accuracy_timeaveraged': test_metrics['accuracy_timeaveraged'],
-                    'confusion_matrix_timeaveraged': test_metrics['confusion_matrix_timeaveraged'],
-                    'per_class_accuracy_timeaveraged': test_metrics['per_class_accuracy_timeaveraged'],
-                    # Agreement metrics
-                    'test_methods_agreement_rate': test_metrics['methods_agreement_rate'],
-                    'test_methods_agree_count': test_metrics['methods_agree_count'],
-                    'test_agree_correct_count': test_metrics['agree_and_correct_count'],
-                    'test_disagree_bayesian_correct': test_metrics['disagree_bayesian_correct_count'],
-                    'test_disagree_timeaveraged_correct': test_metrics['disagree_timeaveraged_correct_count'],
-                    'test_disagree_both_wrong': test_metrics['disagree_both_wrong_count']
+                    'test_confidence': test_metrics['mean_confidence'],
+                    'test_confusion_matrix': test_metrics['confusion_matrix'],
+                    'test_confusion_matrix_timeaveraged': test_metrics['confusion_matrix_timeaveraged'],
+                    'test_methods_agreement_rate': test_metrics['methods_agreement_rate']
                 })
 
-            else:  # temporal
-                train_metrics = evaluate_temporal_task(y_pred_train, y_train)
-                test_metrics = evaluate_temporal_task(y_pred_test, y_test)
+            else:  # temporal or autoencoding
+                train_metrics = evaluate_temporal_task(Y_train_pred, Y_train)
+                test_metrics = evaluate_temporal_task(Y_test_pred, Y_test)
 
-                # Get test pattern IDs for this fold
-                test_pattern_ids = pattern_ids[test_idx]
-
-                local_fold_results.append({
-                    'fold': cv_iter,
+                fold_results.append({
                     'train_rmse': train_metrics['rmse_mean'],
                     'train_r2': train_metrics['r2_mean'],
                     'train_correlation': train_metrics['correlation_mean'],
                     'test_rmse': test_metrics['rmse_mean'],
                     'test_r2': test_metrics['r2_mean'],
-                    'test_correlation': test_metrics['correlation_mean'],
-                    'test_predictions': y_pred_test,  # Store for dimensionality computation
-                    'test_pattern_ids': test_pattern_ids  # Store pattern IDs
+                    'test_correlation': test_metrics['correlation_mean']
                 })
 
-                # MEMORY FIX: Free memory after each fold
-                del X_train, X_test, y_pred_train, y_pred_test, W_readout
-                gc.collect()
+            if (fold_idx + 1) % 5 == 0:
+                print(f"    Fold {fold_idx + 1}/{n_folds}")
 
-        # Gather all results to rank 0
-        all_fold_results = comm.gather(local_fold_results, root=0)
-        all_weights = comm.gather(local_weights, root=0)
+        # Aggregate results
+        if self.task_type == 'categorical':
+            test_acc = [f['test_accuracy'] for f in fold_results]
+            test_acc_tavg = [f['test_accuracy_timeaveraged'] for f in fold_results]
+            test_conf = [f['test_confidence'] for f in fold_results]
+            agreement_rates = [f['test_methods_agreement_rate'] for f in fold_results]
 
-        # Only rank 0 aggregates
-        if rank == 0:
-            # Flatten gathered results
-            fold_results = []
-            all_weights_flat = []
-            for rank_results in all_fold_results:
-                fold_results.extend(rank_results)
-            for rank_weights in all_weights:
-                all_weights_flat.extend(rank_weights)
+            results = {
+                'test_accuracy_bayesian_mean': float(np.mean(test_acc)),
+                'test_accuracy_bayesian_std': float(np.std(test_acc)),
+                'test_accuracy_timeaveraged_mean': float(np.mean(test_acc_tavg)),
+                'test_accuracy_timeaveraged_std': float(np.std(test_acc_tavg)),
+                'test_confidence_bayesian_mean': float(np.mean(test_conf)),
+                'test_confidence_bayesian_std': float(np.std(test_conf)),
+                'test_methods_agreement_rate_mean': float(np.mean(agreement_rates)),
+                'test_methods_agreement_rate_std': float(np.std(agreement_rates)),
+                'cv_accuracy_bayesian_per_fold': test_acc,
+                'cv_accuracy_timeaveraged_per_fold': test_acc_tavg,
+                'cv_confusion_matrices_bayesian': [f['test_confusion_matrix'] for f in fold_results],
+                'cv_confusion_matrices_timeaveraged': [f['test_confusion_matrix_timeaveraged'] for f in fold_results]
+            }
+        else:  # temporal or autoencoding
+            test_rmse = [f['test_rmse'] for f in fold_results]
+            test_r2 = [f['test_r2'] for f in fold_results]
+            train_rmse = [f['train_rmse'] for f in fold_results]
+            train_r2 = [f['train_r2'] for f in fold_results]
 
-            # Sort by fold number
-            fold_results = sorted(fold_results, key=lambda x: x['fold'])
+            results = {
+                'test_rmse_mean': float(np.mean(test_rmse)),
+                'test_rmse_std': float(np.std(test_rmse)),
+                'test_r2_mean': float(np.mean(test_r2)),
+                'test_r2_std': float(np.std(test_r2)),
+                'train_rmse_mean': float(np.mean(train_rmse)),
+                'train_r2_mean': float(np.mean(train_r2)),
+                'cv_rmse_per_fold': test_rmse,
+                'cv_r2_per_fold': test_r2
+            }
 
-            # Aggregate
-            if self.task_type == 'categorical':
-                train_acc = [f['train_accuracy_timeaveraged'] for f in fold_results]
-                test_acc = [f['test_accuracy'] for f in fold_results]
-
-                # NEW: Extract Bayesian metrics
-                test_confidence = [f['test_mean_confidence'] for f in fold_results]
-                test_confidence_correct = [f['test_mean_confidence_correct'] for f in fold_results]
-                test_confidence_incorrect = [f['test_mean_confidence_incorrect'] for f in fold_results]
-                test_uncertainty = [f['test_mean_uncertainty'] for f in fold_results]
-
-                # NEW: Extract time-averaged comparison
-                test_acc_timeaveraged = [f['test_accuracy_timeaveraged'] for f in fold_results]
-                agreement_rates = [f['test_methods_agreement_rate'] for f in fold_results]
-                disagree_bayes_correct = [f['test_disagree_bayesian_correct'] for f in fold_results]
-                disagree_tavg_correct = [f['test_disagree_timeaveraged_correct'] for f in fold_results]
-                disagree_both_wrong = [f['test_disagree_both_wrong'] for f in fold_results]
-                agree_counts = [f['test_methods_agree_count'] for f in fold_results]
-                agree_correct_counts = [f['test_agree_correct_count'] for f in fold_results]
-
-                return {
-                    # Training performance (time-averaged only)
-                    'train_accuracy_timeaveraged_mean': float(np.mean(train_acc)),
-                    'train_accuracy_timeaveraged_std': float(np.std(train_acc)),
-
-                    # Test performance - Bayesian decoder (PRIMARY)
-                    'test_accuracy_bayesian_mean': float(np.mean(test_acc)),
-                    'test_accuracy_bayesian_std': float(np.std(test_acc)),
-                    'test_confidence_bayesian_mean': float(np.mean(test_confidence)),
-                    'test_confidence_bayesian_std': float(np.std(test_confidence)),
-                    'test_confidence_correct_bayesian_mean': float(np.nanmean(test_confidence_correct)),
-                    'test_confidence_correct_bayesian_std': float(np.nanstd(test_confidence_correct)),
-                    'test_confidence_incorrect_bayesian_mean': float(np.nanmean(test_confidence_incorrect)),
-                    'test_confidence_incorrect_bayesian_std': float(np.nanstd(test_confidence_incorrect)),
-                    'test_uncertainty_bayesian_mean': float(np.mean(test_uncertainty)),
-                    'test_uncertainty_bayesian_std': float(np.std(test_uncertainty)),
-
-                    # Test performance - Time-averaged decoder (COMPARISON)
-                    'test_accuracy_timeaveraged_mean': float(np.mean(test_acc_timeaveraged)),
-                    'test_accuracy_timeaveraged_std': float(np.std(test_acc_timeaveraged)),
-
-                    # Agreement between decoders
-                    'test_methods_agreement_rate_mean': float(np.mean(agreement_rates)),
-                    'test_methods_agreement_rate_std': float(np.std(agreement_rates)),
-                    'test_methods_agree_count_mean': float(np.mean(agree_counts)),
-                    'test_agree_correct_count_mean': float(np.mean(agree_correct_counts)),
-                    'test_disagree_bayesian_correct_mean': float(np.mean(disagree_bayes_correct)),
-                    'test_disagree_timeaveraged_correct_mean': float(np.mean(disagree_tavg_correct)),
-                    'test_disagree_both_wrong_mean': float(np.mean(disagree_both_wrong)),
-
-                    # Per-fold details
-                    'cv_accuracy_bayesian_per_fold': test_acc,
-                    'cv_accuracy_timeaveraged_per_fold': test_acc_timeaveraged,
-                    'cv_confusion_matrices_bayesian': [f['confusion_matrix'] for f in fold_results],
-                    'cv_confusion_matrices_timeaveraged': [f['confusion_matrix_timeaveraged'] for f in fold_results],
-                    'cv_per_class_accuracy_bayesian': [f['per_class_accuracy'] for f in fold_results],
-                    'cv_per_class_accuracy_timeaveraged': [f['per_class_accuracy_timeaveraged'] for f in fold_results],
-
-                    # Readout weights
-                    'readout_weights': all_weights_flat
-                }
-            else:  # temporal
-                from analysis.common_utils import compute_empirical_dimensionality
-                
-                train_rmse = [f['train_rmse'] for f in fold_results]
-                test_rmse = [f['test_rmse'] for f in fold_results]
-                train_r2 = [f['train_r2'] for f in fold_results]
-                test_r2 = [f['test_r2'] for f in fold_results]
-                train_corr = [f['train_correlation'] for f in fold_results]
-                test_corr = [f['test_correlation'] for f in fold_results]
-
-                # Compute reconstructed output dimensionality per pattern
-                # Collect all test predictions grouped by pattern_id
-                reconstructed_dims_per_pattern = {}
-                
-                for fold in fold_results:
-                    test_preds = fold['test_predictions']  # shape (n_test, n_timesteps, n_features)
-                    test_pids = fold['test_pattern_ids']   # shape (n_test,)
-                    
-                    for i, pid in enumerate(test_pids):
-                        if pid not in reconstructed_dims_per_pattern:
-                            reconstructed_dims_per_pattern[pid] = []
-                        
-                        # Compute dimensionality for this test trial
-                        recon = test_preds[i]  # shape (n_timesteps, n_features)
-                        dim = compute_empirical_dimensionality(recon)
-                        reconstructed_dims_per_pattern[pid].append(dim)
-                
-                # Compute mean and std per pattern
-                n_patterns = len(reconstructed_dims_per_pattern)
-                recon_dim_means = []
-                recon_dim_stds = []
-                
-                for pid in sorted(reconstructed_dims_per_pattern.keys()):
-                    dims = reconstructed_dims_per_pattern[pid]
-                    recon_dim_means.append(float(np.mean(dims)))
-                    recon_dim_stds.append(float(np.std(dims)))
-
-                return {
-                    'train_rmse_mean': float(np.mean(train_rmse)),
-                    'train_rmse_std': float(np.std(train_rmse)),
-                    'test_rmse_mean': float(np.mean(test_rmse)),
-                    'test_rmse_std': float(np.std(test_rmse)),
-                    'train_r2_mean': float(np.mean(train_r2)),
-                    'train_r2_std': float(np.std(train_r2)),
-                    'test_r2_mean': float(np.mean(test_r2)),
-                    'test_r2_std': float(np.std(test_r2)),
-                    'train_correlation_mean': float(np.mean(train_corr)),
-                    'train_correlation_std': float(np.std(train_corr)),
-                    'test_correlation_mean': float(np.mean(test_corr)),
-                    'test_correlation_std': float(np.std(test_corr)),
-                    'cv_rmse_per_fold': test_rmse,
-                    'cv_r2_per_fold': test_r2,
-                    'cv_correlation_per_fold': test_corr,
-                    'readout_weights': all_weights_flat,
-                    # NEW: Reconstructed output dimensionality per pattern
-                    'reconstructed_output_empirical_dim_means': recon_dim_means,
-                    'reconstructed_output_empirical_dim_stds': recon_dim_stds
-                }
-        else:
-            return {}
+        return results
 
 
-
-
-    # NEW METHOD: Centralized CV training
-    def cross_validate_centralized(self, traces_all: np.ndarray,
-                                ground_truth_all: np.ndarray,
-                                pattern_ids: np.ndarray,
-                                session_id: int,
-                                n_folds: int,
-                                rank: int,
-                                comm) -> Dict[str, Any]:
-        """
-        Perform stratified K-fold CV with centralized training on rank 0.
-
-        Only rank 0 has the data and does all CV training.
-        Other ranks just return empty dict.
-
-        Args:
-            traces_all: Full traces (only rank 0 has this, others have None)
-            ground_truth_all: Full ground truth (only rank 0 has this, others have None)
-            pattern_ids: Pattern IDs for stratification (only rank 0 has this, others have None)
-            n_folds: Number of CV folds (fixed at 20)
-            rank: MPI rank
-            comm: MPI communicator
-
-        Returns:
-            Aggregated CV results (only on rank 0, empty dict on other ranks)
-        """
-
-        # Only rank 0 does the work
-        if rank == 0:
-            print(f"   Rank 0: Performing all {n_folds} CV folds...")
-
-            # Get RNG for CV splits
-            rng_cv = get_rng(session_id, 0.0, 0.0, 0,
-                            f'task_{self.task_type}_cv_splits',
-                            hd_dim=self.input_dim_intrinsic,
-                            embed_dim=self.input_dim_embedding)
-
-            cv_seed = int(rng_cv.integers(0, 2**31 - 1))
-
-            # Create stratified folds
-            skf = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=cv_seed)
-            fold_splits = list(skf.split(traces_all, pattern_ids))
-
-            # Process all CV folds on rank 0
-            fold_results = []
-            all_weights = []
-
-            for cv_iter in range(n_folds):
-                if (cv_iter + 1) % 5 == 0:
-                    print(f"      Completed {cv_iter + 1}/{n_folds} folds")
-
-                train_idx, test_idx = fold_splits[cv_iter]
-
-                # Split data
-                X_train = traces_all[train_idx]
-                X_test = traces_all[test_idx]
-                y_train = ground_truth_all[train_idx]
-                y_test = ground_truth_all[test_idx]
-
-                # Train readout
-                W_readout = train_task_readout(X_train, y_train, self.lambda_reg)
-                all_weights.append(W_readout.copy())
-
-                # Predict
-                y_pred_train = predict_task_readout(X_train, W_readout)
-                y_pred_test = predict_task_readout(X_test, W_readout)
-
-                # Evaluate based on task type
-                if self.task_type == 'categorical':
-                    decision_window_steps = int(self.decision_window / self.dt)
-
-                    # FIXED: Simple evaluation for training
-                    y_pred_train_window = y_pred_train[:, -decision_window_steps:, :]
-                    y_pred_train_avg = y_pred_train_window.mean(axis=1)
-                    y_train_labels = np.argmax(y_train[:, 0, :], axis=1)
-                    train_pred_labels = np.argmax(y_pred_train_avg, axis=1)
-                    train_accuracy = float(np.mean(train_pred_labels == y_train_labels))
-
-                    # Full Bayesian evaluation ONLY for test data
-                    test_metrics = evaluate_categorical_task(
-                        y_pred_test, y_test, decision_window_steps
-                    )
-
-                    fold_results.append({
-                        'fold': cv_iter,
-                        'train_accuracy_timeaveraged': train_accuracy,
-                        'test_accuracy': test_metrics['accuracy'],
-                        'confusion_matrix': test_metrics['confusion_matrix'],
-                        'per_class_accuracy': test_metrics['per_class_accuracy'],
-                        # Bayesian confidence metrics
-                        'test_mean_confidence': test_metrics['mean_confidence'],
-                        'test_mean_confidence_correct': test_metrics['mean_confidence_correct'],
-                        'test_mean_confidence_incorrect': test_metrics['mean_confidence_incorrect'],
-                        'test_mean_uncertainty': test_metrics['mean_uncertainty'],
-                        # Time-averaged comparison
-                        'test_accuracy_timeaveraged': test_metrics['accuracy_timeaveraged'],
-                        'confusion_matrix_timeaveraged': test_metrics['confusion_matrix_timeaveraged'],
-                        'per_class_accuracy_timeaveraged': test_metrics['per_class_accuracy_timeaveraged'],
-                        # Agreement metrics
-                        'test_methods_agreement_rate': test_metrics['methods_agreement_rate'],
-                        'test_methods_agree_count': test_metrics['methods_agree_count'],
-                        'test_agree_correct_count': test_metrics['agree_and_correct_count'],
-                        'test_disagree_bayesian_correct': test_metrics['disagree_bayesian_correct_count'],
-                        'test_disagree_timeaveraged_correct': test_metrics['disagree_timeaveraged_correct_count'],
-                        'test_disagree_both_wrong': test_metrics['disagree_both_wrong_count']
-                    })
-
-                else:  # temporal or auto_encoding
-                    train_metrics = evaluate_temporal_task(y_pred_train, y_train)
-                    test_metrics = evaluate_temporal_task(y_pred_test, y_test)
-
-                    # Get test pattern IDs for this fold
-                    test_pattern_ids = pattern_ids[test_idx]
-
-                    fold_results.append({
-                        'fold': cv_iter,
-                        'train_rmse': train_metrics['rmse_mean'],
-                        'train_r2': train_metrics['r2_mean'],
-                        'train_correlation': train_metrics['correlation_mean'],
-                        'test_rmse': test_metrics['rmse_mean'],
-                        'test_r2': test_metrics['r2_mean'],
-                        'test_correlation': test_metrics['correlation_mean'],
-                        'test_predictions': y_pred_test,  # Store for dimensionality computation
-                        'test_pattern_ids': test_pattern_ids  # Store pattern IDs
-                    })
-
-                # MEMORY FIX: Free memory after each fold (works for both categorical and temporal)
-                del X_train, X_test, y_pred_train, y_pred_test, W_readout
-                gc.collect()
-
-            # Aggregate results
-            if self.task_type == 'categorical':
-                # Extract all metrics across folds
-                train_acc_tavg = [f['train_accuracy_timeaveraged'] for f in fold_results]
-
-                # Bayesian decoder (primary method)
-                test_acc_bayesian = [f['test_accuracy'] for f in fold_results]
-                test_conf = [f['test_mean_confidence'] for f in fold_results]
-                test_conf_correct = [f['test_mean_confidence_correct'] for f in fold_results]
-                test_conf_incorrect = [f['test_mean_confidence_incorrect'] for f in fold_results]
-                test_uncertainty = [f['test_mean_uncertainty'] for f in fold_results]
-
-                # Time-averaged decoder (comparison method)
-                test_acc_tavg = [f['test_accuracy_timeaveraged'] for f in fold_results]
-
-                # Agreement between methods
-                agreement_rates = [f['test_methods_agreement_rate'] for f in fold_results]
-                agree_counts = [f['test_methods_agree_count'] for f in fold_results]
-                agree_correct_counts = [f['test_agree_correct_count'] for f in fold_results]
-                disagree_bayes_correct = [f['test_disagree_bayesian_correct'] for f in fold_results]
-                disagree_tavg_correct = [f['test_disagree_timeaveraged_correct'] for f in fold_results]
-                disagree_both_wrong = [f['test_disagree_both_wrong'] for f in fold_results]
-
-                return {
-                    # Training performance (time-averaged only)
-                    'train_accuracy_timeaveraged_mean': float(np.mean(train_acc_tavg)),
-                    'train_accuracy_timeaveraged_std': float(np.std(train_acc_tavg)),
-
-                    # Test performance - Bayesian decoder (PRIMARY)
-                    'test_accuracy_bayesian_mean': float(np.mean(test_acc_bayesian)),
-                    'test_accuracy_bayesian_std': float(np.std(test_acc_bayesian)),
-                    'test_confidence_bayesian_mean': float(np.mean(test_conf)),
-                    'test_confidence_bayesian_std': float(np.std(test_conf)),
-                    'test_confidence_correct_bayesian_mean': float(np.nanmean(test_conf_correct)),
-                    'test_confidence_correct_bayesian_std': float(np.nanstd(test_conf_correct)),
-                    'test_confidence_incorrect_bayesian_mean': float(np.nanmean(test_conf_incorrect)),
-                    'test_confidence_incorrect_bayesian_std': float(np.nanstd(test_conf_incorrect)),
-                    'test_uncertainty_bayesian_mean': float(np.mean(test_uncertainty)),
-                    'test_uncertainty_bayesian_std': float(np.std(test_uncertainty)),
-
-                    # Test performance - Time-averaged decoder (COMPARISON)
-                    'test_accuracy_timeaveraged_mean': float(np.mean(test_acc_tavg)),
-                    'test_accuracy_timeaveraged_std': float(np.std(test_acc_tavg)),
-
-                    # Agreement between decoders
-                    'test_methods_agreement_rate_mean': float(np.mean(agreement_rates)),
-                    'test_methods_agreement_rate_std': float(np.std(agreement_rates)),
-                    'test_methods_agree_count_mean': float(np.mean(agree_counts)),
-                    'test_agree_correct_count_mean': float(np.mean(agree_correct_counts)),
-                    'test_disagree_bayesian_correct_mean': float(np.mean(disagree_bayes_correct)),
-                    'test_disagree_timeaveraged_correct_mean': float(np.mean(disagree_tavg_correct)),
-                    'test_disagree_both_wrong_mean': float(np.mean(disagree_both_wrong)),
-
-                    # Per-fold details
-                    'cv_accuracy_bayesian_per_fold': test_acc_bayesian,
-                    'cv_accuracy_timeaveraged_per_fold': test_acc_tavg,
-                    'cv_confusion_matrices_bayesian': [f['confusion_matrix'] for f in fold_results],
-                    'cv_confusion_matrices_timeaveraged': [f['confusion_matrix_timeaveraged'] for f in fold_results],
-                    'cv_per_class_accuracy_bayesian': [f['per_class_accuracy'] for f in fold_results],
-                    'cv_per_class_accuracy_timeaveraged': [f['per_class_accuracy_timeaveraged'] for f in fold_results],
-
-                    # Readout weights
-                    'readout_weights': all_weights
-                }
-
-            else:  # temporal or auto_encoding
-                from analysis.common_utils import compute_empirical_dimensionality
-                
-                train_rmse = [f['train_rmse'] for f in fold_results]
-                test_rmse = [f['test_rmse'] for f in fold_results]
-                train_r2 = [f['train_r2'] for f in fold_results]
-                test_r2 = [f['test_r2'] for f in fold_results]
-                train_corr = [f['train_correlation'] for f in fold_results]
-                test_corr = [f['test_correlation'] for f in fold_results]
-
-                # Compute reconstructed output dimensionality per pattern
-                reconstructed_dims_per_pattern = {}
-                
-                for fold in fold_results:
-                    test_preds = fold['test_predictions']  # shape (n_test, n_timesteps, n_features)
-                    test_pids = fold['test_pattern_ids']   # shape (n_test,)
-                    
-                    for i, pid in enumerate(test_pids):
-                        if pid not in reconstructed_dims_per_pattern:
-                            reconstructed_dims_per_pattern[pid] = []
-                        
-                        # Compute dimensionality for this test trial
-                        recon = test_preds[i]  # shape (n_timesteps, n_features)
-                        dim = compute_empirical_dimensionality(recon)
-                        reconstructed_dims_per_pattern[pid].append(dim)
-                
-                # Compute mean and std per pattern
-                recon_dim_means = []
-                recon_dim_stds = []
-                
-                for pid in sorted(reconstructed_dims_per_pattern.keys()):
-                    dims = reconstructed_dims_per_pattern[pid]
-                    recon_dim_means.append(float(np.mean(dims)))
-                    recon_dim_stds.append(float(np.std(dims)))
-
-                return {
-                    'train_rmse_mean': float(np.mean(train_rmse)),
-                    'train_rmse_std': float(np.std(train_rmse)),
-                    'test_rmse_mean': float(np.mean(test_rmse)),
-                    'test_rmse_std': float(np.std(test_rmse)),
-                    'train_r2_mean': float(np.mean(train_r2)),
-                    'train_r2_std': float(np.std(train_r2)),
-                    'test_r2_mean': float(np.mean(test_r2)),
-                    'test_r2_std': float(np.std(test_r2)),
-                    'train_correlation_mean': float(np.mean(train_corr)),
-                    'train_correlation_std': float(np.std(train_corr)),
-                    'test_correlation_mean': float(np.mean(test_corr)),
-                    'test_correlation_std': float(np.std(test_corr)),
-                    'cv_rmse_per_fold': test_rmse,
-                    'cv_r2_per_fold': test_r2,
-                    'cv_correlation_per_fold': test_corr,
-                    'readout_weights': all_weights,
-                    # NEW: Reconstructed output dimensionality per pattern
-                    'reconstructed_output_empirical_dim_means': recon_dim_means,
-                    'reconstructed_output_empirical_dim_stds': recon_dim_stds
-                }
-        else:
-            # Other ranks just wait
-            return {}
-
-    def cross_validate(self, traces_all: np.ndarray,
-                    ground_truth_all: np.ndarray,
-                    pattern_ids: np.ndarray,
-                    session_id: int,
-                    n_folds: int,
-                    rank: int,
-                    size: int,
-                    comm) -> Dict[str, Any]:
-        """
-        Perform cross-validation using either distributed or centralized approach.
-
-        Dispatches to the appropriate method based on self.use_distributed_cv flag.
-        """
-        if self.use_distributed_cv:
-            if rank == 0:
-                print(f"   Using DISTRIBUTED CV ({n_folds} folds across {size} ranks)")
-            return self.cross_validate_distributed(
-                traces_all=traces_all,
-                ground_truth_all=ground_truth_all,
-                pattern_ids=pattern_ids,
-                session_id=session_id,
-                n_folds=n_folds,
-                rank=rank,
-                size=size,
-                comm=comm
-            )
-        else:
-            if rank == 0:
-                print(f"   Using CENTRALIZED CV ({n_folds} folds on rank 0 only)")
-            return self.cross_validate_centralized(
-                traces_all=traces_all,
-                ground_truth_all=ground_truth_all,
-                pattern_ids=pattern_ids,
-                session_id=session_id,
-                n_folds=n_folds,
-                rank=rank,
-                comm=comm
-            )
 
     def extract_trial_arrays(self, trial_results: List[Dict]) -> Dict[str, np.ndarray]:
-        """Extract arrays from trial results (required by base class)."""
+        """
+        Extract arrays from trial results (required by base class).
+
+        For task experiments, this is not used because we handle data
+        conversion in convert_spikes_to_traces() and cross-validation separately.
+        Just return empty dict to satisfy the abstract method requirement.
+
+        Args:
+            trial_results: List of trial result dictionaries
+
+        Returns:
+            Empty dictionary (method not used in task experiments)
+        """
         return {}

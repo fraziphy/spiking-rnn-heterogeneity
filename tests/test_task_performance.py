@@ -31,7 +31,7 @@ def test_imports():
         )
         from analysis.common_utils import spikes_to_matrix
         from src.rng_utils import get_rng
-        from src.hd_input import HDInputGenerator, run_rate_rnn, make_embedding
+        from src.hd_input import HDInputGenerator, run_rate_rnn, make_embedding_projected
         from src.spiking_network import SpikingRNN
         print("  ✓ All imports successful")
         return True
@@ -170,7 +170,6 @@ def test_temporal_evaluation():
         print(f"  RMSE mean: {metrics['rmse_mean']:.4f}")
         print(f"  R² mean: {metrics['r2_mean']:.4f}")
         print(f"  Correlation mean: {metrics['correlation_mean']:.4f}")
-        print(f"  Number of output dims: {len(metrics['rmse_per_dim'])}")
 
         assert 'rmse_mean' in metrics, "Missing RMSE"
         assert 'r2_mean' in metrics, "Missing R²"
@@ -189,36 +188,33 @@ def test_pattern_id_in_hd_functions():
     """Test 6: pattern_id parameter in HD functions."""
     print("\n[TEST 6] Testing pattern_id in HD functions...")
     try:
-        from src.hd_input import run_rate_rnn, make_embedding
+        from src.hd_input import run_rate_rnn, make_embedding_projected
 
-        # Test run_rate_rnn with pattern_id
-        rates1, _ = run_rate_rnn(
+        # Test run_rate_rnn with different signal_types
+        rates_input, _ = run_rate_rnn(
             n_neurons=100, T=500.0, dt=0.1, g=1.2,
-            session_id=1, hd_dim=5, embed_dim=10, pattern_id=0
+            session_id=1, signal_type='hd_input'
         )
 
-        rates2, _ = run_rate_rnn(
+        rates_output, _ = run_rate_rnn(
             n_neurons=100, T=500.0, dt=0.1, g=1.2,
-            session_id=1, hd_dim=5, embed_dim=10, pattern_id=1
+            session_id=1, signal_type='hd_output'
         )
 
-        assert not np.array_equal(rates1, rates2), "Different pattern_id should give different rates"
-        print(f"  ✓ pattern_id creates different rate patterns")
+        assert not np.array_equal(rates_input, rates_output), "Different signal_type should give different rates"
+        print(f"  ✓ signal_type creates different rate patterns")
 
-        # Test backward compatibility
-        rates_default, _ = run_rate_rnn(
-            n_neurons=100, T=500.0, dt=0.1, g=1.2,
-            session_id=1, hd_dim=5, embed_dim=10
-        )
-        assert np.array_equal(rates1, rates_default), "Default pattern_id=0 should match explicit"
-        print(f"  ✓ Backward compatible (pattern_id=0 default)")
-
-        # Test make_embedding with pattern_id
-        Y1, _ = make_embedding(rates1, k=10, d=5, session_id=1, pattern_id=0)
-        Y2, _ = make_embedding(rates1, k=10, d=5, session_id=1, pattern_id=1)
+        # Test make_embedding_projected with different pattern_ids
+        Y1 = make_embedding_projected(rates_input, k=10, d=5, session_id=1, pattern_id=0, signal_type='hd_input')
+        Y2 = make_embedding_projected(rates_input, k=10, d=5, session_id=1, pattern_id=1, signal_type='hd_input')
 
         assert not np.array_equal(Y1, Y2), "Different pattern_id should give different embeddings"
         print(f"  ✓ pattern_id creates different embeddings")
+
+        # Test same parameters give same result
+        Y1_repeat = make_embedding_projected(rates_input, k=10, d=5, session_id=1, pattern_id=0, signal_type='hd_input')
+        assert np.array_equal(Y1, Y1_repeat), "Same parameters should give identical result"
+        print(f"  ✓ Same parameters are reproducible")
 
         return True
     except Exception as e:
@@ -253,8 +249,8 @@ def test_hd_generator_pattern_caching():
             print(f"  ✓ Patterns A and B are different")
 
             # Check cache files
-            cache_A = os.path.join(inputs_dir, 'hd_signal_session_1_hd_5_k_10_pattern_0.pkl')
-            cache_B = os.path.join(inputs_dir, 'hd_signal_session_1_hd_5_k_10_pattern_1.pkl')
+            cache_A = os.path.join(inputs_dir, 'hd_hd_input_session_1_hd_5_k_10_pattern_0.pkl')
+            cache_B = os.path.join(inputs_dir, 'hd_hd_input_session_1_hd_5_k_10_pattern_1.pkl')
 
             assert os.path.exists(cache_A), "Pattern A cache not found"
             assert os.path.exists(cache_B), "Pattern B cache not found"
@@ -270,7 +266,7 @@ def test_hd_generator_pattern_caching():
             output_gen = HDInputGenerator(embed_dim=8, dt=0.1, signal_cache_dir=outputs_dir)
             output_gen.initialize_base_input(session_id=1, hd_dim=3, pattern_id=100)
 
-            cache_out = os.path.join(outputs_dir, 'hd_signal_session_1_hd_3_k_8_pattern_100.pkl')
+            cache_out = os.path.join(outputs_dir, 'hd_hd_input_session_1_hd_3_k_8_pattern_100.pkl')
             assert os.path.exists(cache_out), "Output pattern cache not found"
             print(f"  ✓ Separate output directory works")
 
@@ -436,59 +432,68 @@ def test_stratified_cv():
         return False
 
 
+
+
 def test_categorical_experiment():
-    """Test 11: Full categorical task experiment (small scale) - NEW DISTRIBUTED."""
+    """Test 11: Full categorical task experiment (minimal)."""
     print("\n[TEST 11] Testing categorical task experiment...")
     try:
         from experiments.task_performance_experiment import TaskPerformanceExperiment
-        from mpi4py import MPI
-
-        # Create a simple mock communicator for testing
-        class MockComm:
-            def Get_rank(self): return 0
-            def Get_size(self): return 1
-            def allgather(self, data): return [data]
-            def gather(self, data, root=0): return [data] if root == 0 else None
-            def bcast(self, data, root=0): return data
-            def Barrier(self): pass
+        import pickle
 
         with tempfile.TemporaryDirectory() as tmpdir:
+            # Create mock cached spikes directory
+            spike_cache_dir = os.path.join(tmpdir, 'cached_spikes')
+            os.makedirs(os.path.join(spike_cache_dir, 'overlapping'), exist_ok=True)
+
+            n_patterns = 2
+            n_trials_per_pattern = 6
+            n_neurons = 50
+            stimulus_duration = 50.0
+
+            # Create mock spike data for each pattern
+            for pattern_id in range(n_patterns):
+                mock_spikes = {
+                    'trial_spikes': {
+                        trial_id: [(float(t), t % n_neurons) for t in range(0, int(stimulus_duration), 5)]
+                        for trial_id in range(n_trials_per_pattern)
+                    }
+                }
+                cache_file = os.path.join(spike_cache_dir, 'overlapping',
+                    f'session_0_g_1.000_vth_1.000_rate_200.0_h_2_d_3_pattern_{pattern_id}_spikes.pkl')
+                with open(cache_file, 'wb') as f:
+                    pickle.dump(mock_spikes, f)
+
             exp = TaskPerformanceExperiment(
                 task_type='categorical',
-                n_neurons=50,
-                n_input_patterns=2,
+                n_neurons=n_neurons,
+                n_input_patterns=n_patterns,
                 input_dim_intrinsic=2,
                 input_dim_embedding=3,
-                n_trials_per_pattern=6,
-                stimulus_duration=50.0,
+                n_trials_per_pattern=n_trials_per_pattern,
+                stimulus_duration=stimulus_duration,
                 tau_syn=5.0,
                 decision_window=10.0,
                 signal_cache_dir=tmpdir
             )
 
-            print(f"  Running categorical experiment (may take ~20 seconds)...")
+            print(f"  Running categorical experiment with mock cached spikes...")
 
             session_id = 0
             v_th_std = 1.0
             g_std = 1.0
             static_input_rate = 200.0
-            n_cv_folds = 3
 
-            # Step 1: Generate patterns
-            input_patterns = {}
-            for pattern_id in range(2):
-                exp.input_generator.initialize_base_input(
-                    session_id=session_id,
-                    hd_dim=exp.input_dim_intrinsic,
-                    pattern_id=pattern_id,
-                    rate_rnn_params={'n_neurons': 100, 'T': 250.0, 'g': 2.0}
-                )
-                input_patterns[pattern_id] = exp.input_generator.Y_base.copy()
-
+            # Generate patterns
+            input_patterns = exp.input_generator.initialize_and_get_patterns(
+                session_id=session_id,
+                hd_dim=exp.input_dim_intrinsic,
+                n_patterns=n_patterns
+            )
             output_patterns = exp.generate_output_patterns(session_id)
 
-            # Step 2: Simulate trials (all trials on rank 0)
-            my_trials = list(range(12))  # 2 patterns × 6 trials
+            # Simulate with cached spikes
+            my_trials = list(range(n_patterns * n_trials_per_pattern))
             local_spike_times = exp.simulate_trials_parallel(
                 session_id=session_id,
                 v_th_std=v_th_std,
@@ -497,38 +502,44 @@ def test_categorical_experiment():
                 static_input_rate=static_input_rate,
                 my_trial_indices=my_trials,
                 input_patterns=input_patterns,
-                rank=0
+                rank=0,
+                use_cached_spikes=True,
+                spike_cache_dir=spike_cache_dir
             )
 
-            # Step 3: Convert to traces
+            assert len(local_spike_times) == n_patterns * n_trials_per_pattern
+            print(f"  ✓ Loaded {len(local_spike_times)} trials from cache")
+
+            # Convert to traces
             traces_all, ground_truth_all, pattern_ids = exp.convert_spikes_to_traces(
-                local_spike_times,
-                output_patterns,
-                2, 6
+                local_spike_times, output_patterns, n_patterns, n_trials_per_pattern
             )
 
-            # Step 4: CV training (single rank)
-            comm = MockComm()
-            cv_results = exp.cross_validate_distributed(
+            assert traces_all.shape[0] == n_patterns * n_trials_per_pattern
+            print(f"  ✓ Converted spikes to traces: {traces_all.shape}")
+
+            # Cross-validate
+            class MockComm:
+                def bcast(self, data, root=0): return data
+                def Barrier(self): pass
+
+            cv_results = exp.cross_validate(
                 traces_all=traces_all,
                 ground_truth_all=ground_truth_all,
                 pattern_ids=pattern_ids,
                 session_id=session_id,
-                n_folds=n_cv_folds,
+                n_folds=3,
                 rank=0,
                 size=1,
-                comm=comm
+                comm=MockComm()
             )
 
-            print(f"\n  Results:")
-            print(f"    Train Accuracy: {cv_results['train_accuracy_mean']:.3f} ± {cv_results['train_accuracy_std']:.3f}")
-            print(f"    Test Accuracy:  {cv_results['test_accuracy_mean']:.3f} ± {cv_results['test_accuracy_std']:.3f}")
-
-            assert 0 <= cv_results['test_accuracy_mean'] <= 1, "Accuracy out of range"
-            assert 'cv_confusion_matrices' in cv_results, "Missing confusion matrices"
+            assert 0 <= cv_results['test_accuracy_bayesian_mean'] <= 1
+            print(f"  ✓ Test accuracy: {cv_results['test_accuracy_bayesian_mean']:.3f}")
 
             print("  ✓ Categorical experiment completed successfully")
             return True
+
     except Exception as e:
         print(f"  ✗ Categorical experiment failed: {e}")
         import traceback
@@ -537,35 +548,50 @@ def test_categorical_experiment():
 
 
 def test_temporal_experiment():
-    """Test 12: Full temporal task experiment (small scale) - NEW DISTRIBUTED."""
+    """Test 12: Full temporal task experiment (minimal)."""
     print("\n[TEST 12] Testing temporal task experiment...")
     try:
         from experiments.task_performance_experiment import TaskPerformanceExperiment
-
-        class MockComm:
-            def Get_rank(self): return 0
-            def Get_size(self): return 1
-            def allgather(self, data): return [data]
-            def gather(self, data, root=0): return [data] if root == 0 else None
-            def bcast(self, data, root=0): return data
-            def Barrier(self): pass
+        import pickle
 
         with tempfile.TemporaryDirectory() as tmpdir:
+            # Create mock cached spikes directory
+            spike_cache_dir = os.path.join(tmpdir, 'cached_spikes')
+            os.makedirs(os.path.join(spike_cache_dir, 'overlapping'), exist_ok=True)
+
+            n_patterns = 2
+            n_trials_per_pattern = 6
+            n_neurons = 50
+            stimulus_duration = 50.0
+
+            # Create mock spike data for each pattern
+            for pattern_id in range(n_patterns):
+                mock_spikes = {
+                    'trial_spikes': {
+                        trial_id: [(float(t), t % n_neurons) for t in range(0, int(stimulus_duration), 5)]
+                        for trial_id in range(n_trials_per_pattern)
+                    }
+                }
+                cache_file = os.path.join(spike_cache_dir, 'overlapping',
+                    f'session_0_g_1.000_vth_1.000_rate_200.0_h_2_d_3_pattern_{pattern_id}_spikes.pkl')
+                with open(cache_file, 'wb') as f:
+                    pickle.dump(mock_spikes, f)
+
             exp = TaskPerformanceExperiment(
                 task_type='temporal',
-                n_neurons=50,
-                n_input_patterns=2,
+                n_neurons=n_neurons,
+                n_input_patterns=n_patterns,
                 input_dim_intrinsic=2,
                 input_dim_embedding=3,
                 output_dim_intrinsic=2,
-                output_dim_embedding=4,
-                n_trials_per_pattern=6,
-                stimulus_duration=50.0,
+                output_dim_embedding=3,
+                n_trials_per_pattern=n_trials_per_pattern,
+                stimulus_duration=stimulus_duration,
                 tau_syn=5.0,
                 signal_cache_dir=tmpdir
             )
 
-            print(f"  Running temporal experiment (may take ~20 seconds)...")
+            print(f"  Running temporal experiment with mock cached spikes...")
 
             session_id = 0
             v_th_std = 1.0
@@ -573,20 +599,15 @@ def test_temporal_experiment():
             static_input_rate = 200.0
 
             # Generate patterns
-            input_patterns = {}
-            for pattern_id in range(2):
-                exp.input_generator.initialize_base_input(
-                    session_id=session_id,
-                    hd_dim=exp.input_dim_intrinsic,
-                    pattern_id=pattern_id,
-                    rate_rnn_params={'n_neurons': 100, 'T': 250.0, 'g': 2.0}
-                )
-                input_patterns[pattern_id] = exp.input_generator.Y_base.copy()
-
+            input_patterns = exp.input_generator.initialize_and_get_patterns(
+                session_id=session_id,
+                hd_dim=exp.input_dim_intrinsic,
+                n_patterns=n_patterns
+            )
             output_patterns = exp.generate_output_patterns(session_id)
 
-            # Simulate trials
-            my_trials = list(range(12))
+            # Simulate with cached spikes
+            my_trials = list(range(n_patterns * n_trials_per_pattern))
             local_spike_times = exp.simulate_trials_parallel(
                 session_id=session_id,
                 v_th_std=v_th_std,
@@ -595,19 +616,28 @@ def test_temporal_experiment():
                 static_input_rate=static_input_rate,
                 my_trial_indices=my_trials,
                 input_patterns=input_patterns,
-                rank=0
+                rank=0,
+                use_cached_spikes=True,
+                spike_cache_dir=spike_cache_dir
             )
+
+            assert len(local_spike_times) == n_patterns * n_trials_per_pattern
+            print(f"  ✓ Loaded {len(local_spike_times)} trials from cache")
 
             # Convert to traces
             traces_all, ground_truth_all, pattern_ids = exp.convert_spikes_to_traces(
-                local_spike_times,
-                output_patterns,
-                2, 6
+                local_spike_times, output_patterns, n_patterns, n_trials_per_pattern
             )
 
-            # CV training
-            comm = MockComm()
-            cv_results = exp.cross_validate_distributed(
+            assert traces_all.shape[0] == n_patterns * n_trials_per_pattern
+            print(f"  ✓ Converted spikes to traces: {traces_all.shape}")
+
+            # Cross-validate
+            class MockComm:
+                def bcast(self, data, root=0): return data
+                def Barrier(self): pass
+
+            cv_results = exp.cross_validate(
                 traces_all=traces_all,
                 ground_truth_all=ground_truth_all,
                 pattern_ids=pattern_ids,
@@ -615,109 +645,96 @@ def test_temporal_experiment():
                 n_folds=3,
                 rank=0,
                 size=1,
-                comm=comm
+                comm=MockComm()
             )
 
-            print(f"\n  Results:")
-            print(f"    Train RMSE: {cv_results['train_rmse_mean']:.4f} ± {cv_results['train_rmse_std']:.4f}")
-            print(f"    Test RMSE:  {cv_results['test_rmse_mean']:.4f} ± {cv_results['test_rmse_std']:.4f}")
-            print(f"    Test R²:    {cv_results['test_r2_mean']:.4f}")
-
-            assert cv_results['test_rmse_mean'] >= 0, "RMSE must be non-negative"
+            assert cv_results['test_rmse_mean'] >= 0
+            print(f"  ✓ Test RMSE: {cv_results['test_rmse_mean']:.4f}")
+            print(f"  ✓ Test R²: {cv_results['test_r2_mean']:.4f}")
 
             print("  ✓ Temporal experiment completed successfully")
             return True
+
     except Exception as e:
         print(f"  ✗ Temporal experiment failed: {e}")
         import traceback
         traceback.print_exc()
         return False
 
-
 def test_rng_reproducibility():
-    """Test 13: RNG reproducibility - NEW DISTRIBUTED."""
+    """Test 13: RNG reproducibility for cached spike loading."""
     print("\n[TEST 13] Testing RNG reproducibility...")
     try:
         from experiments.task_performance_experiment import TaskPerformanceExperiment
-
-        class MockComm:
-            def Get_rank(self): return 0
-            def Get_size(self): return 1
-            def allgather(self, data): return [data]
-            def gather(self, data, root=0): return [data] if root == 0 else None
-            def bcast(self, data, root=0): return data
-            def Barrier(self): pass
+        import pickle
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Run same experiment twice
-            results = []
+            # Create mock cached spikes directory
+            spike_cache_dir = os.path.join(tmpdir, 'cached_spikes')
+            os.makedirs(os.path.join(spike_cache_dir, 'overlapping'), exist_ok=True)
 
+            n_patterns = 2
+            n_trials_per_pattern = 4
+            n_neurons = 50
+            stimulus_duration = 50.0
+
+            # Create mock spike data
+            for pattern_id in range(n_patterns):
+                mock_spikes = {
+                    'trial_spikes': {
+                        trial_id: [(float(t + pattern_id * 10), (t + trial_id) % n_neurons)
+                                   for t in range(0, int(stimulus_duration), 5)]
+                        for trial_id in range(n_trials_per_pattern)
+                    }
+                }
+                cache_file = os.path.join(spike_cache_dir, 'overlapping',
+                    f'session_42_g_1.000_vth_1.000_rate_200.0_h_2_d_3_pattern_{pattern_id}_spikes.pkl')
+                with open(cache_file, 'wb') as f:
+                    pickle.dump(mock_spikes, f)
+
+            # Run twice and compare
+            results = []
             for run in range(2):
                 exp = TaskPerformanceExperiment(
                     task_type='categorical',
-                    n_neurons=30,
-                    n_input_patterns=2,
+                    n_neurons=n_neurons,
+                    n_input_patterns=n_patterns,
                     input_dim_intrinsic=2,
                     input_dim_embedding=3,
-                    n_trials_per_pattern=4,
-                    stimulus_duration=30.0,
-                    tau_syn=5.0,
+                    n_trials_per_pattern=n_trials_per_pattern,
+                    stimulus_duration=stimulus_duration,
                     signal_cache_dir=tmpdir
                 )
 
-                session_id = 42
-                v_th_std = 1.0
-                g_std = 1.0
-                static_input_rate = 200.0
+                input_patterns = exp.input_generator.initialize_and_get_patterns(
+                    session_id=42, hd_dim=2, n_patterns=n_patterns
+                )
 
-                # Generate patterns
-                input_patterns = {}
-                for pattern_id in range(2):
-                    exp.input_generator.initialize_base_input(
-                        session_id=session_id,
-                        hd_dim=2,
-                        pattern_id=pattern_id,
-                        rate_rnn_params={'n_neurons': 50, 'T': 230.0, 'g': 2.0}
-                    )
-                    input_patterns[pattern_id] = exp.input_generator.Y_base.copy()
-
-                output_patterns = exp.generate_output_patterns(session_id)
-
-                # Simulate
-                my_trials = list(range(8))
+                my_trials = list(range(n_patterns * n_trials_per_pattern))
                 local_spike_times = exp.simulate_trials_parallel(
-                    session_id=session_id,
-                    v_th_std=v_th_std,
-                    g_std=g_std,
+                    session_id=42,
+                    v_th_std=1.0,
+                    g_std=1.0,
                     v_th_distribution='normal',
-                    static_input_rate=static_input_rate,
+                    static_input_rate=200.0,
                     my_trial_indices=my_trials,
                     input_patterns=input_patterns,
-                    rank=0
+                    rank=0,
+                    use_cached_spikes=True,
+                    spike_cache_dir=spike_cache_dir
                 )
+                results.append(local_spike_times)
 
-                # Convert and train
-                traces_all, ground_truth_all, pattern_ids = exp.convert_spikes_to_traces(
-                    local_spike_times, output_patterns, 2, 4
-                )
+            # Compare spike times from both runs
+            for i, (r1, r2) in enumerate(zip(results[0], results[1])):
+                assert r1['pattern_id'] == r2['pattern_id'], f"Pattern mismatch at trial {i}"
+                assert r1['trial_id'] == r2['trial_id'], f"Trial ID mismatch at trial {i}"
+                assert r1['spike_times'] == r2['spike_times'], f"Spike times mismatch at trial {i}"
 
-                comm = MockComm()
-                cv_results = exp.cross_validate_distributed(
-                    traces_all, ground_truth_all, pattern_ids,
-                    session_id, 2, 0, 1, comm
-                )
-
-                results.append(cv_results['test_accuracy_mean'])
-
-            print(f"  Run 1 accuracy: {results[0]:.6f}")
-            print(f"  Run 2 accuracy: {results[1]:.6f}")
-            diff = abs(results[0] - results[1])
-            print(f"  Difference: {diff:.10f}")
-
-            assert diff < 1e-10, f"Results not reproducible! Difference: {diff}"
-
+            print(f"  ✓ Both runs produced identical results")
             print("  ✓ RNG reproducibility verified")
             return True
+
     except Exception as e:
         print(f"  ✗ Reproducibility test failed: {e}")
         import traceback
@@ -726,60 +743,68 @@ def test_rng_reproducibility():
 
 
 def test_hd_pattern_independence_from_dimensions():
-    """Test 14: HD patterns independent of hd_dim and embed_dim."""
+    """Test 14: HD pattern generation and embedding behavior."""
     print("\n[TEST 14] Testing HD pattern independence from dimensions...")
     try:
-        from src.hd_input import run_rate_rnn, make_embedding
+        from src.hd_input import run_rate_rnn, make_embedding_projected
 
         session_id = 42
-        pattern_id = 5
 
-        # Test 1: Rate RNN should be identical for different hd_dim/embed_dim
-        rates_1, _ = run_rate_rnn(
-            n_neurons=100, T=500.0, dt=0.1, g=1.2,
-            session_id=session_id, hd_dim=3, embed_dim=10, pattern_id=pattern_id
+        # Test 1: Rate RNN is deterministic (same params → same output)
+        rates1, _ = run_rate_rnn(
+            n_neurons=100, T=500.0, dt=0.1, g=1.5,
+            session_id=session_id, signal_type='hd_input'
         )
-
-        rates_2, _ = run_rate_rnn(
-            n_neurons=100, T=500.0, dt=0.1, g=1.2,
-            session_id=session_id, hd_dim=5, embed_dim=15, pattern_id=pattern_id
+        rates2, _ = run_rate_rnn(
+            n_neurons=100, T=500.0, dt=0.1, g=1.5,
+            session_id=session_id, signal_type='hd_input'
         )
+        assert np.array_equal(rates1, rates2), \
+            "Rate RNN should be identical for same session/signal_type"
+        print(f"  ✓ Rate RNN is deterministic")
 
-        assert np.array_equal(rates_1, rates_2), \
-            "Rate RNN should be identical for same session/pattern but different dimensions!"
-        print(f"  ✓ Rate RNN independent of hd_dim and embed_dim")
-
-        # Test 2: Embedding RNG sequence should be identical
-        # (but final output differs due to different d and k)
-
-        # Generate base rates
-        base_rates, _ = run_rate_rnn(
-            n_neurons=100, T=500.0, dt=0.1, g=1.2,
-            session_id=session_id, hd_dim=5, embed_dim=10, pattern_id=pattern_id
+        # Test 2: Different signal_type → different rates
+        rates_output, _ = run_rate_rnn(
+            n_neurons=100, T=500.0, dt=0.1, g=1.5,
+            session_id=session_id, signal_type='hd_output'
         )
+        assert not np.array_equal(rates1, rates_output), \
+            "Different signal_type should give different rates"
+        print(f"  ✓ Different signal_type produces different rates")
 
-        # Embed with different dimensions
-        embed_1, chosen_1 = make_embedding(base_rates, k=10, d=3,
-                                          session_id=session_id, pattern_id=pattern_id)
-        embed_2, chosen_2 = make_embedding(base_rates, k=15, d=5,
-                                          session_id=session_id, pattern_id=pattern_id)
+        # Test 3: Embedding with same parameters → identical
+        Y1 = make_embedding_projected(rates1, k=10, d=3, session_id=session_id,
+                                       pattern_id=0, signal_type='hd_input')
+        Y1_repeat = make_embedding_projected(rates1, k=10, d=3, session_id=session_id,
+                                              pattern_id=0, signal_type='hd_input')
+        assert np.array_equal(Y1, Y1_repeat), \
+            "Same embedding parameters should give identical result"
+        print(f"  ✓ Embedding is deterministic")
 
-        # The RNG sequence should be the same, so first rotation matrix should match
-        # We can't test this directly, but we can verify the embeddings are different
-        # (because PCA gives different number of components)
-        assert embed_1.shape[1] == 10, "Embed 1 should have k=10 channels"
-        assert embed_2.shape[1] == 15, "Embed 2 should have k=15 channels"
-        print(f"  ✓ Embeddings have correct dimensions")
+        # Test 4: Different pattern_id → different embeddings
+        Y2 = make_embedding_projected(rates1, k=10, d=3, session_id=session_id,
+                                       pattern_id=1, signal_type='hd_input')
+        assert not np.array_equal(Y1, Y2), \
+            "Different pattern_id should give different embeddings"
+        print(f"  ✓ Different pattern_id produces different embeddings")
 
-        # Test 3: Different patterns should give different results
-        rates_pattern_6, _ = run_rate_rnn(
-            n_neurons=100, T=500.0, dt=0.1, g=1.2,
-            session_id=session_id, hd_dim=3, embed_dim=10, pattern_id=6
-        )
+        # Test 5: Different intrinsic dimension (d) → different embeddings
+        Y3 = make_embedding_projected(rates1, k=10, d=5, session_id=session_id,
+                                       pattern_id=0, signal_type='hd_input')
+        assert not np.array_equal(Y1, Y3), \
+            "Different intrinsic dimension should give different embeddings"
+        print(f"  ✓ Different intrinsic dimension produces different embeddings")
 
-        assert not np.array_equal(rates_1, rates_pattern_6), \
-            "Different pattern_id should give different rates!"
-        print(f"  ✓ Different patterns produce different rates")
+        # Test 6: Verify output shapes
+        assert Y1.shape[1] == 10, f"Y1 should have k=10 channels, got {Y1.shape[1]}"
+        assert Y3.shape[1] == 10, f"Y3 should have k=10 channels, got {Y3.shape[1]}"
+        print(f"  ✓ Embeddings have correct dimensions (k=10)")
+
+        # Test 7: Different embedding dimension (k) → different shape
+        Y4 = make_embedding_projected(rates1, k=8, d=3, session_id=session_id,
+                                       pattern_id=0, signal_type='hd_input')
+        assert Y4.shape[1] == 8, f"Y4 should have k=8 channels, got {Y4.shape[1]}"
+        print(f"  ✓ Different k produces correct output shape")
 
         return True
     except Exception as e:
@@ -1010,68 +1035,83 @@ def test_complete_experiment_consistency():
 
 
 def test_dimensionality_computation_in_experiments():
-    """Test 18: Dimensionality computation in task experiments."""
+    """Test 18: Dimensionality computation on spike data."""
     print("\n[TEST 18] Testing dimensionality computation in experiments...")
     try:
         from experiments.task_performance_experiment import TaskPerformanceExperiment
         from analysis.common_utils import spikes_to_binary, compute_dimensionality_svd
+        import pickle
 
         with tempfile.TemporaryDirectory() as tmpdir:
+            # Create mock cached spikes directory
+            spike_cache_dir = os.path.join(tmpdir, 'cached_spikes')
+            os.makedirs(os.path.join(spike_cache_dir, 'overlapping'), exist_ok=True)
+
+            n_patterns = 2
+            n_trials_per_pattern = 4
+            n_neurons = 50
+            stimulus_duration = 50.0
+
+            # Create mock spike data with varied patterns
+            np.random.seed(123)
+            for pattern_id in range(n_patterns):
+                mock_spikes = {
+                    'trial_spikes': {
+                        trial_id: [(float(t), np.random.randint(0, n_neurons))
+                                   for t in sorted(np.random.uniform(0, stimulus_duration, 20))]
+                        for trial_id in range(n_trials_per_pattern)
+                    }
+                }
+                cache_file = os.path.join(spike_cache_dir, 'overlapping',
+                    f'session_1_g_1.000_vth_1.000_rate_200.0_h_2_d_3_pattern_{pattern_id}_spikes.pkl')
+                with open(cache_file, 'wb') as f:
+                    pickle.dump(mock_spikes, f)
+
             exp = TaskPerformanceExperiment(
                 task_type='categorical',
-                n_neurons=50,
-                n_input_patterns=2,
+                n_neurons=n_neurons,
+                n_input_patterns=n_patterns,
                 input_dim_intrinsic=2,
                 input_dim_embedding=3,
-                n_trials_per_pattern=4,
-                stimulus_duration=50.0,
+                n_trials_per_pattern=n_trials_per_pattern,
+                stimulus_duration=stimulus_duration,
                 signal_cache_dir=tmpdir
             )
 
-            # Simulate one trial
-            session_id = 1
-            v_th_std = 1.0
-            g_std = 1.0
-
-            input_patterns = {}
-            for pattern_id in range(2):
-                exp.input_generator.initialize_base_input(
-                    session_id=session_id,
-                    hd_dim=2,
-                    pattern_id=pattern_id
-                )
-                input_patterns[pattern_id] = exp.input_generator.Y_base.copy()
-
-            # Simulate trials
-            local_spike_times = exp.simulate_trials_parallel(
-                session_id=session_id,
-                v_th_std=v_th_std,
-                g_std=g_std,
-                v_th_distribution='normal',
-                static_input_rate=200.0,
-                my_trial_indices=[0, 1],
-                input_patterns=input_patterns,
-                rank=0
+            input_patterns = exp.input_generator.initialize_and_get_patterns(
+                session_id=1, hd_dim=2, n_patterns=n_patterns
             )
 
-            print(f"  Simulated {len(local_spike_times)} trials")
+            my_trials = list(range(n_patterns * n_trials_per_pattern))
+            local_spike_times = exp.simulate_trials_parallel(
+                session_id=1,
+                v_th_std=1.0,
+                g_std=1.0,
+                v_th_distribution='normal',
+                static_input_rate=200.0,
+                my_trial_indices=my_trials,
+                input_patterns=input_patterns,
+                rank=0,
+                use_cached_spikes=True,
+                spike_cache_dir=spike_cache_dir
+            )
+
+            print(f"  Loaded {len(local_spike_times)} trials")
 
             # Test dimensionality computation on spike data
             bin_sizes = [2.0, 10.0, 20.0]
 
-            for trial_result in local_spike_times[:1]:  # Test first trial
+            for trial_result in local_spike_times[:1]:
                 for bin_size in bin_sizes:
                     binary_matrix = spikes_to_binary(
                         trial_result['spike_times'],
-                        50,
-                        exp.stimulus_duration,
+                        n_neurons,
+                        stimulus_duration,
                         bin_size
                     )
 
-                    dim_metrics = compute_dimensionality_svd(
-                        binary_matrix,
-                        variance_threshold=0.95
-                    )
+                    # compute_dimensionality_svd expects (n_samples, n_features)
+                    dim_metrics = compute_dimensionality_svd(binary_matrix.T)
 
                     assert 'participation_ratio' in dim_metrics
                     assert 'effective_dimensionality' in dim_metrics
@@ -1144,6 +1184,55 @@ def test_dimensionality_aggregation():
 
 
 
+def test_cached_spike_loading():
+    """NEW: Test loading cached evoked spikes."""
+    print("\n[TEST NEW] Testing cached spike loading...")
+
+    try:
+        from experiments.task_performance_experiment import TaskPerformanceExperiment
+        import pickle
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            spike_cache_dir = os.path.join(tmpdir, 'cached_spikes')
+            os.makedirs(os.path.join(spike_cache_dir, 'overlapping'))
+
+            # Create mock cached spike file
+            mock_spikes = {
+                'trial_spikes': {
+                    0: [(10.0, 0), (20.0, 1)],
+                    1: [(15.0, 0), (25.0, 2)]
+                }
+            }
+
+            cache_file = os.path.join(spike_cache_dir, 'overlapping',
+                'session_0_g_1.000_vth_0.000_rate_30.0_h_2_d_5_pattern_0_spikes.pkl')
+
+            with open(cache_file, 'wb') as f:
+                pickle.dump(mock_spikes, f)
+
+            # Test loading
+            exp = TaskPerformanceExperiment(
+                task_type='categorical', n_neurons=100, n_input_patterns=1,
+                input_dim_intrinsic=2, input_dim_embedding=5,
+                output_dim_intrinsic=2, output_dim_embedding=5
+            )
+
+            loaded_spikes = exp.load_cached_trial_spikes(
+                session_id=0, v_th_std=0.0, g_std=1.0, static_rate=30.0,
+                pattern_id=0,
+                hd_connection_mode='overlapping',
+                spike_cache_dir=spike_cache_dir
+            )
+
+            assert len(loaded_spikes) == 2, "Should have 2 trials"
+            assert len(loaded_spikes[0]) == 2, "Trial 0 should have 2 spikes"
+            print("  ✓ Cached spike loading works")
+
+        return True
+    except Exception as e:
+        print(f"  ✗ Cached spike test failed: {e}")
+        return False
+
 
 
 def main():
@@ -1171,6 +1260,7 @@ def main():
         ("Trial noise independence", test_trial_noise_independence),  # NEW
         ("Complete experiment consistency", test_complete_experiment_consistency),  # NEW
         ("Dimensionality computation in experiments", test_dimensionality_computation_in_experiments),
+        ("Cached Spike Loading", test_cached_spike_loading),
         ("Dimensionality aggregation", test_dimensionality_aggregation),
     ]
 

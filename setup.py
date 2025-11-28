@@ -1,6 +1,6 @@
 # setup.py
 """
-Setup configuration for Spiking RNN Heterogeneity Framework v6.2.0
+Setup configuration for Spiking RNN Heterogeneity Framework v7.0.0
 
 NEW in v6.2.0:
 - HD Connection Modes: overlapping (30% random, ~9% overlap) vs partitioned (equal division, 0% overlap)
@@ -74,7 +74,7 @@ def read_requirements():
 
 setup(
     name="spiking-rnn-heterogeneity",
-    version="6.2.0",
+    version="7.0.0",
     description="HD connection modes and empirical dimensionality tracking for reservoir computing tasks",
     long_description=read_readme(),
     long_description_content_type="text/markdown",

@@ -1,72 +1,26 @@
 #!/bin/bash
-set -e  # stop on first error
+# run_pipeline.sh - Run all steps regardless of exit codes
 
+echo "========================================="
+echo "Starting Pipeline: $(date)"
+echo "========================================="
 
-# dnp3
-# ./runners/run_autoencoding_task.sh \
-#     --n_sessions 20 \
-#     --n_trials_per_pattern 100 --n_input_patterns 1 \
-#     --hd_dim_input_min 1 --hd_dim_input_max 10 --n_hd_dim_input 10 --embed_dim_input 10 \
-#     --static_input_mode common_tonic --hd_input_mode common_tonic \
-#     --n_v_th_std 1 --g_std_min 1.0 --g_std_max 2.0 --n_g_std 1 \
-#     --static_input_rate_min 30.0 --static_input_rate_max 50.0 --n_static_input_rates 1 \
-#     --n_processes 10
-#
-#
-#
-# ./runners/run_temporal_task.sh \
-#     --n_sessions 20 \
-#     --n_trials_per_pattern 100 --n_input_patterns 1 \
-#     --hd_dim_input_min 1 --hd_dim_input_max 10 --n_hd_dim_input 10 --embed_dim_input 10 \
-#     --hd_dim_output_min 1 --hd_dim_output_max 2 --n_hd_dim_output 1 --embed_dim_output 3 \
-#     --static_input_mode common_tonic --hd_input_mode common_tonic \
-#     --n_v_th_std 1 --g_std_min 1.0 --g_std_max 2.0 --n_g_std 1 \
-#     --static_input_rate_min 30.0 --static_input_rate_max 50.0 --n_static_input_rates 1 \
-#     --n_processes 10
-#
-#
-# # dnp2
-# ./runners/run_temporal_task.sh \
-#     --n_sessions 20 \
-#     --n_trials_per_pattern 100 --n_input_patterns 4 \
-#     --hd_dim_input_min 1 --hd_dim_input_max 10 --n_hd_dim_input 10 --embed_dim_input 10 \
-#     --hd_dim_output_min 1 --hd_dim_output_max 2 --n_hd_dim_output 1 --embed_dim_output 3 \
-#     --static_input_mode common_tonic --hd_input_mode common_tonic \
-#     --n_v_th_std 1 --g_std_min 1.0 --g_std_max 2.0 --n_g_std 1 \
-#     --static_input_rate_min 30.0 --static_input_rate_max 50.0 --n_static_input_rates 1 \
-#     --n_processes 10
-#
-#
-# # dnp4
-# ./runners/run_categorical_task.sh \
-#     --n_sessions 20 \
-#     --n_trials_per_pattern 100 --n_input_patterns 4 \
-#     --hd_dim_input_min 1 --hd_dim_input_max 10 --n_hd_dim_input 10 --embed_dim_input 10 \
-#     --static_input_mode common_tonic --hd_input_mode common_tonic \
-#     --n_v_th_std 1 --g_std_min 1.0 --g_std_max 2.0 --n_g_std 1 \
-#     --static_input_rate_min 30.0 --static_input_rate_max 50.0 --n_static_input_rates 1 \
-#     --n_processes 10
+echo "Step 1: Generating HD signals..."
+# ./sweep/run_sweep_generate_hd_signals.sh > hd_signals.log 2>&1
+echo "Step 1 complete: $(date)"
 
+echo "Step 2: Generating transient states..."
+# ./sweep/run_sweep_transient_cache.sh > transient_cache.log 2>&1
+echo "Step 2 complete: $(date)"
 
+echo "Step 3: Generating evoked spikes..."
+./sweep/run_sweep_evoked_spike_cache.sh > evoked_spike_cache.log 2>&1
+echo "Step 3 complete: $(date)"
 
+echo "Step 4: Running categorical task..."
+./sweep/run_sweep_categorical.sh > categorical.log 2>&1
+echo "Step 4 complete: $(date)"
 
-
-# ./runners/run_autoencoding_task.sh \
-#     --n_sessions 1 \
-#     --n_trials_per_pattern 100 --n_input_patterns 1 \
-#     --hd_dim_input_min 1 --hd_dim_input_max 5 --n_hd_dim_input 5 --embed_dim_input 5 \
-#     --static_input_mode common_tonic --hd_input_mode common_tonic \
-#     --n_v_th_std 1 --g_std_min 1.0 --g_std_max 2.0 --n_g_std 1 \
-#     --static_input_rate_min 30.0 --static_input_rate_max 50.0 --n_static_input_rates 1 \
-#     --n_processes 10
-
-
-./runners/run_categorical_task.sh \
-    --n_sessions 1 \
-    --n_trials_per_pattern 20 --n_input_patterns 3 \
-    --hd_dim_input_min 3 --hd_dim_input_max 4 --n_hd_dim_input 1 --embed_dim_input 4 \
-    --static_input_mode common_tonic --hd_input_mode common_tonic \
-    --n_v_th_std 1 --g_std_min 1.0 --g_std_max 2.0 --n_g_std 1 \
-    --static_input_rate_min 30.0 --static_input_rate_max 50.0 --n_static_input_rates 1 \
-    --n_processes 10
-
+echo "========================================="
+echo "Pipeline Complete: $(date)"
+echo "========================================="
