@@ -44,7 +44,6 @@ def load_results(filename: str) -> List[Dict[str, Any]]:
 def train_task_readout(X_train: np.ndarray,
                        Y_train: np.ndarray,
                        lambda_reg: float = 1e-3) -> np.ndarray:
-    """Train task readout weights with ridge regression."""
     if X_train.ndim != 3 or Y_train.ndim != 3:
         raise ValueError(f"Expected 3D arrays, got X: {X_train.shape}, Y: {Y_train.shape}")
 
@@ -54,21 +53,27 @@ def train_task_readout(X_train: np.ndarray,
     X = X_train.reshape(n_trials * T, N)
     y = Y_train.reshape(n_trials * T, n_outputs)
 
+    X_aug = np.hstack([X, np.ones((X.shape[0], 1))])
+    del X  # Free memory
+
     ridge = Ridge(alpha=lambda_reg, fit_intercept=False, solver='lsqr')
-    ridge.fit(X, y)
+    ridge.fit(X_aug, y)
     W_readout = ridge.coef_.T
 
     return W_readout
 
 
 def predict_task_readout(X: np.ndarray, W: np.ndarray) -> np.ndarray:
-    """Predict task outputs using trained readout weights."""
     if X.ndim != 3:
         raise ValueError(f"Expected 3D array, got shape {X.shape}")
 
     n_trials, T, N = X.shape
     X_flat = X.reshape(n_trials * T, N)
-    predictions_flat = X_flat @ W
+
+    X_aug = np.hstack([X_flat, np.ones((X_flat.shape[0], 1))])
+    del X_flat  # Free memory
+
+    predictions_flat = X_aug @ W
 
     return predictions_flat.reshape(n_trials, T, -1)
 

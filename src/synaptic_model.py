@@ -275,8 +275,9 @@ class HDDynamicInput:
             input_strength: Input strength multiplier
         """
         # Get RNG for connectivity (fixed per session/hd_dim/embed_dim)
-        rng = get_rng(session_id, 0.0, 0.0, 0, 'hd_input_connectivity',
-                     hd_dim=hd_dim, embed_dim=embed_dim)
+        # rng = get_rng(session_id, 0.0, 0.0, 0, 'hd_input_connectivity',
+        #              hd_dim=hd_dim, embed_dim=embed_dim)
+        rng = get_rng(session_id, 0.0, 0.0, 0, 'hd_input_connectivity')
 
         # Initialize connectivity matrix
         self.connectivity_matrix = np.zeros((self.n_neurons, self.n_channels), dtype=bool)

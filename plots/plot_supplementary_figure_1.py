@@ -7,6 +7,7 @@ import os
 from matplotlib.patches import Rectangle
 from mpl_toolkits.axes_grid1.inset_locator import zoomed_inset_axes, mark_inset
 from matplotlib.patches import ConnectionPatch
+import matplotlib.patches as patches
 
 # Get the directory where this script is located
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -205,34 +206,34 @@ ax_02.add_artist(con2)
 # PANEL C: COLORED RASTER (g=0.6) - WITH EMPTY PATTERN SPACE
 # =============================================================================
 
+ax_10_top.axvline(perturbation_time, color='gray', linestyle='--',label='Perturbation time', linewidth=1, zorder=1)
+ax_10_top.axhline(perturbation_neuron, color='gray', linestyle=':',label='Perturbed neuron', linewidth=1, alpha=0.7, zorder=1)
+
 if common_spikes_g06:
     times_common = [t for t, n in common_spikes_g06]
     neurons_common = [n for t, n in common_spikes_g06]
     ax_10_top.scatter(times_common, neurons_common, s=1.5, c='green', alpha=0.6,
-                     label='Common', rasterized=True, zorder=4)
+                     label='Common spikes', rasterized=True, zorder=4)
 
 if ctrl_only_spikes_g06:
     times_ctrl = [t for t, n in ctrl_only_spikes_g06]
     neurons_ctrl = [n for t, n in ctrl_only_spikes_g06]
     ax_10_top.scatter(times_ctrl, neurons_ctrl, s=1.5, c='blue', alpha=0.7,
-                     label='Control-only', rasterized=True, zorder=2)
+                     label='Control-only spikes', rasterized=True, zorder=2)
 
 if pert_only_spikes_g06:
     times_pert = [t for t, n in pert_only_spikes_g06]
     neurons_pert = [n for t, n in pert_only_spikes_g06]
     ax_10_top.scatter(times_pert, neurons_pert, s=1.5, c='red', alpha=0.7,
-                     label='Perturbed-only', rasterized=True, zorder=3)
+                     label='Perturbed-only spikes', rasterized=True, zorder=3)
 
-ax_10_top.axvline(perturbation_time, color='gray', linestyle='--', linewidth=1, zorder=1)
-ax_10_top.axhline(perturbation_neuron, color='gray', linestyle=':', linewidth=1, alpha=0.7, zorder=1)
 
 ax_10_top.set_ylabel('Neuron ID', fontsize=7)
 ax_10_top.set_xlim(plot_start_time, plot_end_time)
 ax_10_top.set_ylim(0, n_neurons_pert)
 ax_10_top.tick_params(labelsize=6)
-ax_10_top.text(-0.28, 1.05, 'c', transform=ax_10_top.transAxes,
-               fontsize=7, fontweight='bold', va='top')
-xticks_original = np.array([495, 500, 505, 510, 515])
+
+xticks_original = 500 + np.array([495, 500, 505, 510, 515])
 xticks_labels = xticks_original - perturbation_time
 ax_10_top.set_xticks(xticks_original)
 ax_10_top.set_xticklabels(xticks_labels.astype(int))
@@ -242,6 +243,26 @@ ax_10_top.set_xlabel('Time relative to perturbation (ms)', fontsize=7)
 legend = ax_10_top.legend(loc='upper right', fontsize=5, frameon=True, facecolor='white', borderpad=0.2,handletextpad=0.,framealpha=1.0)
 legend.set_zorder(10)
 
+
+box = patches.FancyBboxPatch(
+    (0.015, 0.9),          # (x, y) in axes fraction coordinates
+    0.22, 0.09,             # width, height
+    transform=ax_10_top.transAxes,
+    boxstyle="round,pad=0.",
+    facecolor="white",
+    edgecolor="black",
+    linewidth=0.,
+    alpha=0.8,              # transparency of the box ONLY
+    zorder=15               # above scatter points
+)
+
+ax_10_top.add_patch(box)
+
+ax_10_top.text(0.02, 0.98, 'gˢᵗᵈ=0.6', transform=ax_10_top.transAxes,
+               fontsize=6, verticalalignment='top', horizontalalignment='left',zorder=20)
+
+ax_10_top.text(-0.28, 1.05, 'c', transform=ax_10_top.transAxes,
+               fontsize=7, fontweight='bold', va='top')
 
 ax_10_bottom.axis('off')
 # # Empty pattern space - no plotting, but axis exists
@@ -270,9 +291,9 @@ spike_diff_zoom = spike_diff_g06[:, start_bin:end_bin]
 diff_neurons, diff_bins = np.where(spike_diff_zoom == 1)
 diff_times = diff_bins * bin_size_pert + plot_start_time
 
-ax_11_top.scatter(diff_times, diff_neurons, s=1, c='k', alpha=0.7, rasterized=True)
-ax_11_top.axvline(perturbation_time, color='gray', linestyle='--', linewidth=1)
-ax_11_top.axhline(perturbation_neuron, color='gray', linestyle=':', linewidth=1, alpha=0.7)
+ax_11_top.scatter(diff_times, diff_neurons, s=1, c='k', alpha=0.7, rasterized=True, zorder=2)
+ax_11_top.axvline(perturbation_time, color='gray', linestyle='--',label='Perturbation time', linewidth=1, zorder=1)
+ax_11_top.axhline(perturbation_neuron, color='gray', linestyle=':',label='Perturbed neuron', linewidth=1, alpha=0.7, zorder=1)
 
 ax_11_top.set_ylabel('Neuron ID', fontsize=7)
 ax_11_top.set_xlim(plot_start_time, plot_end_time)
@@ -299,6 +320,9 @@ ax_11_bottom.set_xticks(xticks_original)
 ax_11_bottom.set_xticklabels(xticks_labels.astype(int))
 ax_11_bottom.tick_params(labelsize=6)
 
+legend = ax_11_top.legend(loc='upper right', fontsize=5, frameon=True, facecolor='white', borderpad=0.2,handletextpad=0.,framealpha=1.0)
+legend.set_zorder(10)
+
 # =============================================================================
 # PANEL E: SPIKE DIFFERENCES (g=2.0) WITH PATTERN
 # =============================================================================
@@ -307,9 +331,9 @@ spike_diff_zoom_g2 = spike_diff_g2[:, start_bin:end_bin]
 diff_neurons_g2, diff_bins_g2 = np.where(spike_diff_zoom_g2 == 1)
 diff_times_g2 = diff_bins_g2 * bin_size_pert + plot_start_time
 
-ax_12_top.scatter(diff_times_g2, diff_neurons_g2, s=1, c='k', alpha=0.7, rasterized=True)
-ax_12_top.axvline(perturbation_time, color='gray', linestyle='--', linewidth=1)
-ax_12_top.axhline(perturbation_neuron, color='gray', linestyle=':', linewidth=1, alpha=0.7)
+ax_12_top.scatter(diff_times_g2, diff_neurons_g2, s=1, c='k', alpha=0.7, rasterized=True, zorder=2)
+ax_12_top.axvline(perturbation_time, color='gray', linestyle='--',label='Perturbation time', linewidth=1, zorder=1)
+ax_12_top.axhline(perturbation_neuron, color='gray', linestyle=':',label='Perturbed neuron', linewidth=1, alpha=0.7, zorder=1)
 
 ax_12_top.set_ylabel('Neuron ID', fontsize=7)
 ax_12_top.set_xlim(plot_start_time, plot_end_time)
@@ -321,6 +345,10 @@ ax_12_top.text(-0.28, 1.05, 'e', transform=ax_12_top.transAxes,
 # Add gstd text
 ax_12_top.text(0.02, 0.98, 'gˢᵗᵈ=2.0', transform=ax_12_top.transAxes,
                fontsize=6, verticalalignment='top', horizontalalignment='left')
+
+
+legend = ax_12_top.legend(loc='upper right', fontsize=5, frameon=True, facecolor='white', borderpad=0.2,handletextpad=0.,framealpha=1.0)
+legend.set_zorder(10)
 
 # Spatial patterns - both g=0.6 and g=2.0
 symbol_seq_zoom_g2 = symbol_seq_g2[start_bin:end_bin]

@@ -1,10 +1,59 @@
-# Spiking RNN Heterogeneity Framework v7.0.0
+# Spiking RNN Heterogeneity Framework v7.1.0
 
-[![Python Version](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
+[![Python Version](https://img.shields.io/badge/python-3.8\%2B-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![MPI Support](https://img.shields.io/badge/MPI-supported-orange.svg)](https://www.mpi-forum.org/)
 
 A comprehensive computational framework for investigating the effects of neural heterogeneity on spontaneous activity, network stability, high-dimensional (HD) encoding, and reservoir computing tasks in recurrent spiking neural networks.
+
+## 🆕 What's New in v7.1.0
+
+### 🔧 Data Curation Improvements
+
+**Renamed and refactored data curation scripts for clarity:**
+- `data_curation_network_encoding.py` → `data_curation_network_autoencoding.py`
+- New `data_curation_network_classification.py` for categorical task
+
+**Fixed participation ratio (PR) computation:**
+- PR now computed from **evoked spike patterns** (correct) instead of decoder weight matrix (incorrect)
+- Uses same `compute_activity_dimensionality_multi_bin()` method as stability experiments
+- Consistent 2ms bin size across all experiments
+
+### 🔄 Failed Job Recovery System ⭐ NEW
+
+New scripts to automatically retry only failed jobs from parameter sweeps:
+
+```bash
+# Interactive mode (shows failed jobs, asks for confirmation)
+./sweep/rerun_failed.sh --task autoencoding
+./sweep/rerun_failed.sh --task categorical
+./sweep/rerun_failed.sh --task temporal
+./sweep/rerun_failed.sh --task stability
+
+# Override parallel job count
+./sweep/rerun_failed.sh --task autoencoding --num_parallel 8
+
+# Non-interactive mode (for nohup/background execution)
+nohup ./sweep/rerun_failed_nohup.sh --task autoencoding > rerun_autoencoding.log 2>&1 & disown
+```
+
+**Features:**
+- Reads configuration from existing `run_sweep_{task}.sh` scripts
+- Uses `--resume-failed` flag in sweep engine
+- Cleans joblog after successful retries (removes duplicate FAILED entries)
+- Reports statistics on completion
+
+### 📊 New Plotting Scripts
+
+- `plot_main_figure_3.py`: Classification task results (accuracy vs d for different k)
+- Updated `plot_main_figure_1.py`: Fixed data key compatibility
+- Updated `plot_main_figure_2.py`: Support for both PR and R² curves
+
+### 🐛 Bug Fixes
+
+- Fixed `KeyError: 'duration'` in network dynamics plotting (key naming consistency)
+- Fixed stability experiment to compute PR from spike patterns
+- Improved sweep engine error handling
 
 ## 🆕 What's New in v7.0.0
 
@@ -406,7 +455,9 @@ spiking-rnn-heterogeneity/
 │   └── spontaneous_analysis.py
 ├── sweep/                      # Sweep orchestration
 │   ├── generate_jobs.py
-│   └── run_sweep_*.sh
+│   ├── run_sweep_*.sh
+│   ├── rerun_failed.sh         # ⭐ NEW: Retry failed jobs (interactive)
+│   └── rerun_failed_nohup.sh   # ⭐ NEW: Retry failed jobs (non-interactive)
 ├── tests/
 │   ├── test_hd_connection_modes.py
 │   └── test_dimensionality_edge_cases.py
@@ -506,6 +557,7 @@ result = {
 
 | Version | Date | Description |
 |---------|------|-------------|
+| **v7.1.0** | Dec 2025 | **Data curation fixes**: Correct PR computation from spikes, failed job recovery scripts, classification plotting |
 | **v7.0.0** | Nov 2025 | **Major architectural refactoring**: Network consistency, transient caching, HD signal pre-generation, evoked spike caching |
 | v6.2.0 | Nov 2025 | HD connection modes + empirical dimensionality tracking |
 | v6.1.0 | Nov 2025 | Infrastructure consolidation - sweep/ directory organization |
@@ -521,7 +573,7 @@ result = {
   title={Spiking RNN Heterogeneity Framework},
   author={Computational Neuroscience Research Group},
   year={2024},
-  version={7.0.0},
+  version={7.1.0},
   url={https://github.com/yourusername/spiking-rnn-heterogeneity},
   note={Caching architecture for efficient multi-task experiments}
 }
@@ -533,6 +585,6 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ---
 
-**Version**: 7.0.0  
-**Release Date**: November 2025  
+**Version**: 7.1.0  
+**Release Date**: December 2025  
 **Status**: Production/Stable

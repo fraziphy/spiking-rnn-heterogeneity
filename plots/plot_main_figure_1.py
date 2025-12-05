@@ -134,7 +134,17 @@ ax_01_input.set_ylabel("Static\ninput", fontsize=7, labelpad=3.)
 times = [s[0] for s in spike_times_main]
 neuron_ids = [s[1] for s in spike_times_main]
 
-ax_01_top.scatter(times, neuron_ids, s=0.1, c='black', alpha=0.5, rasterized=True)
+times = np.array(times)
+neuron_ids = np.array(neuron_ids)
+
+ax_01_top.vlines(
+    times,
+    neuron_ids - 0.9,   # tick height
+    neuron_ids + 0.9,
+    color='black',
+    linewidth=0.3,
+    alpha=0.9
+)
 ax_01_top.axvline(transient_time, color='red', linestyle='--', linewidth=1, alpha=0.7)
 ax_01_top.set_ylabel('Neuron ID', fontsize=7, verticalalignment='top', labelpad=10)
 ax_01_top.set_xlim(0, duration)

@@ -62,9 +62,9 @@ def run_mpi_stability_experiment(args):
 
         # Setup directories
         if not os.path.isabs(output_dir):
-            output_dir = os.path.join(os.path.abspath(output_dir), "data")
+            output_dir = os.path.join(os.path.abspath(output_dir), "data", "stability")
         else:
-            output_dir = os.path.join(output_dir, "data")
+            output_dir = os.path.join(output_dir, "data", "stability")
         os.makedirs(output_dir, exist_ok=True)
 
     output_dir = comm.bcast(output_dir if rank == 0 else None, root=0)

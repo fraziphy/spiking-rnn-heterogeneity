@@ -17,6 +17,7 @@ try:
     from src.spiking_network import SpikingRNN
     from src.rng_utils import get_rng
     from analysis.stability_analysis import analyze_perturbation_response
+    from analysis.spontaneous_analysis import compute_activity_dimensionality_multi_bin
 except ImportError:
     current_dir = os.path.dirname(__file__)
     project_root = os.path.dirname(current_dir)
@@ -25,6 +26,8 @@ except ImportError:
     from spiking_network import SpikingRNN
     from rng_utils import get_rng
     from stability_analysis import analyze_perturbation_response
+    from analysis.spontaneous_analysis import compute_activity_dimensionality_multi_bin
+
 
 
 class StabilityExperiment(BaseExperiment):
@@ -266,6 +269,29 @@ class StabilityExperiment(BaseExperiment):
             perturbed_neuron=perturbation_neuron,
             dt=self.dt
         )
+
+        # =====================================================================
+        # NEW: Compute participation ratio and dimensionality from control spikes
+        # =====================================================================
+        dimensionality_metrics = compute_activity_dimensionality_multi_bin(
+            spikes=spikes_control,
+            num_neurons=self.n_neurons,
+            duration=self.post_perturbation_time,
+            bin_sizes=[2.0]  # Use 2ms bin size to match expected keys
+        )
+
+        # Extract metrics for 2ms bin size
+        if 'bin_2.0ms' in dimensionality_metrics:
+            dim_2ms = dimensionality_metrics['bin_2.0ms']
+            stability_analysis['participation_ratio_2ms'] = dim_2ms.get('participation_ratio', np.nan)
+            stability_analysis['dimensionality_2ms'] = dim_2ms.get('effective_dimensionality', np.nan)
+            stability_analysis['intrinsic_dimensionality_2ms'] = dim_2ms.get('intrinsic_dimensionality', np.nan)
+            stability_analysis['total_variance_2ms'] = dim_2ms.get('total_variance', np.nan)
+        else:
+            stability_analysis['participation_ratio_2ms'] = np.nan
+            stability_analysis['dimensionality_2ms'] = np.nan
+            stability_analysis['intrinsic_dimensionality_2ms'] = np.nan
+            stability_analysis['total_variance_2ms'] = np.nan
 
         return stability_analysis
 

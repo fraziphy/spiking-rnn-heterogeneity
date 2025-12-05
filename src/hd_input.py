@@ -61,7 +61,7 @@ def run_rate_rnn(n_neurons: int, T: float, dt: float, g: float,
 def make_embedding_projected(Rates: np.ndarray, k: int, d: int,
                               session_id: int, pattern_id: int,
                               signal_type: Literal['hd_input', 'hd_output'],
-                              kk: int = 20) -> np.ndarray:
+                              kk: int = 7) -> np.ndarray:
     """
     PROJECT kk -> d -> k (not random selection!)
 

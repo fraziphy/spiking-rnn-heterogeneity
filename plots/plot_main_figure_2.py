@@ -2,6 +2,8 @@
 """
 Main Figure 2: Network encoding of high-dimensional inputs
 Follows Nature Neuroscience specifications
+
+Updated for v7.0.0: Supports overlapping/partitioned data types
 """
 
 import numpy as np
@@ -28,6 +30,14 @@ project_root = os.path.dirname(script_dir)
 os.chdir(script_dir)  # Save outputs in plots directory
 
 # =============================================================================
+# CONFIGURATION
+# =============================================================================
+
+# Which data type to plot (can be "overlapping", "partitioned", or "both")
+# If "both", will plot overlapping as solid lines and partitioned as dashed
+PLOT_DATA_TYPE = "overlapping"  # Options: "overlapping", "partitioned", "both"
+
+# =============================================================================
 # LOAD DATA
 # =============================================================================
 
@@ -39,33 +49,54 @@ data_file = os.path.join(project_root, 'data_curation', 'network_encoding_data.p
 with open(data_file, 'rb') as f:
     data = pickle.load(f)
 
-# Extract data
+# Check available data types
+available_types = data.get('available_data_types', ['overlapping'])
+print(f"Available data types: {available_types}")
+
+# Determine which types to plot
+if PLOT_DATA_TYPE == "both":
+    types_to_plot = [t for t in ["overlapping", "partitioned"] if t in available_types]
+else:
+    types_to_plot = [PLOT_DATA_TYPE] if PLOT_DATA_TYPE in available_types else available_types[:1]
+
+print(f"Plotting data types: {types_to_plot}")
+
+# Extract example patterns (same for all types)
 pattern_d1 = data['pattern_d1']
 pattern_d2 = data['pattern_d2']
 k = data['pattern_k']
 dt = data['pattern_dt']
 
-empirical_dims = data['empirical_dims']
-theoretical_dims = data['theoretical_dims']
+# Get results (use results_by_type if available, else fall back to top-level)
+if 'results_by_type' in data:
+    results_by_type = data['results_by_type']
+else:
+    # Backward compatibility
+    results_by_type = {
+        available_types[0]: {
+            'r2_vs_d': data['r2_vs_d'],
+            'pr_vs_d': data['pr_vs_d'],
+            'empirical_dims': data['empirical_dims'],
+            'theoretical_dims': data['theoretical_dims']
+        }
+    }
 
-r2_vs_d = data['r2_vs_d']
-pr_vs_d = data['pr_vs_d']
+# Use first type for histogram data
+first_type = types_to_plot[0]
+empirical_dims = results_by_type[first_type]['empirical_dims']
+theoretical_dims = results_by_type[first_type]['theoretical_dims']
 
 print("Data loaded successfully!")
 print(f"pattern_d1 shape: {pattern_d1.shape}")
 print(f"pattern_d2 shape: {pattern_d2.shape}")
-print(f"k = {k} (type: {type(k)})")
-print(f"dt = {dt}")
-print(f"range(k) = {list(range(int(k)))}")
+print(f"k = {k}")
+print()
 
 # Safety check: k should match the pattern dimensions
-k = int(k)  # Ensure k is an integer
+k = int(k)
 if pattern_d1.shape[1] != k:
     print(f"\n⚠ WARNING: pattern_d1 has {pattern_d1.shape[1]} channels but k={k}")
-    print("Using actual pattern dimension instead")
     k = pattern_d1.shape[1]
-
-print()
 
 # =============================================================================
 # CREATE FIGURE
@@ -122,13 +153,14 @@ ax_f = fig.add_subplot(row3_gs[2])
 # Colors for channels
 channel_colors = plt.cm.viridis(np.linspace(0., 0.8, k))
 # Swap colors for better visualization
-a = channel_colors[0].copy()
-b = channel_colors[1].copy()
-c = channel_colors[2].copy()
-d_color = channel_colors[3].copy()
-channel_colors[1] = d_color
-channel_colors[2] = b
-channel_colors[3] = c
+if k >= 4:
+    a = channel_colors[0].copy()
+    b = channel_colors[1].copy()
+    c = channel_colors[2].copy()
+    d_color = channel_colors[3].copy()
+    channel_colors[1] = d_color
+    channel_colors[2] = b
+    channel_colors[3] = c
 
 # Time parameters
 stimulus_duration = 300.0
@@ -176,10 +208,10 @@ ax_a1.text(-0.17, 1.07, 'a', transform=ax_a1.transAxes,
 ax_a1.set_ylim([0, 14])
 
 # =============================================================================
-# PANEL A2: HD INPUT d=4
+# PANEL A2: HD INPUT d=k
 # =============================================================================
 
-# Plot d=4 time series
+# Plot d=k time series
 for i in range(k):
     offset = 3*(i+1) if i < k-1 else 0
     ax_a2.plot(offset + pattern_d2[:, i], linewidth=0.8,
@@ -249,22 +281,29 @@ ax_c.text(-0.06, 1.05, 'c', transform=ax_c.transAxes,
 # PANEL D: ENCODING ACCURACY (R²) VS INTRINSIC DIMENSIONALITY
 # =============================================================================
 
-# Use plasma colormap for different k values
-k_values = r2_vs_d['k_values']
-colors_plasma = plt.cm.plasma(np.linspace(0.1, 0.9, len(k_values)))
+# Line styles for different data types
+linestyles = {'overlapping': '-', 'partitioned': '--'}
+type_labels = {'overlapping': 'Overlap', 'partitioned': 'Partition'}
 
-for idx, k_val in enumerate(k_values):
-    d_values = r2_vs_d['d_values'][k_val]
-    means = [r2_vs_d['mean'][k_val][d] for d in d_values]
-    stds = [r2_vs_d['std'][k_val][d] for d in d_values]
+for data_type in types_to_plot:
+    r2_vs_d = results_by_type[data_type]['r2_vs_d']
+    k_values = r2_vs_d['k_values']
+    colors_plasma = plt.cm.plasma(np.linspace(0.1, 0.9, len(k_values)))
+    ls = linestyles.get(data_type, '-')
 
-    means = np.array(means)
-    stds = np.array(stds)
+    for idx, k_val in enumerate(k_values):
+        d_values = r2_vs_d['d_values'][k_val]
+        means = [r2_vs_d['mean'][k_val][d] for d in d_values]
+        stds = [r2_vs_d['std'][k_val][d] for d in d_values]
 
-    ax_d.plot(d_values, means, 'o-', color=colors_plasma[idx],
-              linewidth=1.5, markersize=4, label=f'k = {k_val}')
-    ax_d.fill_between(d_values, means - stds, means + stds,
-                      color=colors_plasma[idx], alpha=0.3)
+        means = np.array(means)
+        stds = np.array(stds)
+
+        label = f'k={k_val}' if len(types_to_plot) == 1 else f'k={k_val} ({type_labels[data_type]})'
+        ax_d.plot(d_values, means, 'o' + ls, color=colors_plasma[idx],
+                  linewidth=1.5, markersize=4, label=label)
+        ax_d.fill_between(d_values, means - stds, means + stds,
+                          color=colors_plasma[idx], alpha=0.2)
 
 ax_d.set_xlabel('Input intrinsic dim. (d)', fontsize=7)
 ax_d.set_ylabel('Encoding accuracy (R²)', fontsize=7)
@@ -279,18 +318,25 @@ ax_d.text(-0.25, 1.05, 'd', transform=ax_d.transAxes,
 # PANEL E: NETWORK DIMENSIONALITY (PR) VS INTRINSIC DIMENSIONALITY
 # =============================================================================
 
-for idx, k_val in enumerate(k_values):
-    d_values = pr_vs_d['d_values'][k_val]
-    means = [pr_vs_d['mean'][k_val][d] for d in d_values]
-    stds = [pr_vs_d['std'][k_val][d] for d in d_values]
+for data_type in types_to_plot:
+    pr_vs_d = results_by_type[data_type]['pr_vs_d']
+    k_values = pr_vs_d['k_values']
+    colors_plasma = plt.cm.plasma(np.linspace(0.1, 0.9, len(k_values)))
+    ls = linestyles.get(data_type, '-')
 
-    means = np.array(means)
-    stds = np.array(stds)
+    for idx, k_val in enumerate(k_values):
+        d_values = pr_vs_d['d_values'][k_val]
+        means = [pr_vs_d['mean'][k_val][d] for d in d_values]
+        stds = [pr_vs_d['std'][k_val][d] for d in d_values]
 
-    ax_e.plot(d_values, means, 'o-', color=colors_plasma[idx],
-              linewidth=1.5, markersize=4, label=f'k = {k_val}')
-    ax_e.fill_between(d_values, means - stds, means + stds,
-                      color=colors_plasma[idx], alpha=0.3)
+        means = np.array(means)
+        stds = np.array(stds)
+
+        label = f'k={k_val}' if len(types_to_plot) == 1 else f'k={k_val} ({type_labels[data_type]})'
+        ax_e.plot(d_values, means, 'o' + ls, color=colors_plasma[idx],
+                  linewidth=1.5, markersize=4, label=label)
+        ax_e.fill_between(d_values, means - stds, means + stds,
+                          color=colors_plasma[idx], alpha=0.2)
 
 ax_e.set_xlabel('Input intrinsic dim. (d)', fontsize=7)
 ax_e.set_ylabel('Network activity dim. (PR)', fontsize=7)
@@ -313,8 +359,10 @@ ax_f.text(-0.25, 1.05, 'f', transform=ax_f.transAxes,
 # SAVE FIGURE
 # =============================================================================
 
-output_svg = 'main_figure_2.svg'
-output_pdf = 'main_figure_2.pdf'
+# Add data type to filename if plotting specific type
+suffix = f'_{PLOT_DATA_TYPE}' if PLOT_DATA_TYPE != "both" else '_all'
+output_svg = f'main_figure_2{suffix}.svg'
+output_pdf = f'main_figure_2{suffix}.pdf'
 
 plt.savefig(output_svg, format='svg', dpi=450, bbox_inches='tight')
 plt.savefig(output_pdf, format='pdf', dpi=450, bbox_inches='tight')
@@ -324,8 +372,9 @@ print()
 print("="*80)
 print("COMPLETE!")
 print("="*80)
+print(f"\nData types plotted: {types_to_plot}")
 print("\nFigure layout:")
-print("  Row 1: Panel a (HD inputs d=1 and d=4), Panel b (empirical vs theoretical)")
+print("  Row 1: Panel a (HD inputs d=1 and d=k), Panel b (empirical vs theoretical)")
 print("  Row 2: Panel c (empty for manual schematic)")
 print("  Row 3: Panel d (R² vs d), Panel e (Network PR vs d), Panel f (empty)")
 print("\nAll specifications comply with Nature Neuroscience guidelines")

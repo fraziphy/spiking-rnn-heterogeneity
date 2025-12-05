@@ -22,6 +22,7 @@ RATE_VALUES=(30)
 EMBED_DIMS=(1 2 3 4 5 6 7)
 PATTERN_IDS=(0 1 2 3)
 HD_CONNECTION_MODES=("overlapping" "partitioned")
+HD_CONNECTION_MODES=("overlapping")
 SIGNAL_TYPE="hd_input"
 
 # Generate jobs

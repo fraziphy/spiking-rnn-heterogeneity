@@ -15,7 +15,8 @@ def generate_task_jobs(task_type: str, sessions: List[int], v_th_values: List[fl
                       embed_dim_input: List[int], embed_dim_output: List[int],
                       n_patterns: int, static_input_mode: str, hd_input_mode: str,
                       synaptic_mode: str, hd_connection_mode: str,
-                      use_cached_spikes: bool, spike_cache_dir: str) -> List[str]:
+                      use_cached_spikes: bool, spike_cache_dir: str,
+                      signal_cache_dir: str) -> List[str]:
     """Generate job commands for task experiments."""
     jobs = []
 
@@ -47,6 +48,7 @@ def generate_task_jobs(task_type: str, sessions: List[int], v_th_values: List[fl
                                 cmd += f" --static_input_mode {static_input_mode}"
                                 cmd += f" --hd_input_mode {hd_input_mode}"
                                 cmd += f" --hd_connection_mode {hd_connection_mode}"
+                                cmd += f" --signal_cache_dir {signal_cache_dir}"
 
                                 if use_cached_spikes:
                                     cmd += f" --use_cached_spikes"
@@ -80,6 +82,7 @@ def generate_task_jobs(task_type: str, sessions: List[int], v_th_values: List[fl
                         cmd += f" --static_input_mode {static_input_mode}"
                         cmd += f" --hd_input_mode {hd_input_mode}"
                         cmd += f" --hd_connection_mode {hd_connection_mode}"
+                        cmd += f" --signal_cache_dir {signal_cache_dir}"
 
                         if use_cached_spikes:
                             cmd += f" --use_cached_spikes"
@@ -341,7 +344,8 @@ def main():
             synaptic_mode=args.synaptic_mode,
             hd_connection_mode=args.hd_connection_mode,
             use_cached_spikes=args.use_cached_spikes,
-            spike_cache_dir=args.spike_cache_dir
+            spike_cache_dir=args.spike_cache_dir,
+            signal_cache_dir=args.signal_cache_dir
         )
     elif args.task == 'stability':
         jobs = generate_stability_jobs(

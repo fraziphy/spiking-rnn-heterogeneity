@@ -391,7 +391,7 @@ if __name__ == "__main__":
     parser.add_argument("--use_distributed_cv", action="store_true")
 
     # Task parameters
-    parser.add_argument("--signal_cache_dir", type=str, default="hd_signals")
+    parser.add_argument("--signal_cache_dir", type=str, default="results/hd_signals")
     parser.add_argument("--decision_window", type=float, default=50.0)
     parser.add_argument("--stimulus_duration", type=float, default=300.0)
     parser.add_argument("--n_trials_per_pattern", type=int, default=100)

@@ -1,4 +1,13 @@
-# data_curation/analyze_network_dynamics.py
+# data_curation/data_curation_network_dynamics.py
+"""
+Data curation script for network dynamics experiments.
+
+UPDATED:
+- Uses simulate() method (renamed from simulate_network_dynamics)
+- Uses cached transient states where available
+- For g_std=0: simulates from scratch (no cached states)
+- For perturbation analysis: simulates from scratch to show pre-perturbation period
+"""
 import numpy as np
 import pickle
 import os
@@ -28,19 +37,20 @@ END_SESSION = 20  # Exclusive (goes from START_SESSION to END_SESSION-1)
 # Parameters for stability sweep (Panels D, E, Supp B, F)
 G_VALUES = [0.6, 0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0]
 RATE_VALUES = [30, 31, 32, 33, 34, 35]
-DATA_DIR = os.path.join(project_root, 'results/stability_sweep/data/')
+DATA_DIR = os.path.join(project_root, 'results/data/stability/')
 
 # Parameters for input-output mapping (Supplementary Panel A)
 G_STD_VALUES_IO = [0.0, 1.0]  # Two curves
 INPUT_RATES_IO = np.linspace(30, 35, 100)
 
 # Parameters for perturbation analysis (Supp Panels C, D, E)
+# UPDATED: Perturbation at 1000ms (not 500ms) to show full transient
 N_NEURONS_PERT = 1000
 DT_PERT = 0.1
-DURATION_PRE_PERT = 500.0
-DURATION_POST_PERT = 300.0
-DURATION_TOTAL_PERT = 800.0
-PERTURBATION_TIME = 500.0
+DURATION_PRE_PERT = 1000.0  # CHANGED: Full transient period
+DURATION_POST_PERT = 15.0   # CHANGED: Only need short post-perturbation window
+DURATION_TOTAL_PERT = DURATION_PRE_PERT + DURATION_POST_PERT  # 1015ms
+PERTURBATION_TIME = 1000.0  # CHANGED: Perturbation at 1000ms
 G_STD_BASE_PERT = 0.6
 STATIC_RATE_PERT = 30.0
 V_TH_STD_PERT = 0
@@ -51,10 +61,13 @@ PERTURBATION_NEURON_IDX = 0
 # Network simulation parameters
 N_NEURONS = 1000
 DT = 0.1
-DURATION = 500.0 + 300
-TRANSIENT_TIME = 200.0 + 300
+TRANSIENT_TIME = 1000.0  # Standard transient time
+ANALYSIS_DURATION = 300.0  # Duration for firing rate analysis
 V_TH_STD = 0
 TRIAL_ID = 1
+
+# Cached states directory
+TRANSIENT_CACHE_DIR = os.path.join(project_root, 'results/cached_states')
 
 NETWORK_PARAMS = {
     'v_th_distribution': 'normal',
@@ -75,6 +88,7 @@ print(f"Sessions to use: {START_SESSION} to {END_SESSION-1}")
 print(f"G values: {G_VALUES}")
 print(f"Rate values: {RATE_VALUES}")
 print(f"Input-output mapping: g_std={G_STD_VALUES_IO}, {len(INPUT_RATES_IO)} input rates")
+print(f"Cached states directory: {TRANSIENT_CACHE_DIR}")
 print()
 
 # =============================================================================
@@ -93,6 +107,7 @@ def create_spike_matrix(spike_list, n_neurons, duration, step_size):
 
     return spike_matrix
 
+
 def get_mean_firing_rate(spike_matrix, transient_time, step_size):
     """Get mean firing rate across all neurons, excluding transient"""
     transient_bins = int(transient_time / step_size)
@@ -100,12 +115,20 @@ def get_mean_firing_rate(spike_matrix, transient_time, step_size):
     mean_rate = np.mean(spike_matrix_analysis) / (step_size / 1000.0)
     return mean_rate
 
+
 def get_firing_rates_from_matrix(spike_matrix, transient_time, step_size):
     """Get per-neuron firing rates, excluding transient"""
     transient_bins = int(transient_time / step_size)
     spike_matrix_analysis = spike_matrix[transient_bins:, :]
     firing_rates = np.mean(spike_matrix_analysis, axis=0) / (step_size / 1000.0)
     return firing_rates
+
+
+def get_firing_rate_from_spikes(spike_list, n_neurons, duration_ms):
+    """Compute mean firing rate directly from spike list"""
+    duration_s = duration_ms / 1000.0
+    return len(spike_list) / (n_neurons * duration_s)
+
 
 def spikes_to_binary(spikes, num_neurons, duration, bin_size):
     """Convert spike times to binary matrix."""
@@ -118,6 +141,7 @@ def spikes_to_binary(spikes, num_neurons, duration, bin_size):
             binary_matrix[neuron_id, time_bin] = 1
 
     return binary_matrix
+
 
 def compute_spatial_patterns(spike_diff_matrix, bin_size):
     """
@@ -142,6 +166,7 @@ def compute_spatial_patterns(spike_diff_matrix, bin_size):
 
     return np.array(symbol_seq), pattern_dict
 
+
 def categorize_spikes(spikes_ctrl, spikes_pert, time_start, time_end, bin_size):
     """
     Categorize spikes into common, control-only, and perturbed-only.
@@ -162,6 +187,92 @@ def categorize_spikes(spikes_ctrl, spikes_pert, time_start, time_end, bin_size):
 
     return list(common_set), list(ctrl_only_set), list(pert_only_set)
 
+
+def load_cached_transient_state(session_id, g_std, v_th_std, static_rate, trial_id,
+                                 cache_dir=TRANSIENT_CACHE_DIR):
+    """
+    Load pre-cached transient state from file.
+
+    Returns:
+        state dict if found, None otherwise
+    """
+    filename = os.path.join(cache_dir,
+        f"session_{session_id}_g_{g_std:.3f}_vth_{v_th_std:.3f}_"
+        f"rate_{static_rate:.1f}_trial_states.pkl")
+
+    if not os.path.exists(filename):
+        return None
+
+    try:
+        with open(filename, 'rb') as f:
+            cache_data = pickle.load(f)
+        return cache_data['trial_states'][trial_id]
+    except (KeyError, IndexError, Exception) as e:
+        print(f"  Warning: Could not load cached state: {e}")
+        return None
+
+
+def simulate_with_cached_state(session_id, g_std, v_th_std, static_rate, trial_id,
+                                analysis_duration, n_neurons=N_NEURONS, dt=DT):
+    """
+    Simulate network using cached transient state if available.
+
+    For g_std=0: No cached states exist, simulate from scratch
+    For g_std≠0: Load cached state at 1000ms, simulate analysis_duration more
+
+    Returns:
+        spike_list: List of (time, neuron_id) tuples for analysis period
+        used_cache: Boolean indicating if cached state was used
+    """
+    # Try to load cached state
+    cached_state = None
+    if abs(g_std) > 1e-6:  # g_std != 0
+        cached_state = load_cached_transient_state(
+            session_id, g_std, v_th_std, static_rate, trial_id)
+
+    network = SpikingRNN(n_neurons=n_neurons, dt=dt, synaptic_mode="filter",
+                        static_input_mode="common_tonic")
+    network.initialize_network(session_id, v_th_std, g_std, **NETWORK_PARAMS)
+
+    if cached_state is not None:
+        # Use cached state: restore and simulate analysis period only
+        network.restore_state(cached_state)
+        transient_end_time = cached_state['current_time']
+
+        spikes = network.simulate(
+            session_id=session_id,
+            v_th_std=v_th_std,
+            g_std=g_std,
+            trial_id=trial_id,
+            duration=analysis_duration,
+            static_input_rate=static_rate,
+            continue_from_state=True
+        )
+
+        # Adjust spike times to be relative to analysis period start
+        spikes_adjusted = [(t - transient_end_time, n) for t, n in spikes
+                          if t >= transient_end_time]
+        return spikes_adjusted, True
+    else:
+        # No cached state: simulate from scratch with transient
+        total_duration = TRANSIENT_TIME + analysis_duration
+
+        spikes = network.simulate(
+            session_id=session_id,
+            v_th_std=v_th_std,
+            g_std=g_std,
+            trial_id=trial_id,
+            duration=total_duration,
+            static_input_rate=static_rate,
+            continue_from_state=False
+        )
+
+        # Extract only spikes after transient, adjust times
+        spikes_adjusted = [(t - TRANSIENT_TIME, n) for t, n in spikes
+                          if t >= TRANSIENT_TIME]
+        return spikes_adjusted, False
+
+
 # =============================================================================
 # PART 1: INPUT-OUTPUT MAPPING (SUPPLEMENTARY PANEL A)
 # =============================================================================
@@ -180,35 +291,61 @@ for g_std_io in G_STD_VALUES_IO:
     print(f"\nRunning for g_std = {g_std_io}")
     print("-" * 80)
 
+    # Check if cached states are available for this g_std
+    if abs(g_std_io) > 1e-6:
+        test_cache = load_cached_transient_state(0, g_std_io, V_TH_STD, 30.0, TRIAL_ID)
+        if test_cache is not None:
+            print(f"  Using cached transient states (1000ms pre-computed)")
+        else:
+            print(f"  No cached states found, will simulate full transient")
+    else:
+        print(f"  g_std=0: Will simulate full transient from scratch")
+
     output_rates_io = []
 
     for idx, input_rate in enumerate(input_rates_io):
         session_id = int(10000 + int(g_std_io * 1000) + idx)
 
-        network = SpikingRNN(n_neurons=N_NEURONS, dt=DT, synaptic_mode="filter",
-                            static_input_mode="common_tonic")
-        network.initialize_network(session_id, V_TH_STD, g_std_io, **NETWORK_PARAMS)
-
-        spike_times = network.simulate_network_dynamics(
+        # Use cached states if available
+        spikes, used_cache = simulate_with_cached_state(
             session_id=session_id,
-            v_th_std=V_TH_STD,
             g_std=g_std_io,
+            v_th_std=V_TH_STD,
+            static_rate=input_rate,
             trial_id=TRIAL_ID,
-            duration=DURATION,
-            static_input_rate=input_rate
+            analysis_duration=ANALYSIS_DURATION
         )
 
-        # Save spike times for rate=30Hz from g=1.0 for Main Panel B raster plot
-        if abs(input_rate - 30.0) < 0.1 and abs(g_std_io - 1.0) < 0.01:
-            spike_times_rate30 = spike_times
-            print(f"  *** Saved spike times for rate=30Hz, g=1.0 (will reuse for Main Panel B)")
-
-        spike_matrix = create_spike_matrix(spike_times, N_NEURONS, DURATION, bin_size)
-        mean_rate = get_mean_firing_rate(spike_matrix, TRANSIENT_TIME, bin_size)
+        # Compute firing rate from analysis period spikes
+        mean_rate = get_firing_rate_from_spikes(spikes, N_NEURONS, ANALYSIS_DURATION)
         output_rates_io.append(mean_rate)
 
+        # Save spike times for rate=30Hz from g=1.0 for Main Panel B raster plot
+        # Need FULL simulation for raster (including transient)
+        if abs(input_rate - 30.0) < 0.1 and abs(g_std_io - 1.0) < 0.01:
+            # For raster plot, we need spikes from t=0 (including transient)
+            # So simulate from scratch for this specific case
+            print(f"  *** Generating full spike times for rate=30Hz, g=1.0 (for raster plot)")
+            network_raster = SpikingRNN(n_neurons=N_NEURONS, dt=DT, synaptic_mode="filter",
+                                       static_input_mode="common_tonic")
+            network_raster.initialize_network(session_id, V_TH_STD, g_std_io, **NETWORK_PARAMS)
+
+            # Simulate full duration including transient for raster visualization
+            raster_duration = TRANSIENT_TIME + ANALYSIS_DURATION  # 1300ms total
+            spike_times_rate30 = network_raster.simulate(
+                session_id=session_id,
+                v_th_std=V_TH_STD,
+                g_std=g_std_io,
+                trial_id=TRIAL_ID,
+                duration=raster_duration,
+                static_input_rate=input_rate,
+                continue_from_state=False
+            )
+            del network_raster
+
         if (idx + 1) % 20 == 0:
-            print(f"  [{idx+1}/{len(input_rates_io)}] Input={input_rate:.2f} Hz → Output={mean_rate:.2f} Hz")
+            cache_str = "(cached)" if used_cache else "(fresh)"
+            print(f"  [{idx+1}/{len(input_rates_io)}] Input={input_rate:.2f} Hz → Output={mean_rate:.2f} Hz {cache_str}")
 
     output_rates_io_dict[g_std_io] = np.array(output_rates_io)
 
@@ -238,29 +375,29 @@ for g_val in G_VALUES:
 
         print(f"  [{sim_count}/{total_sims}] g={g_val:.2f}, rate={static_rate} Hz...", end=" ")
 
-        network_temp = SpikingRNN(n_neurons=N_NEURONS, dt=DT, synaptic_mode="filter",
-                                 static_input_mode="common_tonic")
-        network_temp.initialize_network(session_id, V_TH_STD, g_val, **NETWORK_PARAMS)
-
-        spikes_temp = network_temp.simulate_network_dynamics(
+        # Use cached states if available
+        spikes, used_cache = simulate_with_cached_state(
             session_id=session_id,
-            v_th_std=V_TH_STD,
             g_std=g_val,
+            v_th_std=V_TH_STD,
+            static_rate=static_rate,
             trial_id=TRIAL_ID,
-            duration=DURATION,
-            static_input_rate=static_rate
+            analysis_duration=ANALYSIS_DURATION
         )
 
-        spike_matrix_temp = create_spike_matrix(spikes_temp, N_NEURONS, DURATION, bin_size)
-        firing_rates_temp = get_firing_rates_from_matrix(spike_matrix_temp, TRANSIENT_TIME, bin_size)
+        # Create spike matrix for per-neuron analysis
+        spike_matrix = create_spike_matrix(spikes, N_NEURONS, ANALYSIS_DURATION, bin_size)
+        # No transient removal needed - spikes are already from analysis period only
+        firing_rates = np.mean(spike_matrix, axis=0) / (bin_size / 1000.0)
 
-        mean_rate = np.mean(firing_rates_temp)
-        std_rate = np.std(firing_rates_temp)
+        mean_rate = np.mean(firing_rates)
+        std_rate = np.std(firing_rates)
 
         firing_rate_means_main[static_rate].append(mean_rate)
         firing_rate_stds_main[static_rate].append(std_rate)
 
-        print(f"Mean={mean_rate:.2f} Hz")
+        cache_str = "(cached)" if used_cache else "(fresh)"
+        print(f"Mean={mean_rate:.2f} Hz {cache_str}")
 
 print(f"\nFiring rate analysis complete!")
 print()
@@ -481,6 +618,7 @@ perturbation_neuron = int(perturbation_neurons[PERTURBATION_NEURON_IDX])
 print(f"Base g_std: {G_STD_BASE_PERT}")
 print(f"Perturbation neuron: {perturbation_neuron}")
 print(f"Total duration: {DURATION_TOTAL_PERT} ms")
+print(f"Perturbation time: {PERTURBATION_TIME} ms")
 print()
 
 network_params_pert = {
@@ -489,35 +627,42 @@ network_params_pert = {
     'readout_weight_scale': 1.0
 }
 
-# Step 1: Simulate transient 0→500ms
-print("Step 1: Transient 0→500ms...")
+# =============================================================================
+# Step 1: Simulate from scratch 0→1000ms (NOT using cached states)
+# This is needed to show spikes ~5ms BEFORE perturbation
+# =============================================================================
+print(f"Step 1: Transient 0→{int(DURATION_PRE_PERT)}ms (simulating from scratch)...")
 network = SpikingRNN(N_NEURONS_PERT, dt=DT_PERT, synaptic_mode="filter",
                      static_input_mode="common_tonic")
 network.initialize_network(SESSION_ID_PERT, V_TH_STD_PERT, G_STD_BASE_PERT, **network_params_pert)
 
-spikes_transient = network.simulate_network_dynamics(
+spikes_transient = network.simulate(
     session_id=SESSION_ID_PERT,
     v_th_std=V_TH_STD_PERT,
     g_std=G_STD_BASE_PERT,
     trial_id=TRIAL_ID_PERT,
     duration=DURATION_PRE_PERT,
-    static_input_rate=STATIC_RATE_PERT
+    static_input_rate=STATIC_RATE_PERT,
+    continue_from_state=False
 )
 
-state_at_500ms = network.save_state()
+state_at_perturbation = network.save_state()
 del network
 
-print(f"  Spikes: {len(spikes_transient)}")
+print(f"  Spikes during transient: {len(spikes_transient)}")
+print(f"  State saved at t={state_at_perturbation['current_time']:.1f}ms")
 print()
 
-# Step 2: Control g=0.6
-print("Step 2: Control (g=0.6) 500→800ms...")
+# =============================================================================
+# Step 2: Control g=0.6 (from perturbation time onward)
+# =============================================================================
+print(f"Step 2: Control (g=0.6) {int(PERTURBATION_TIME)}→{int(PERTURBATION_TIME + DURATION_POST_PERT)}ms...")
 network_ctrl_g06 = SpikingRNN(N_NEURONS_PERT, dt=DT_PERT, synaptic_mode="filter",
                                static_input_mode="common_tonic")
 network_ctrl_g06.initialize_network(SESSION_ID_PERT, V_TH_STD_PERT, G_STD_BASE_PERT, **network_params_pert)
-network_ctrl_g06.restore_state(state_at_500ms)
+network_ctrl_g06.restore_state(state_at_perturbation)
 
-spikes_ctrl_g06_post = network_ctrl_g06.simulate_network_dynamics(
+spikes_ctrl_g06_post = network_ctrl_g06.simulate(
     session_id=SESSION_ID_PERT,
     v_th_std=V_TH_STD_PERT,
     g_std=G_STD_BASE_PERT,
@@ -533,21 +678,23 @@ del network_ctrl_g06
 print(f"  Total spikes: {len(spikes_control_g06)}")
 print()
 
+# =============================================================================
 # Step 3: Perturbed g=0.6
-print("Step 3: Perturbed (g=0.6) 500→800ms...")
+# =============================================================================
+print(f"Step 3: Perturbed (g=0.6) {int(PERTURBATION_TIME)}→{int(PERTURBATION_TIME + DURATION_POST_PERT)}ms...")
 network_pert_g06 = SpikingRNN(N_NEURONS_PERT, dt=DT_PERT, synaptic_mode="filter",
                                static_input_mode="common_tonic")
 network_pert_g06.initialize_network(SESSION_ID_PERT, V_TH_STD_PERT, G_STD_BASE_PERT, **network_params_pert)
-network_pert_g06.restore_state(state_at_500ms)
+network_pert_g06.restore_state(state_at_perturbation)
 
-spikes_pert_g06_post = network_pert_g06.simulate_network_dynamics(
+spikes_pert_g06_post = network_pert_g06.simulate(
     session_id=SESSION_ID_PERT,
     v_th_std=V_TH_STD_PERT,
     g_std=G_STD_BASE_PERT,
     trial_id=TRIAL_ID_PERT,
     duration=DURATION_POST_PERT,
     static_input_rate=STATIC_RATE_PERT,
-    perturbation_time=state_at_500ms['current_time'],
+    perturbation_time=state_at_perturbation['current_time'],
     perturbation_neuron=perturbation_neuron,
     continue_from_state=True
 )
@@ -558,17 +705,19 @@ del network_pert_g06
 print(f"  Total spikes: {len(spikes_perturbed_g06)}")
 print()
 
+# =============================================================================
 # Step 4: Control g=2.0
-print("Step 4: Control (g=2.0) 500→800ms...")
+# =============================================================================
+print(f"Step 4: Control (g=2.0) {int(PERTURBATION_TIME)}→{int(PERTURBATION_TIME + DURATION_POST_PERT)}ms...")
 g_scale_factor = 2.0 / G_STD_BASE_PERT
 
 network_ctrl_g2 = SpikingRNN(N_NEURONS_PERT, dt=DT_PERT, synaptic_mode="filter",
                               static_input_mode="common_tonic")
 network_ctrl_g2.initialize_network(SESSION_ID_PERT, V_TH_STD_PERT, G_STD_BASE_PERT, **network_params_pert)
 network_ctrl_g2.recurrent_synapses.weight_matrix.data *= g_scale_factor
-network_ctrl_g2.restore_state(state_at_500ms)
+network_ctrl_g2.restore_state(state_at_perturbation)
 
-spikes_ctrl_g2_post = network_ctrl_g2.simulate_network_dynamics(
+spikes_ctrl_g2_post = network_ctrl_g2.simulate(
     session_id=SESSION_ID_PERT,
     v_th_std=V_TH_STD_PERT,
     g_std=G_STD_BASE_PERT,
@@ -584,22 +733,24 @@ del network_ctrl_g2
 print(f"  Total spikes: {len(spikes_control_g2)}")
 print()
 
+# =============================================================================
 # Step 5: Perturbed g=2.0
-print("Step 5: Perturbed (g=2.0) 500→800ms...")
+# =============================================================================
+print(f"Step 5: Perturbed (g=2.0) {int(PERTURBATION_TIME)}→{int(PERTURBATION_TIME + DURATION_POST_PERT)}ms...")
 network_pert_g2 = SpikingRNN(N_NEURONS_PERT, dt=DT_PERT, synaptic_mode="filter",
                               static_input_mode="common_tonic")
 network_pert_g2.initialize_network(SESSION_ID_PERT, V_TH_STD_PERT, G_STD_BASE_PERT, **network_params_pert)
 network_pert_g2.recurrent_synapses.weight_matrix.data *= g_scale_factor
-network_pert_g2.restore_state(state_at_500ms)
+network_pert_g2.restore_state(state_at_perturbation)
 
-spikes_pert_g2_post = network_pert_g2.simulate_network_dynamics(
+spikes_pert_g2_post = network_pert_g2.simulate(
     session_id=SESSION_ID_PERT,
     v_th_std=V_TH_STD_PERT,
     g_std=G_STD_BASE_PERT,
     trial_id=TRIAL_ID_PERT,
     duration=DURATION_POST_PERT,
     static_input_rate=STATIC_RATE_PERT,
-    perturbation_time=state_at_500ms['current_time'],
+    perturbation_time=state_at_perturbation['current_time'],
     perturbation_neuron=perturbation_neuron,
     continue_from_state=True
 )
@@ -610,7 +761,9 @@ del network_pert_g2
 print(f"  Total spikes: {len(spikes_perturbed_g2)}")
 print()
 
+# =============================================================================
 # Compute spike difference matrices
+# =============================================================================
 print("Computing spike difference matrices...")
 bin_size_pert = DT_PERT
 
@@ -636,8 +789,9 @@ print(f"Spatial patterns g=2.0: {len(pattern_dict_g2)} unique patterns")
 print()
 
 # Categorize spikes for colored raster
-plot_start_time = PERTURBATION_TIME - 5.0
-plot_end_time = PERTURBATION_TIME + 15.0
+# UPDATED: Plot window around 1000ms perturbation time
+plot_start_time = PERTURBATION_TIME - 5.0  # 995ms
+plot_end_time = PERTURBATION_TIME + 15.0   # 1015ms
 
 common_spikes_g06, ctrl_only_spikes_g06, pert_only_spikes_g06 = categorize_spikes(
     spikes_control_g06, spikes_perturbed_g06, plot_start_time, plot_end_time, bin_size_pert
@@ -664,8 +818,9 @@ output_data = {
     'g_values': G_VALUES,
     'rate_values': RATE_VALUES,
     'n_neurons': N_NEURONS,
-    'duration': DURATION,
+    'duration': TRANSIENT_TIME + ANALYSIS_DURATION,  # Total duration for raster (original key name)
     'transient_time': TRANSIENT_TIME,
+    'analysis_duration': ANALYSIS_DURATION,
 
     # Main Figure Panel B (raster plot)
     'spike_times_rate30': spike_times_rate30,
@@ -745,12 +900,16 @@ print("Summary:")
 print(f"  Sessions used: {START_SESSION} to {END_SESSION-1}")
 print(f"  G values: {len(G_VALUES)}")
 print(f"  Rate values: {len(RATE_VALUES)}")
-print(f"  Files with valid data: {found}/{total_files} ({100*found/total_files:.1f}%)")
+print(f"  Files with valid data: {found}/{total_files} ({100*found/total_files:.1f}%)" if total_files > 0 else "  Files with valid data: N/A")
 print(f"  Input-output curves: {len(G_STD_VALUES_IO)} (g_std = {G_STD_VALUES_IO})")
 print(f"  Input-output points per curve: {len(input_rates_io)}")
 print(f"  Scatter plot points (PR-Dim): {len(all_pr_values)}")
-print(f"    Pearson r = {pearson_pr_dim:.3f}, Spearman ρ = {spearman_pr_dim:.3f}")
+if len(all_pr_values) > 0:
+    print(f"    Pearson r = {pearson_pr_dim:.3f}, Spearman ρ = {spearman_pr_dim:.3f}")
 print(f"  Scatter plot points (LZ-Kistler): {len(all_lz_values)}")
-print(f"    Pearson r = {pearson_lz_kistler:.3f}, Spearman ρ = {spearman_lz_kistler:.3f}")
+if len(all_lz_values) > 0:
+    print(f"    Pearson r = {pearson_lz_kistler:.3f}, Spearman ρ = {spearman_lz_kistler:.3f}")
 print(f"  Perturbation simulations: Complete")
+print(f"    Perturbation time: {PERTURBATION_TIME} ms")
+print(f"    Plot window: {plot_start_time} - {plot_end_time} ms")
 print()
